@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rdata
+*.Rproj
+*.pdf
+.DS_Store
+*.doc
+*.docx
+*.rds
+old_code.R
+R/old_ml_funcs.R
+
