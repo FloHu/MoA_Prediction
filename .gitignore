@@ -11,4 +11,5 @@
 *.rds
 old_code.R
 R/old_ml_funcs.R
+!the_matrix.RData
 

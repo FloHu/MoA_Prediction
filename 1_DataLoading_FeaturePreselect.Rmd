@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup, library loading
@@ -25,9 +27,118 @@ Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
 library(tidyverse)
 library(mlr)
+
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 
+# Loading and merging data
+
+## Read in tables, join them
+
+```{r}
+nichols_2011 <- read.table("/Volumes/typas/Florian/dbsetup_tables/nichols_2011.csv", header = T, 
+                           sep = ";", stringsAsFactors = F)
+strains <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains.csv", header = T, 
+                           sep = ";", stringsAsFactors = F)
+strains_has_genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains_has_genes.csv", 
+                                header = T, sep = ";", stringsAsFactors = F)
+genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/genes.csv", header = T, sep = ";", 
+                    stringsAsFactors = F)
+# KNIME table
+drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs_full.csv", header = T, 
+                         sep = ";", stringsAsFactors = F)
+drugs_full$X <- NULL
+mode_of_action <- read.table("/Volumes/typas/Florian/dbsetup_tables/mode_of_action.csv", 
+                             header = T, sep = ";", stringsAsFactors = F)
+```
+
+Add gene information to Nichols table, remove unnecessary columns.
+
+```{r}
+the_matrix <- 
+   nichols_2011 %>%
+   left_join(strains[, c("strain"), drop = F]) %>%
+   left_join(strains_has_genes[, c("strain", "ugi")]) %>%
+   left_join(genes[, c("ugi", "gene_synonym")]) %>%
+   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain)
+
+the_matrix$significant <- the_matrix$qvalue <= 0.05
+```
+
+Join drug tables with mode of action information. We only keep drugs which target 'cell_wall', 
+'dna', 'protein_synthesis' and 'membrane_stress' because the other MoAs don't have enough class 
+members for predictions. Exclude the respective drugs from `the_matrix`. 
+
+```{r}
+moas_to_keep <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
+
+drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
+   select(-moa_id) %>% 
+   filter(process_broad %in% moas_to_keep)
+
+the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
+```
+
+For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
+them: the one with most phenotypes over all conditions.
+
+```{r}
+the_matrix <- 
+   group_by(the_matrix, gene_synonym) %>%
+   do(select_mutant(.))
+
+tmp <- group_by(the_matrix, gene_synonym) %>% 
+   mutate(n = length(unique(strain)))
+stopifnot(all(tmp$n == 1))
+```
+
+
+Select drug dosages: if one of the dosages is significant, keep that one, if none or all are, keep 
+the highest dosage. 
+
+```{r}
+the_matrix <- the_matrix %>%
+   group_by(gene_synonym, drugname_typaslab) %>%
+   do(select_dosage(.)) %>%
+   ungroup()
+```
+
+If a gene doesn't interact with any drug, exclude it.
+
+```{r}
+the_matrix <- the_matrix %>%
+   group_by(gene_synonym) %>% 
+   mutate(significant_any = any(significant)) %>%
+   ungroup()
+
+the_matrix <- the_matrix[the_matrix$significant_any, ]
+```
+
+This leaves us with `r length(unique(the_matrix$gene_synonym))` genes. Only a very small fraction 
+of gene drug combinations are missing (less than 0.1%):
+
+```{r}
+t <- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
+stopifnot(all(t < 2))
+sum(t == 0) / sum(t < 2)
+```
+
+Now we can construct the final matrix. 
+
+```{r}
+the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, sscore)
+the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
+save("the_matrix", file = "the_matrix.RData")
+```
+
+<!--
+continue here: add drug features, impute missing values, continue with feature preselection
+-->
+
+
+## Do further feature preselection (ANOVA, sorting by variance, ...)
+...
 
 
 
