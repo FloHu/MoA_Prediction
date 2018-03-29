@@ -1,6 +1,6 @@
 ---
 title: "Predicting drug mode of action: building models"
-author: "Florian Huber, Léonard Dubois"
+author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -30,6 +30,59 @@ library(mlr)
 
 
 
+***
+
+#Boosting tree Method
+
+##Setup - Loading
+
+Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
+On top of `mlr` package, one should also install `adabag` and `rpart`.
+
+```{r}
+if(!require(adabag)){
+    install.packages("adabag")
+}
+if(!require(rpart)){
+    install.packages("rpart")
+}
+library(adabag)
+library(rpart)
+```
+
+
+##Building learner
+
+```{r}
+bt_learn = makeLearner("classif.boosting")
+bt_learn$par.set
+```
+
+###Description of `par.set` list
+
+Comming from the `boosting` function of package `adabag` :
+* `boos` : if TRUE (by default), a bootstrap sample of the training set is drawn using the weights for each observation on that iteration. 
+* `mfinal` : an integer, the number of iterations for which boosting is run or the number of trees to use. Defaults to mfinal=100 iterations.
+* `coeflearn` : if ’Breiman’(by default), alpha=1/2ln((1-err)/err) is used. If ’Freund’ alpha=ln((1-err)/err) is used. In both cases the AdaBoost.M1 algorithm is used and alpha is the weight updating coefficient. On the other hand, if coeflearn is ’Zhu’ the SAMME algorithm is implemented with alpha=ln((1-err)/err)+ ln(nclasses-1).
+
+The others parameters come from the `rpart.control` function of package `rpart`:
+* `minsplit` : the minimum number of observations that must exist in a node in order for a split to be attempted.
+* `minbucket` : the minimum number of observations in any terminal leaf node
+* `cp` : complexity parameter. Any split that does not decrease the overall lack of fit by a factor of `cp` is not attempted.
+*`xval` : number of cross-validations.
+*`maxdepth` : Set the maximum depth of any node of the final tree, with the root node counted as depth 0. 
+
+*`maxcompete`
+*`maxsurrogate`
+*`usesurrogate`
+*`surrogatestyle`
+
+Note : Should really have a look at this surrogate stuff, deals with features selection during tree building ?
+
+See : https://www.rdocumentation.org/packages/rpart/versions/4.1-12/topics/rpart.control
+and : https://cran.r-project.org/web/packages/adabag/adabag.pdf
+
+***
 
 # System and session info
 
