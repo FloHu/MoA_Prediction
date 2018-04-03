@@ -11,5 +11,6 @@
 *.rds
 old_code.R
 R/old_ml_funcs.R
+*cache
 !the_matrix.RData
 
