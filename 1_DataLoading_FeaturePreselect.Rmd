@@ -27,6 +27,9 @@ Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
 library(tidyverse)
 library(mlr)
+library(dendextend)
+library(tree)
+library(randomForest)
 
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
@@ -171,12 +174,73 @@ labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 Done. 
 
 ```{r}
-save("the_matrix", file = "the_matrix.RData")
+save("the_matrix", "labels", file = "the_matrix.RData")
 ```
 
 
 ## Do further feature preselection (ANOVA, sorting by variance, ...)
-...
+
+This section may move to `2_Building_Models.Rmd` later on. 
+
+
+### Taking genes with highest variance
+
+Not sure if needed, but was part of initial prediction runs last year (2017). We take all chemical 
+features and the 200 genes with the highest variance. Perhaps not surprisingly, it turned out that 
+this yielded a very similar set to taking the 200 genes contributing most to the most important 
+principal components. 
+
+```{r highest_var}
+genes_only <- select(the_matrix, -drugname_typaslab, -(SlogP:data_effective_rotor_count))
+high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
+
+# these are the 200 genes with the highest variance
+selected_genes <- names(high_to_lowvar[1:200])
+# and the drug features we also want to keep 
+selected_drug_features <- colnames(select(the_matrix, SlogP:data_effective_rotor_count))
+```
+
+
+### Do hierarchical clustering on the genes
+
+Again, was part of the first few prediction attempts last year. Idea: do hierarchical clustering of 
+all genes based on the correlations of their s-scores, then make 200 clusters and select the 
+medoids. Try both complete and average linkage. 
+
+```{r}
+# first need a matrix of all the genes
+
+gene_mat <- as.matrix(genes_only)
+corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
+dists <- as.dist(corm)
+cluster_methods <- c('complete', 'average') # single and ward gave some C stack error
+n_clusters <- c(200)
+
+feature_container <- list() # will contain the respective genes 
+
+# plot dendrograms and pull out genes: keep only one gene (the medoid of each cluster)
+# btw: calculation of centroids if only distances given?
+for (m in cluster_methods) {
+   hc <- hclust(dists, method = m)
+   hc_p <- as.dendrogram(hc)
+   for (k in n_clusters){
+      clusts <- cutree(hc, k = k)
+      feature_container[[paste0("hclust_", m, "_", k, "_medoids")]] <- retrieve_medoids(clusts, corm)
+      pdf(file = paste0("./plots/Dendrogram_", k, "_clusters", m, ".pdf"), width = 200, height = 1000)
+      hc_p %>%
+         set("branches_k_color", value = c(2, 3, 4), k = k) %>%
+         highlight_branches_lwd() %>%
+         hang.dendrogram() %>%
+         rotate(rev(colnames(gene_mat))) %>%
+         plot(horiz = T)
+      abline(v = c(0.8, 0.9, 0.95, 1), col = 2, lty = 2)
+      dev.off()
+   }
+}
+```
+
+
+
 
 
 
