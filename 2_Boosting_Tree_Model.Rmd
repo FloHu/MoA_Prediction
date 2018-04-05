@@ -15,7 +15,7 @@ output:
 
 # Setup, library loading
 
-This part is the general setup, whatever model we are using.
+This part is the general setup, whichever model we are using.
 
 ```{r setup}
 knitr::opts_chunk$set(echo = T)
@@ -32,7 +32,7 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
+parallelStartMulticore(cpus = 3)
 
 load(file = "the_matrix.RData")
 the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
@@ -40,11 +40,11 @@ the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y =
 
 ***
 
-#Boosting tree Method
+# Boosting tree Method
 
-Boosting tree (BT) work in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as decision stump (one root and two leaves). By aggregating these weak learner, one reduces bias.
+Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
 
-##Setup - Loading
+## Setup - Loading
 
 Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
 On top of `mlr` package, one should also install `adabag` and `rpart`.
@@ -89,13 +89,18 @@ bt_hyp_param = makeParamSet(
     ###############################
 )
 
+bt_hyp_param = makeParamSet(
+    makeDiscreteParam("mfinal", values = seq(from = 20, to = 140, by = 20)), #number of trees
+    makeDiscreteParam("maxdepth", values = c(1)),
+    makeDiscreteParam("coeflearn", values = c( "Zhu")) 
+)
+
+
 bt_tuning = makeTuneControlGrid()
 inner = makeResampleDesc("CV", iters = 5, stratify = TRUE)
 ```
 
-##Building learner
-
-The values of arguments `mfinal` and `maxdepth` are not really important for they will be tuned in the inner loop of the cross validation
+## Building learner
 
 Wrapper of Learner allows us to create a custom learner whose inner CV for Hyperparameter tuning is already included inside it
 
@@ -103,7 +108,7 @@ Wrapper of Learner allows us to create a custom learner whose inner CV for Hyper
 bt_learn = makeTuneWrapper("classif.boosting", resampling = inner, par.set = bt_hyp_param, control = bt_tuning )
 ```
 
-###Description of `par.set` list - Parameters of BT function
+### Description of `par.set` list - Parameters of BT function
 
 Parameters coming from the `boosting` function of package `adabag` :
 
