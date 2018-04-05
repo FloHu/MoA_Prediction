@@ -194,17 +194,18 @@ principal components.
 genes_only <- select(the_matrix, -drugname_typaslab, -(SlogP:data_effective_rotor_count))
 high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
 
+feature_container <- list()
+
 # these are the 200 genes with the highest variance
-selected_genes <- names(high_to_lowvar[1:200])
-# and the drug features we also want to keep 
-selected_drug_features <- colnames(select(the_matrix, SlogP:data_effective_rotor_count))
+feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
+feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
 ```
 
 
 ### Do hierarchical clustering on the genes
 
 Again, was part of the first few prediction attempts last year. Idea: do hierarchical clustering of 
-all genes based on the correlations of their s-scores, then make 200 clusters and select the 
+all genes based on the correlations of their s-scores, then make 50/200 clusters and select the 
 medoids. Try both complete and average linkage. 
 
 ```{r}
@@ -214,9 +215,7 @@ gene_mat <- as.matrix(genes_only)
 corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
 dists <- as.dist(corm)
 cluster_methods <- c('complete', 'average') # single and ward gave some C stack error
-n_clusters <- c(200)
-
-feature_container <- list() # will contain the respective genes 
+n_clusters <- c(50, 200)
 
 # plot dendrograms and pull out genes: keep only one gene (the medoid of each cluster)
 # btw: calculation of centroids if only distances given?
@@ -237,10 +236,45 @@ for (m in cluster_methods) {
       dev.off()
    }
 }
+
+save("feature_container", file = "feature_container.RData")
 ```
 
 
+### Selecting which drug features to use
 
+<!--
+TO DO
+Exclude drug features that correlate with another drug feature with 0.9. 
+-->
+
+```{r}
+# and the drug features we also want to keep 
+selected_drug_features <- colnames(select(the_matrix, SlogP:data_effective_rotor_count))
+round(cor(the_matrix[, selected_drug_features]), digits = 3)
+
+
+# plotting all variables will make a huge plot 
+# generate a sequence of pairplots with a maximum of 9 variables per plot
+# breakpoints:
+my_stepsize = 9
+my_steps <- c(seq(from = 1, to = length(selected_drug_features), by = my_stepsize), 
+              length(selected_drug_features))
+
+# generate integer sequences from one breakpoint to the next
+for (ind in seq_along(my_steps)) {
+   if (ind == length(my_steps)) {
+      break # we've reached the end, no further plots needed
+   }
+   my_seq <- seq(from = my_steps[ind], to = (my_steps[ind + 1] - 1))
+   pdf(paste0("./plots/drugfeatures_pairplot_", ind, ".pdf"), width = my_stepsize * 2, 
+       height = my_stepsize * 2)
+   pairs(x = the_matrix[, selected_drug_features[my_seq]], 
+         labels = colnames(the_matrix[, selected_drug_features[my_seq]]))
+   dev.off()
+}
+
+```
 
 
 

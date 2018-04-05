@@ -1,0 +1,41 @@
+---
+title: ""
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = T)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+library("parallelMap") #Always useful
+parallelStartMulticore(cpus = 2)
+
+load(file = "the_matrix.RData")
+the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+```
+
+
