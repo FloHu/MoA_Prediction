@@ -1,0 +1,161 @@
+---
+title: "Predicting drug mode of action: Boosting Tree model"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = T)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+library("parallelMap") #Always useful
+parallelStartMulticore(cpus = 2)
+
+load(file = "the_matrix.RData")
+the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+```
+
+***
+
+# Boosting tree Method
+
+Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
+
+## Setup - Loading
+
+Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
+On top of `mlr` package, one should also install `adabag` and `rpart`.
+
+```{r }
+if(!require(adabag)){
+    install.packages("adabag")
+}
+if(!require(rpart)){
+    install.packages("rpart")
+}
+library(adabag)
+library(rpart)
+
+```
+
+## Data preparation
+
+Genes from Nichols chemogenomics data and KNIME chemical descriptors are included in the raw data matrix `the_matrix`
+
+Here, the number of features is reduced by selecting only the ones whose Anova test beetween mode of action groups is significant. This means that the only features that remain are the ones able to seperate at least one mode of action from the others.
+
+We then define the `task` object from `mlr` which is in this case a **classification** task with `process-broad` (**Mode of action**) as the outcome variable.
+
+```{r}
+the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+
+#Defining task : predicting drug mode of action, classification problem with more than 2 classes
+predictMoa = makeClassifTask(data = select(the_matrix_light, -drugname_typaslab), target = "process_broad")
+```
+
+
+## Tuning (hyperparameters) - Preparation of the inner loop
+
+```{r}
+bt_hyp_param = makeParamSet(
+    makeDiscreteParam("mfinal", values = seq(from = 20, to = 300, by = 20)), #number of trees
+    makeDiscreteParam("maxdepth", values = c(1,2,3)), #1 is a stump, more than 3 = and it isn't a weak learner anymore. Even 3 might be too much
+    
+    ###############################
+    makeDiscreteParam("coeflearn", values = c("Breiman", "Freund", "Zhu")) #Is it OK if in a Nested CV we use different "algorithms"
+    ###############################
+)
+
+bt_tuning = makeTuneControlGrid()
+inner = makeResampleDesc("CV", iters = 5, stratify = TRUE)
+```
+
+## Building learner
+
+Wrapper of Learner allows us to create a custom learner whose inner CV for Hyperparameter tuning is already included inside it
+
+```{r }
+bt_learn = makeTuneWrapper("classif.boosting", resampling = inner, par.set = bt_hyp_param, control = bt_tuning )
+```
+
+### Description of `par.set` list - Parameters of BT function
+
+Parameters coming from the `boosting` function of package `adabag` :
+
+* `boos` : if TRUE (by default), a bootstrap sample of the training set is drawn using the weights for each observation on that iteration. 
+* `mfinal` : an integer, the number of iterations for which boosting is run or the number of trees to use. Defaults to mfinal = 100 iterations.
+* `coeflearn` : if `Breiman` (by default), $\alpha = 1/2ln((1-err)/err)$ is used. If `Freund`  $\alpha = ln((1-err)/err)$ is used. In both cases the AdaBoost.M1 algorithm is used and alpha is the weight updating coefficient. On the other hand, if coeflearn is `Zhu` the SAMME algorithm is implemented with $\alpha = ln((1-err)/err) + ln(nclasses-1)$.
+
+Note : People are talking about "algorithms" but only the $\alpha$ calculation is different.
+
+The others parameters come from the `rpart.control` function of package `rpart`:
+
+* `minsplit` : the minimum number of observations that must exist in a node in order for a split to be attempted.
+* `minbucket` : the minimum number of observations in any terminal leaf node
+* `cp` : complexity parameter. Any split that does not decrease the overall lack of fit by a factor of `cp` is not attempted.
+* `xval` : number of cross-validations. In our case, CV is managed by the `mlr` package anyway
+* `maxdepth` : Set the maximum depth of any node of the final tree, with the root node counted as depth 0. 
+
+*`maxcompete` : number of competitor split. Well explained [here](https://www.salford-systems.com/resources/webinars-tutorials/how-to/understanding-cart-splitters-competitors-and-surrogates)
+Which splits came in second, third position ? Could be interresting if the best split is not by far the best. Then one can build some alternate tree with differents splits nearly as relevant as the best ones. (Best based on the gain in the purity index). By default fixed to 4 which seems to be good.
+
+The last ones deal with missing values. As long as we don't have missing values, we don't care
+
+* `maxsurrogate`
+* `usesurrogate`
+* `surrogatestyle`
+
+`rpart.control` documentation : https://www.rdocumentation.org/packages/rpart/versions/4.1-12/topics/rpart.control
+
+`Adabag` package manual : https://cran.r-project.org/web/packages/adabag/adabag.pdf
+
+`Adabag` package paper : http://www.jstatsoft.org/v54/i02/
+
+
+
+## Tuning application (inner CV of the nested CV)
+
+```{r}
+
+outer = makeResampleDesc("CV", iters = 5, stratify = TRUE)
+
+#Extract featureImportance is needed to answer the biological questions
+#Models = TRUE might not be a so good idea for all models and all details of each will be kept in memory. This could generate tens of Gigabytes 
+bt_expr = quote(res <- resample(learner = bt_learn, task = predictMoa, resampling = outer, extract = getFeatureImportance, models = T, measures = list(mmce, acc, kappa)))
+
+system.time( expr = eval(bt_expr))
+```
+
+
+***
+
+# System and session info
+
+```{r}
+R.version
+sessionInfo()
+```
+
