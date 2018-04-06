@@ -70,7 +70,8 @@ Here, the number of features is reduced by selecting only the ones whose Anova t
 We then define the `task` object from `mlr` which is in this case a **classification** task with `process-broad` (**Mode of action**) as the outcome variable.
 
 ```{r}
-the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+#the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 10)
 
 #Defining task : predicting drug mode of action, classification problem with more than 2 classes
 predictMoa = makeClassifTask(data = select(the_matrix_light, -drugname_typaslab), target = "process_broad")
@@ -90,9 +91,9 @@ bt_hyp_param = makeParamSet(
 )
 
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("mfinal", values = seq(from = 20, to = 140, by = 20)), #number of trees
+    makeDiscreteParam("mfinal", values = seq(from = 20, to = 160, by = 20)), #number of trees
     makeDiscreteParam("maxdepth", values = c(1)),
-    makeDiscreteParam("coeflearn", values = c( "Zhu")) 
+    makeDiscreteParam("coeflearn", values = c( "Breiman")) 
 )
 
 
