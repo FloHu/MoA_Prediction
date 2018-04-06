@@ -62,6 +62,3 @@ multiclass_mcc <- makeMeasure(
 )
 
 
-performance(res$pred, multiclass_mcc)
-
-

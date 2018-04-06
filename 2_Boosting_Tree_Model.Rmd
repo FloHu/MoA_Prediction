@@ -152,7 +152,7 @@ outer = makeResampleDesc("CV", iters = 5, stratify = TRUE)
 
 #Extract featureImportance is needed to answer the biological questions
 #Models = TRUE might not be a so good idea for all models and all details of each will be kept in memory. This could generate tens of Gigabytes 
-bt_expr = quote(res <- resample(learner = bt_learn, task = predictMoa, resampling = outer, extract = getFeatureImportance, models = T, measures = list(mmce, acc, kappa, multiclass_mcc)))
+bt_expr = quote(res <- resample(learner = bt_learn, task = predictMoa, resampling = outer, extract = getFeatureImportance, models = T, measures = list(mmce, kappa, multiclass_mcc)))
 
 system.time( expr = eval(bt_expr))
 ```
