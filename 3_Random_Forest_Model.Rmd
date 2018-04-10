@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 
@@ -33,11 +35,78 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
+library("parallel")
+
+if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
+   parallelStartMulticore(cpus = 10)
+} else {
+   parallelStartMulticore(cpus = detectCores() - 1)
+}
 
 load(file = "the_matrix.RData")
+load(file = "feature_container.RData")
 the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
+
+
+
+```{r}
+# try with 200 most variable genes
+the_matrix_200mostvar <- the_matrix[, c("drugname_typaslab", "process_broad", 
+                                   feature_container$mostvar_200)]
+
+rf_task <- makeClassifTask(data = select(the_matrix_200mostvar, -drugname_typaslab), 
+                           id = "the_matrix_200mostvar", 
+                           target = "process_broad")
+
+rf_learner <- makeLearner(cl = "classif.randomForest", 
+                          predict.type = "prob")
+
+# define hyperparameter searchspace 
+treespace <- 1:200
+mtryspace <- floor(c(length(feature_container$mostvar_200), 
+               length(feature_container$mostvar_200) / 2, 
+               sqrt(length(feature_container$mostvar_200))))
+
+rf_paramset <- makeParamSet(
+   makeDiscreteParam("ntree", treespace), 
+   makeDiscreteParam("mtry", mtryspace)
+)
+
+rf_ctrl <- makeTuneControlGrid() 
+
+# define resampling
+rf_rdesc_inner <- makeResampleDesc("CV", iters = 3L, stratify = TRUE, predict = "both")
+rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 3L, stratify = TRUE, predict = "both")
+
+rf_learner_wrapped <- makeTuneWrapper(learner = rf_learner, 
+                                      resampling = rf_rdesc_inner, 
+                                      measures = list(mmce, timeboth), 
+                                      par.set = rf_paramset, 
+                                      control = rf_ctrl)
+
+
+system.time(
+nested_cv_res <- resample(learner = rf_learner_wrapped, 
+                          task = rf_task, 
+                          resampling = rf_desc_outer, 
+                          models = TRUE) # or extract only selected parts using extract argument 
+) # runtime 422 locally
+
+nested_cv_res
+nested_cv_res$measures.test
+nested_cv_res$measures.train
+nested_cv_res$models
+lapply(nested_cv_res$models, getTuneResult)
+```
+
+
+
+
+
+
+
+
 
 
 
