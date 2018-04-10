@@ -1,5 +1,5 @@
 ---
-title: "Predicting drug mode of action: System Vector Machine"
+title: "Predicting drug mode of action: Support Vector Machine"
 author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
@@ -36,8 +36,6 @@ parallelStartMulticore(cpus = 2)
 
 load(file = "Rep_Nest_CV.RData")
 
-load(file = "the_matrix.RData")
-the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
 
 ***
@@ -57,19 +55,12 @@ if(!require(e1071)){
 library(e1071)
 ```
 
-## Data preparation
-
-Genes from Nichols chemogenomics data and KNIME chemical descriptors are included in the raw data matrix `the_matrix`
-
-Features selection is the biggest part of the computational cost of the whole analysis. The more the amount of features is reduced, the faster the analysis.
-
-Here, the selection is based on the top 5% of variance values.
+## Data loading
 
 ```{r}
-#the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
-the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 10)
-the_matrix_light = select(the_matrix_light, -drugname_typaslab)
-
+load(file = "the_matrix_hclust.RData")
+load(file = "the_matrix_top10pct.RData")
+load(file = "the_matrix_top5pct.RData")
 ```
 
 ## Hyperparamters Tuning grid
@@ -82,77 +73,22 @@ This grid is one of the main part of the computation cost. If it can be reduced,
 svm_hyp_param = makeParamSet(
     makeDiscreteParam("kernel", values = c("linear", "polynomial", "radial", "sigmoid")),
     makeDiscreteParam("type", values = c("C-classification")),
-    makeDiscreteParam("degree", values = c(2,3,4,5,6)),
-    makeDiscreteParam("cost", values = 10**seq(1, 10)),
-    makeDiscreteParam("gamma", values = 10**seq(-10, 4))
+    makeDiscreteParam("degree", values = c(2,3,4,5))
 )
    
-#svm_tuning = makeTuneControlGrid()
-svm_tuning = makeTuneControlRandom(maxit = 200)
+svm_tuning = makeTuneControlGrid()
+#svm_tuning = makeTuneControlRandom(maxit = 100)
 
 ```
 
-# Main Nested Cross-Validation Loop
 
 ```{r}
+#Not the most relevant name, it was for some test
+swag = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.svm", rep_instance = Rep_Nest_CV_instance, run_hyp_param = svm_hyp_param, run_tuning = svm_tuning)
 
-n_rep = length(Rep_Nest_CV_instance)
-n_outer = length(Rep_Nest_CV_instance[[1]]$outer$train.inds)
-n_inner = length(Rep_Nest_CV_instance[[1]]$inner[[1]]$train.inds)
-
-start_time = Sys.time()
-
-svm_RNCV_res_models = list()
-svm_RNCV_res_predictions = list()
-
-
-for (repetition_index in 1:n_rep) {
-    svm_models = list()
-    svm_predictions = list()
-    
-    for (outerCV_ind in 1:n_outer) {
-            
-        outerCV_training_set = (get_outerCV(repetition_index))$train.ind[[outerCV_ind]]
-        
-        #define inner CV in relation to the outer fold used
-        inner = get_innerCV(repetition_index)[[outerCV_ind]]
-        
-        #Thusm the task should change because only a subset of the whole data should be used
-        predictMoa = makeClassifTask(data = the_matrix_light[ outerCV_training_set , ], target = "process_broad")
-        #tuning hyperparameters based on the inner resampling
-        res = tuneParams("classif.svm", task = predictMoa, resampling = inner,
-                par.set = svm_hyp_param, control = svm_tuning)
-        
-        #use the best Hyperparams to create optimal learner
-        svm_learner = setHyperPars(makeLearner("classif.svm"), par.vals = res$x)
-        
-        #We are now in the outer fold, all data should be used
-        predictMoa = makeClassifTask(data = the_matrix_light, target = "process_broad")
-        
-        #Model trained on a training subset
-        model_outerCV = mlr::train(svm_learner, predictMoa, subset = outerCV_training_set)
-        
-        outerCV_test_set = seq_along(1:nrow(the_matrix_light))[-outerCV_training_set]
-        
-        pred_NCV = predict(model_outerCV, task = predictMoa, subset = outerCV_test_set)
-        
-        print(performance(pred_NCV, measures = list(mmce, kappa, multiclass_mcc)))
-        
-        svm_models[[outerCV_ind]] = model_outerCV 
-        svm_predictions[[outerCV_ind]] = pred_NCV
-    }
-    svm_RNCV_res_models[[repetition_index]] = svm_models
-    svm_RNCV_res_predictions[[repetition_index]] = svm_predictions
-
-}
-
-
-end_time = Sys.time()
 
 parallelStop()
-
 ```
-
 
 
 ***

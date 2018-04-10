@@ -32,12 +32,11 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 3)
+parallelStartMulticore(cpus = 2)
 
+#Resampling Instances
 load(file = "Rep_Nest_CV.RData")
 
-load(file = "the_matrix.RData")
-the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
 
 ***
@@ -63,22 +62,12 @@ library(rpart)
 
 ```
 
-## Data preparation
-
-Genes from Nichols chemogenomics data and KNIME chemical descriptors are included in the raw data matrix `the_matrix`
-
-Features selection is the biggest part of the computational cost of the whole analysis. The more the amount of features is reduced, the faster the analysis.
-
-Here, the selection is based on the top 5% of variance values.
+## Data selection
 
 ```{r}
-#the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
-<<<<<<< HEAD
-the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 10)
-=======
-the_matrix_light = feature_selection_variance(the_matrix, featStart = 3, percentTop = 5)
->>>>>>> 84abc394f5da9eaac1272e92a9460cb328c5deda
-the_matrix_light = select(the_matrix_light, -drugname_typaslab)
+load(file = "the_matrix_hclust.RData")
+load(file = "the_matrix_top10pct.RData")
+load(file = "the_matrix_top5pct.RData")
 
 ```
 
@@ -90,7 +79,7 @@ This grid is one of the main part of the computation cost. If it can be reduced,
 
 #Hyperparameter tuning
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("mfinal", values = c(500)), #seq(from = 100, to = 400, by = 20)
+    makeDiscreteParam("mfinal", values = c(500)), # or  seq(from = 100, to = 400, by = 20)
     makeDiscreteParam("maxdepth", values = c(3,4,5,6)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
     makeDiscreteParam("coeflearn", values = "Zhu") #Best for multiclass problem
 )
@@ -99,10 +88,26 @@ bt_tuning = makeTuneControlGrid()
 
 ```
 
-# Main Nested Cross-Validation Loop
+# Analysis run
 
 ```{r}
 
+result_BT = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+
+parallelStop()
+```
+
+
+
+
+
+
+
+# Main Nested Cross-Validation Loop
+
+Old chunk, keep it to be secure
+
+```{r eval = F}
 n_rep = length(Rep_Nest_CV_instance)
 n_outer = length(Rep_Nest_CV_instance[[1]]$outer$train.inds)
 n_inner = length(Rep_Nest_CV_instance[[1]]$inner[[1]]$train.inds)
@@ -152,12 +157,8 @@ for (repetition_index in 1:n_rep) {
     bt_RNCV_res_predictions[[repetition_index]] = bt_predictions
 
 }
-
-
 end_time = Sys.time()
-
 parallelStop()
-
 ```
 
 
