@@ -71,7 +71,7 @@ We then define the `task` object from `mlr` which is in this case a **classifica
 
 ```{r}
 #the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
-the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 10)
+the_matrix_light = feature_selection_variance(the_matrix, featStart = 3, percentTop = 10)
 
 #Defining task : predicting drug mode of action, classification problem with more than 2 classes
 predictMoa = makeClassifTask(data = select(the_matrix_light, -drugname_typaslab), target = "process_broad")
