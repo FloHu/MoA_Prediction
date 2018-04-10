@@ -1,0 +1,169 @@
+---
+title: "Predicting drug mode of action: Boosting Tree model"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = T)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+library("parallelMap") #Always useful
+parallelStartMulticore(cpus = 3)
+
+load(file = "Rep_Nest_CV.RData")
+
+load(file = "the_matrix.RData")
+the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+```
+
+***
+
+# Boosting tree Method
+
+Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
+
+## Setup - Loading
+
+Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
+On top of `mlr` package, one should also install `adabag` and `rpart`.
+
+```{r }
+if(!require(adabag)){
+    install.packages("adabag")
+}
+if(!require(rpart)){
+    install.packages("rpart")
+}
+library(adabag)
+library(rpart)
+
+```
+
+## Data preparation
+
+Genes from Nichols chemogenomics data and KNIME chemical descriptors are included in the raw data matrix `the_matrix`
+
+Features selection is the biggest part of the computational cost of the whole analysis. The more the amount of features is reduced, the faster the analysis.
+
+Here, the selection is based on the top 5% of variance values.
+
+```{r}
+#the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 5)
+the_matrix_light = select(the_matrix_light, -drugname_typaslab)
+
+```
+
+## Hyperparamters Tuning grid
+
+This grid is one of the main part of the computation cost. If it can be reduced, it would be great !
+
+```{r}
+
+#Hyperparameter tuning
+bt_hyp_param = makeParamSet(
+    makeDiscreteParam("mfinal", values = seq(from = 100, to = 350, by = 50)), #seq(from = 100, to = 400, by = 20)
+    makeDiscreteParam("maxdepth", values = c(2,3, 4)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
+    makeDiscreteParam("coeflearn", values = "Zhu") #Best for multiclass problem
+)
+bt_tuning = makeTuneControlGrid()
+
+
+```
+
+# Main Nested Cross-Validation Loop
+
+```{r}
+
+n_rep = length(Rep_Nest_CV_instance)
+n_outer = length(Rep_Nest_CV_instance[[1]]$outer$train.inds)
+n_inner = length(Rep_Nest_CV_instance[[1]]$inner[[1]]$train.inds)
+
+start_time = Sys.time()
+
+bt_RNCV_res_models = list()
+bt_RNCV_res_predictions = list()
+
+
+for (repetition_index in 1:n_rep) {
+    bt_models = list()
+    bt_predictions = list()
+    
+    for (outerCV_ind in 1:n_outer) {
+            
+        outerCV_training_set = (get_outerCV(repetition_index))$train.ind[[outerCV_ind]]
+        
+        #define inner CV in relation to the outer fold used
+        inner = get_innerCV(repetition_index)[[outerCV_ind]]
+        
+        #Thusm the task should change because only a subset of the whole data should be used
+        predictMoa = makeClassifTask(data = the_matrix_light[ outerCV_training_set , ], target = "process_broad")
+        #tuning hyperparameters based on the inner resampling
+        res = tuneParams("classif.boosting", task = predictMoa, resampling = inner,
+                par.set = bt_hyp_param, control = bt_tuning)
+        
+        #use the best Hyperparams to create optimal learner
+        bt_learner = setHyperPars(makeLearner("classif.boosting"), par.vals = res$x)
+        
+        #We are now in the outer fold, all data should be used
+        predictMoa = makeClassifTask(data = the_matrix_light, target = "process_broad")
+        
+        #Model trained on a training subset
+        model_outerCV = mlr::train(bt_learner, predictMoa, subset = outerCV_training_set)
+        
+        outerCV_test_set = seq_along(1:nrow(the_matrix_light))[-outerCV_training_set]
+        
+        pred_NCV = predict(model_outerCV, task = predictMoa, subset = outerCV_test_set)
+        
+        performance(pred_NCV, measures = list(mmce, kappa, multiclass_mcc))
+        
+        bt_models[[outerCV_ind]] = model_outerCV 
+        bt_predictions[[outerCV_ind]] = pred_NCV
+    }
+    bt_RNCV_res_models[[repetition_index]] = bt_models
+    bt_RNCV_res_predictions[[repetition_index]] = bt_predictions
+
+}
+
+
+end_time = Sys.time()
+
+parallelStop()
+
+```
+
+
+
+***
+
+# System and session info
+
+```{r}
+R.version
+sessionInfo()
+```
+

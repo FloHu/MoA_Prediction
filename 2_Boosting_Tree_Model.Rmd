@@ -90,13 +90,6 @@ bt_hyp_param = makeParamSet(
     ###############################
 )
 
-bt_hyp_param = makeParamSet(
-    makeDiscreteParam("mfinal", values = 20), #number of trees
-    makeDiscreteParam("maxdepth", values = c(1)),
-    makeDiscreteParam("coeflearn", values = c( "Breiman")) 
-)
-
-
 bt_tuning = makeTuneControlGrid()
 inner = makeResampleDesc("CV", iters = 5, stratify = TRUE)
 ```
