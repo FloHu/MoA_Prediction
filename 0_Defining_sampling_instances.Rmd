@@ -1,0 +1,157 @@
+---
+title: "Predicting drug mode of action: Defining sampling instances"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = T)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+load(file = "the_matrix.RData")
+the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+```
+
+***
+
+# Why defining sampling instances ?
+
+In order to compare performances of different models (e.g. Random Forest, Boosting trees...), one has to use the *exact same samples in every fold* (inner and outer) of the nested Cross Validation.
+
+The function ` makeResampleInstance()` could be used to keep in memory a object containing details on the sampling. For a 5-fold by 5-fold nested cross validation, 6 resampling instances are needed : one for each inner fold and one for the outer loop. In particular, instances of the inner fold should be based on the training sets defined in the outer loop instances.
+
+Even if such a strategy can't be avoided in order to obtain an unbiased comparison of models, it still presents some weaknesses : one can easily argue that the choosen instances are the ones giving the best performances. To prevent such criticism, a repeated cross validation is possible. Let's say 10 times.
+
+Thus, the exact strategy for assessing models' performances and comparing them could be called : **Repeated-Nested Cross-Validation with instanced resampling**
+
+
+# Instances creation
+
+Because of the size of the dataset, a 5x5 nested CV will end with very few members of each class to predict in the inner testing sets. A 3x3 nested CV presents bigger sets and less computational loop (9 instead of 25) 
+
+
+```{r function}
+
+#Makes more sense to put it here than in a seperate file
+instance_creation = function(printTest = F, nFoldsOuter = 3, nFoldsInner = 3){
+    the_matrix = select(the_matrix, -drugname_typaslab)
+    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsOuter, stratify = TRUE)
+    
+    # outer instance
+    outer_task =  makeClassifTask(data = the_matrix, target = "process_broad")
+    sample_instance_outer =  makeResampleInstance(sampling_method, outer_task)
+    
+    if(printTest){
+        # Testing stratification of outer instance
+        for(i in 1:nFoldsOuter){
+            cat("Fold", i, "- Train and test sets\n" )
+            ind = sample_instance_outer$train.inds[[i]]
+            print(table(the_matrix[ind, "process_broad"]))
+            ind = sample_instance_outer$test.inds[[i]]
+            print(table(the_matrix[ind, "process_broad"]))
+        }
+    }
+    
+    # defining inner instances
+    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsInner, stratify = TRUE)
+    sample_instance_inner = list()
+    for(i in 1:nFoldsOuter){
+        inner_task = makeClassifTask(data = the_matrix[ sample_instance_outer$train.inds[[i]] , ], target = "process_broad")
+        sample_instance_inner[[i]] = makeResampleInstance(sampling_method, inner_task)
+    }
+    
+    if(printTest){
+        # Testing stratification of inner instances
+        # BE CAREFUL !!!
+        # Indexes of individuals in the inner fold are the indexes of the vector of indexes of the corresponding outer fold 
+        for (j in 1:nFoldsOuter ){
+            outer_ind = sample_instance_outer$train.inds[[j]]
+            cat("Outer fold", j, "\n")
+            print(table(the_matrix[outer_ind, "process_broad"] ))
+            cat("Inner folds \n")
+            for (i in 1:nFoldsInner){
+                ind = c(sample_instance_inner[[j]]$train.inds[[i]], sample_instance_inner[[j]]$test.inds[[i]])
+                print(table(the_matrix[outer_ind[ind], "process_broad"]))
+            }
+        }
+    }
+    
+    nested_CV_instance = list(outer = sample_instance_outer, inner = sample_instance_inner)
+    return(nested_CV_instance)
+}
+
+```
+
+
+
+```{r}
+
+Rep_Nest_CV_instance = list()
+for(i in 1:10){
+    name = paste("NCV_", as.character(i), sep="")
+    Rep_Nest_CV_instance[[name]] = instance_creation(printTest = T)
+}
+
+```
+
+
+
+```{r eval = F}
+#Test of outer folds, if they are all differents
+a = list()
+for (i in 1:10){
+    a[[i]] = Rep_Nest_CV_instance[[i]]$outer$train.inds
+}
+
+a = unlist(a, recursive = F)
+
+res = c()
+for (i in 1:30){
+    for(j in 1:30){
+        if(i != j){
+            res = c(res, length(unlist(setdiff(a[i], a[j]))) )
+        }
+    }
+}
+
+```
+
+
+
+```{r export data}
+
+save(Rep_Nest_CV_instance, file = "Rep_Nest_CV.RData")
+
+```
+
+***
+
+# System and session info
+
+```{r}
+R.Version
+sessionInfo()
+```

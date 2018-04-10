@@ -32,7 +32,7 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
+parallelStartMulticore(cpus = 3)
 
 load(file = "the_matrix.RData")
 the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
@@ -70,7 +70,8 @@ Here, the number of features is reduced by selecting only the ones whose Anova t
 We then define the `task` object from `mlr` which is in this case a **classification** task with `process-broad` (**Mode of action**) as the outcome variable.
 
 ```{r}
-the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+#the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
+the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 10)
 
 #Defining task : predicting drug mode of action, classification problem with more than 2 classes
 predictMoa = makeClassifTask(data = select(the_matrix_light, -drugname_typaslab), target = "process_broad")
@@ -144,7 +145,7 @@ outer = makeResampleDesc("CV", iters = 5, stratify = TRUE)
 
 #Extract featureImportance is needed to answer the biological questions
 #Models = TRUE might not be a so good idea for all models and all details of each will be kept in memory. This could generate tens of Gigabytes 
-bt_expr = quote(res <- resample(learner = bt_learn, task = predictMoa, resampling = outer, extract = getFeatureImportance, models = T, measures = list(mmce, acc, kappa)))
+bt_expr = quote(res <- resample(learner = bt_learn, task = predictMoa, resampling = outer, extract = getFeatureImportance, models = T, measures = list(mmce, kappa, multiclass_mcc)))
 
 system.time( expr = eval(bt_expr))
 ```
