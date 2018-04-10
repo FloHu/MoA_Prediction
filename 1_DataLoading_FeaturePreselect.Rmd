@@ -178,38 +178,60 @@ save("the_matrix", "labels", file = "the_matrix.RData")
 ```
 
 
-## Do further feature preselection (ANOVA, sorting by variance, ...)
+## Do further feature preselection
 
-This section may move to `2_Building_Models.Rmd` later on. 
-
-
-### Taking genes with highest variance
-
-Not sure if needed, but was part of initial prediction runs last year (2017). We take all chemical 
-features and the 200 genes with the highest variance. Perhaps not surprisingly, it turned out that 
-this yielded a very similar set to taking the 200 genes contributing most to the most important 
-principal components. 
-
-```{r highest_var}
-genes_only <- select(the_matrix, -drugname_typaslab, -(SlogP:data_effective_rotor_count))
-high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
-
-feature_container <- list()
-
-# these are the 200 genes with the highest variance
-feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
-feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
+```{r}
+the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
 
 
-### Do hierarchical clustering on the genes
+### Taking features with the highest variance
 
-Again, was part of the first few prediction attempts last year. Idea: do hierarchical clustering of 
+#### Top x per cent
+
+Top 10 % of features sorted by variance. 
+
+```{r}
+the_matrix_top10pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 10)
+the_matrix_top5pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 5)
+
+# exclude some of the chemical features that will have high variance but don't seem really 
+# important
+#### FIX later
+# crude way of defining which columns represent chemical features:
+chem_features <- colnames(the_matrix_top10pct)[nchar(colnames(the_matrix_top10pct)) > 4]
+chem_features <- setdiff(chem_features, c("drugname_typaslab", "process_broad"))
+chem_features_to_exclude <- c("NumAtoms", "NumHeavyAtoms", "NumHeteroAtoms", "NumStereocenters", 
+                              "NumUnspecifiedStereocenters")
+chem_features_kept <- setdiff(chem_features, chem_features_to_exclude)
+
+the_matrix_top10pct <- the_matrix_top10pct[, ! (colnames(the_matrix_top10pct) %in% 
+                                                   chem_features_to_exclude)]
+
+the_matrix_top5pct <- the_matrix_top5pct[, ! (colnames(the_matrix_top5pct) %in% 
+                                                 chem_features_to_exclude)]
+
+save("the_matrix_top10pct", file = "the_matrix_top10pct.RData")
+save("the_matrix_top5pct", file = "the_matrix_top5pct.RData")
+```
+
+
+#### Do hierarchical clustering on the genes
+
+This was part of the first few prediction attempts last year. Idea: do hierarchical clustering of 
 all genes based on the correlations of their s-scores, then make 50/200 clusters and select the 
 medoids. Try both complete and average linkage. 
 
 ```{r}
 # first need a matrix of all the genes
+genes_only <- select(the_matrix, -drugname_typaslab, -process_broad, -(SlogP:data_effective_rotor_count))
+high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
+
+feature_container <- list()
+
+# these are the 200 most variable genes (i.e. sorted by variance)
+feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
+feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
 
 gene_mat <- as.matrix(genes_only)
 corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
@@ -240,15 +262,26 @@ for (m in cluster_methods) {
 save("feature_container", file = "feature_container.RData")
 ```
 
+Save matrix including only the 200 genes based on hierarchical clustering with complete linkage as 
+well as the chemical features from above.
 
-### Selecting which drug features to use
+```{r}
+the_matrix_hclust <- 
+   the_matrix[, c("drugname_typaslab", "process_broad", 
+                  c(feature_container$hclust_complete_200_medoids), 
+                  c(chem_features_kept))]
+save("the_matrix_hclust", file = "the_matrix_hclust.RData")
+```
+
+
+#### Excluding correlated features
 
 <!--
 TO DO
 Exclude drug features that correlate with another drug feature with 0.9. 
 -->
 
-```{r}
+```{r eval = F, echo = F}
 # and the drug features we also want to keep 
 selected_drug_features <- colnames(select(the_matrix, SlogP:data_effective_rotor_count))
 round(cor(the_matrix[, selected_drug_features]), digits = 3)

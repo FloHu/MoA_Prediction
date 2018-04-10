@@ -73,7 +73,7 @@ Here, the selection is based on the top 5% of variance values.
 
 ```{r}
 #the_matrix_light = features_selection_anova(the_matrix, featStart = 3, groupColName = "process_broad")
-the_matrix_light = features_selection_variance(the_matrix, featStart = 3, percentTop = 5)
+the_matrix_light = feature_selection_variance(the_matrix, featStart = 3, percentTop = 5)
 the_matrix_light = select(the_matrix_light, -drugname_typaslab)
 
 ```

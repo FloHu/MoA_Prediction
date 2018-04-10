@@ -63,7 +63,9 @@ rf_learner <- makeLearner(cl = "classif.randomForest",
                           predict.type = "prob")
 
 # define hyperparameter searchspace 
-treespace <- 1:200
+treespace <- 200
+
+# would be nice to try m = p, m = p * (3/4), m = p/2, m = p / 4m = sqrt(p)
 mtryspace <- floor(c(length(feature_container$mostvar_200), 
                length(feature_container$mostvar_200) / 2, 
                sqrt(length(feature_container$mostvar_200))))
@@ -98,11 +100,16 @@ nested_cv_res$measures.test
 nested_cv_res$measures.train
 nested_cv_res$models
 lapply(nested_cv_res$models, getTuneResult)
+
+parallelStop()
 ```
 
 
 
-
+```{r}
+R.version
+sessionInfo()
+```
 
 
 

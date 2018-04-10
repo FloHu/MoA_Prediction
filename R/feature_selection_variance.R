@@ -1,7 +1,7 @@
-features_selection_variance <- function(data , featStart = 3, featStop = ncol(data), percentTop = 20){
+feature_selection_variance <- function(data , featStart = 3, featStop = ncol(data), percentTop = 20){
     #Filter features in a data frame based on their variance.Keep only the top n% (by default 20)
     #Inputs
-    #Data : raw data frame 
+    #Data : raw data frame
     #featStart : allow function to skip some column that are no predictive features, like the outcome variable
     allVar <- apply(data[ ,featStart:featStop ], 2, var)
     allVar <- sort(allVar, decreasing = T)
