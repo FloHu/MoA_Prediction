@@ -1,5 +1,5 @@
 ---
-title: "Predicting drug mode of action: Boosting Tree model"
+title: "Predicting drug mode of action: System Vector Machine"
 author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
@@ -32,7 +32,7 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 3)
+parallelStartMulticore(cpus = 2)
 
 load(file = "Rep_Nest_CV.RData")
 
@@ -42,25 +42,19 @@ the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y =
 
 ***
 
-# Boosting tree Method
+# System Vector Machine
 
-Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
 
 ## Setup - Loading
 
-Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
-On top of `mlr` package, one should also install `adabag` and `rpart`.
+Learner used is `classif.svm`
+On top of `mlr` package, one should also install `e1071` 
 
 ```{r }
-if(!require(adabag)){
-    install.packages("adabag")
+if(!require(e1071)){
+    install.packages("e1071")
 }
-if(!require(rpart)){
-    install.packages("rpart")
-}
-library(adabag)
-library(rpart)
-
+library(e1071)
 ```
 
 ## Data preparation
@@ -85,13 +79,16 @@ This grid is one of the main part of the computation cost. If it can be reduced,
 ```{r}
 
 #Hyperparameter tuning
-bt_hyp_param = makeParamSet(
-    makeDiscreteParam("mfinal", values = c(500)), #seq(from = 100, to = 400, by = 20)
-    makeDiscreteParam("maxdepth", values = c(3,4,5,6)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
-    makeDiscreteParam("coeflearn", values = "Zhu") #Best for multiclass problem
+svm_hyp_param = makeParamSet(
+    makeDiscreteParam("kernel", values = c("linear", "polynomial", "radial", "sigmoid")),
+    makeDiscreteParam("type", values = c("C-classification")),
+    makeDiscreteParam("degree", values = c(2,3,4,5,6)),
+    makeDiscreteParam("cost", values = 10**seq(1, 10)),
+    makeDiscreteParam("gamma", values = 10**seq(-10, 4))
 )
-bt_tuning = makeTuneControlGrid()
-
+   
+#svm_tuning = makeTuneControlGrid()
+svm_tuning = makeTuneControlRandom(maxit = 200)
 
 ```
 
@@ -105,13 +102,13 @@ n_inner = length(Rep_Nest_CV_instance[[1]]$inner[[1]]$train.inds)
 
 start_time = Sys.time()
 
-bt_RNCV_res_models = list()
-bt_RNCV_res_predictions = list()
+svm_RNCV_res_models = list()
+svm_RNCV_res_predictions = list()
 
 
 for (repetition_index in 1:n_rep) {
-    bt_models = list()
-    bt_predictions = list()
+    svm_models = list()
+    svm_predictions = list()
     
     for (outerCV_ind in 1:n_outer) {
             
@@ -123,29 +120,29 @@ for (repetition_index in 1:n_rep) {
         #Thusm the task should change because only a subset of the whole data should be used
         predictMoa = makeClassifTask(data = the_matrix_light[ outerCV_training_set , ], target = "process_broad")
         #tuning hyperparameters based on the inner resampling
-        res = tuneParams("classif.boosting", task = predictMoa, resampling = inner,
-                par.set = bt_hyp_param, control = bt_tuning)
+        res = tuneParams("classif.svm", task = predictMoa, resampling = inner,
+                par.set = svm_hyp_param, control = svm_tuning)
         
         #use the best Hyperparams to create optimal learner
-        bt_learner = setHyperPars(makeLearner("classif.boosting"), par.vals = res$x)
+        svm_learner = setHyperPars(makeLearner("classif.svm"), par.vals = res$x)
         
         #We are now in the outer fold, all data should be used
         predictMoa = makeClassifTask(data = the_matrix_light, target = "process_broad")
         
         #Model trained on a training subset
-        model_outerCV = mlr::train(bt_learner, predictMoa, subset = outerCV_training_set)
+        model_outerCV = mlr::train(svm_learner, predictMoa, subset = outerCV_training_set)
         
         outerCV_test_set = seq_along(1:nrow(the_matrix_light))[-outerCV_training_set]
         
         pred_NCV = predict(model_outerCV, task = predictMoa, subset = outerCV_test_set)
         
-        performance(pred_NCV, measures = list(mmce, kappa, multiclass_mcc))
+        print(performance(pred_NCV, measures = list(mmce, kappa, multiclass_mcc)))
         
-        bt_models[[outerCV_ind]] = model_outerCV 
-        bt_predictions[[outerCV_ind]] = pred_NCV
+        svm_models[[outerCV_ind]] = model_outerCV 
+        svm_predictions[[outerCV_ind]] = pred_NCV
     }
-    bt_RNCV_res_models[[repetition_index]] = bt_models
-    bt_RNCV_res_predictions[[repetition_index]] = bt_predictions
+    svm_RNCV_res_models[[repetition_index]] = svm_models
+    svm_RNCV_res_predictions[[repetition_index]] = svm_predictions
 
 }
 
