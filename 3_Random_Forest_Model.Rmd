@@ -42,33 +42,30 @@ if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
 } else {
    parallelStartMulticore(cpus = detectCores() - 1)
 }
-
-load(file = "the_matrix.RData")
-load(file = "feature_container.RData")
-the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
 
 
 
-```{r}
-# try with 200 most variable genes
-the_matrix_200mostvar <- the_matrix[, c("drugname_typaslab", "process_broad", 
-                                   feature_container$mostvar_200)]
+## Repeated nested 3-fold cross-validation using features selected by hierarchical clustering
 
-rf_task <- makeClassifTask(data = select(the_matrix_200mostvar, -drugname_typaslab), 
-                           id = "the_matrix_200mostvar", 
+### Running the algorithm 
+
+Select 200 genes selected based on hierarchical clustering and some of the chemical features. 
+
+```{r}
+load("the_matrix_hclust.RData")
+
+rf_task <- makeClassifTask(data = select(the_matrix_hclust, -drugname_typaslab), 
                            target = "process_broad")
 
-rf_learner <- makeLearner(cl = "classif.randomForest", 
-                          predict.type = "prob")
+rf_learner <- makeLearner(cl = "classif.randomForest", predict.type = "prob")
 
 # define hyperparameter searchspace 
 treespace <- 200
 
-# would be nice to try m = p, m = p * (3/4), m = p/2, m = p / 4m = sqrt(p)
-mtryspace <- floor(c(length(feature_container$mostvar_200), 
-               length(feature_container$mostvar_200) / 2, 
-               sqrt(length(feature_container$mostvar_200))))
+# would be nice to try m = p, m = p * (3/4), m = p/2, m = p / 4, m = sqrt(p)
+nfeats <- ncol(the_matrix_hclust) - 2
+mtryspace <- floor(c(nfeats, nfeats * (3/4), nfeats / 2, nfeats / 4, sqrt(nfeats)))
 
 rf_paramset <- makeParamSet(
    makeDiscreteParam("ntree", treespace), 
@@ -79,7 +76,8 @@ rf_ctrl <- makeTuneControlGrid()
 
 # define resampling
 rf_rdesc_inner <- makeResampleDesc("CV", iters = 3L, stratify = TRUE, predict = "both")
-rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 3L, stratify = TRUE, predict = "both")
+# rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 10L, stratify = TRUE, predict = "both")
+rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 10L, stratify = TRUE, predict = "test")
 
 rf_learner_wrapped <- makeTuneWrapper(learner = rf_learner, 
                                       resampling = rf_rdesc_inner, 
@@ -87,26 +85,174 @@ rf_learner_wrapped <- makeTuneWrapper(learner = rf_learner,
                                       par.set = rf_paramset, 
                                       control = rf_ctrl)
 
-
-system.time(
 nested_cv_res <- resample(learner = rf_learner_wrapped, 
                           task = rf_task, 
                           resampling = rf_desc_outer, 
-                          models = TRUE) # or extract only selected parts using extract argument 
-) # runtime 422 locally
+                          models = TRUE) # or extract only selected parts using extract argument
+```
 
-nested_cv_res
-nested_cv_res$measures.test
+Let's examine what we got and how to access it: 
+
+```{r}
+class(nested_cv_res)
+names(nested_cv_res)
+
+# overall performance
+nested_cv_res$aggr
+
+# get train and testing performances
 nested_cv_res$measures.train
-nested_cv_res$models
-lapply(nested_cv_res$models, getTuneResult)
+nested_cv_res$measures.test
 
-parallelStop()
+# how different are the testing performances? 
+hist(nested_cv_res$measures.test$mmce, breaks = 8, xlim = c(0.2, 0.8))
+
+# plot by repetition of the nested CV 
+
+# accessing the predictions made during resampling:
+# which is of class "ResamplePrediction", a subclass of "Prediction" 
+# can access its $data slot or use accessory functions as.data.frame(), getPredictionResponse(), 
+# getPredictionProbabilities()
+(nested_cv_res_pred <- getRRPredictions(nested_cv_res))
+# perhaps more useful is to get it as a list:
+nested_cv_res_pred_l <- getRRPredictionList(nested_cv_res)
+nested_cv_res_pred_df <- as.data.frame(nested_cv_res_pred)
+
+# but not clear how it is organised: we have a column 'iter', which goes from 1 to 30 (3-fold CV 
+# with 10 repetitions) - so is every 3 folds a new repetition? - let's check
+all(nested_cv_res_pred_df$set == "test")
+
+# first we have all the test, then all the training sets:
+data.frame(lengths = rle(nested_cv_res_pred_df$iter)[1], 
+           values = rle(nested_cv_res_pred_df$iter)[2])
+
+# it's quite clear that the repetitions of the nested CV are stacked on top of each other:
+sort(c(nested_cv_res_pred_df$id[1:72]))
+sort(c(nested_cv_res_pred_df$id[73:144]))
+
+# concerning the models: they are saved in the $model slot:
+# e.g.:
+model1 <- nested_cv_res$models[[1]] # is a fused learner (with tuning) - check also https://www.rdocumentation.org/packages/mlr/versions/2.12.1/topics/makeTuneWrapper
+lapply(nested_cv_res$models, getTuneResult)
+```
+
+
+### Presenting the result
+
+#### Impact of hyperparameters
+
+First, a brief digression to demonstrate the general behaviour of random forests when the 
+hyperparameters ntree and mtry are tuned. 
+
+```{r}
+# reuse most of the definitions from above 
+# we just tune parameters using again a 3-fold CV resampling strategy and later we can access all 
+# of the points evaluated during tuning by using generateHyperParsEffectData()
+
+rf_paramset2 <- makeParamSet(
+   makeDiscreteParam("ntree", seq(from = 1, to = 300, by = 2)), 
+   makeDiscreteParam("mtry", floor(c(nfeats, nfeats / 2, sqrt(nfeats))))
+)
+
+tune_res <- tuneParams(learner = rf_learner, 
+                       task = rf_task, 
+                       resampling = rf_rdesc_inner, 
+                       par.set = rf_paramset2, 
+                       control = rf_ctrl)
+
+tune_res_data <- generateHyperParsEffectData(tune_res)$data
+
+# could also use plotHyperParsEffect on generateHyperParsEffectData(tune_res) directly 
+ggplot(tune_res_data, aes(x = ntree, y = mmce.test.mean, colour = as.factor(mtry))) + 
+   geom_point(alpha = 0.4) + 
+   geom_smooth(se = FALSE) + 
+   theme_bw() + 
+   labs(x = "Number of trees (ntree)", y = "Mean misclassification error (mean(response != truth))", 
+        title = "Dependence of random forests on hyperparameters ntree and mtry") + 
+   scale_colour_discrete(name = "nvar considered \n at each split")
+```
+
+
+#### Stabilities of classification
+
+Let's go back to the nested CV result. First, how 'stable' are the classification results on the 
+test set between folds and between repetitions of the nested CV? 
+
+```{r}
+# add column repetition to indicate in which repeat of the repeated nested CV we're currently at
+nested_cv_res_pred_df$repetition <- ceiling(nested_cv_res_pred_df$iter / 3)
+
+nested_cv_res_measures <- nested_cv_res$measures.test
+nested_cv_res_measures$repetition <- ceiling(nested_cv_res_measures$iter / 3)
+
+ggplot(nested_cv_res_measures, aes(x = repetition, y = mmce)) + 
+   stat_summary(fun.y = median, fun.ymin = min, fun.ymax = max, geom = "crossbar", width = 0.4) + 
+   # geom_boxplot(aes(group = repetition), outlier.size = 0, coef = 0, lower = min) +
+   geom_jitter(width = 0.15, height = 0, colour = "#f03b20") + 
+   scale_x_continuous(name = "Repetition", breaks = 1:10) + 
+   labs(y = "Mean misclassification error (mean(response != truth))", 
+        title = "Variability of mmce across folds/repeats") + 
+   theme_bw()
+```
+
+
+#### Confusion matrix and other performance measures
+
+Which classes are predicted well? How strong do probabilities differ for the four classes in the 
+test set? 
+
+```{r}
+nested_cv_res$aggr
+nested_cv_res_pred
+
+# an object of class "ConfusionMatrix": 
+(conf_matrix <- calculateConfusionMatrix(nested_cv_res_pred, relative = TRUE, sums = TRUE))
+conf_matrix$relative.row
+
+conf_df <- data.frame(true = row.names(conf_matrix$relative.row), stringsAsFactors = F)
+conf_df <- cbind(conf_df, conf_matrix$relative.row[, -5])
+row.names(conf_df) <- NULL
+conf_df <- 
+   gather(conf_df, cell_wall:protein_synthesis, key = "predicted", value = "rel_fraction") %>% 
+   arrange(true)
+conf_df$true <- factor(as.character(conf_df$true), 
+                       levels = c("cell_wall", "membrane_stress", "dna", "protein_synthesis"))
+
+conf_df$predicted <- factor(as.character(conf_df$predicted), 
+                            levels = c("protein_synthesis", "dna", "membrane_stress", "cell_wall"))
+
+# diagonal of the matrix corresponds to recall (tp / (tp + fn) - as the rows sum to 1)
+ggplot(conf_df, aes(x = predicted, y = true)) + 
+   geom_tile(aes(fill = rel_fraction)) + 
+   geom_text(aes(label = round(rel_fraction, digits = 2))) + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 0)) + 
+   scale_x_discrete(position = "top")
+```
+
+
+Make a precision-recall curve by varying the prediction threshold for one class vs. the others. 
+
+```{r}
+
+calculate_precision <- function(target_class, responsevector, truthvector) {
+   tp <- (responsevector == target_class) & (responsevector == truthvector)
+   fp <- (responsevector == target_class) & (responsevector != truthvector)
+   precision <- sum(tp) / (sum(tp) + sum(fp))
+   return(precision)
+}
+
+# testcase
+my_truth <- c('a', 'a', 'b', 'b', 'c', 'c', 'a', 'c', 'd')
+my_response <- c('a', 'c', 'b', 'b', 'c', 'a', 'a', 'a', 'a')
+data.frame(my_response, my_truth)
+
 ```
 
 
 
+
 ```{r}
+parallelStop()
 R.version
 sessionInfo()
 ```
