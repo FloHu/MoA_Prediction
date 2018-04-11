@@ -5,12 +5,14 @@
 # ==============================================================================
 
 filepath_for_export = "/home/dubois/"
-filepath_for_import = "/home/dubois/MoA_prediction/"
+filepath_for_import = "/home/dubois/MoA_Prediction/"
 
 
 load(file = paste(filepath_for_import, "the_matrix_hclust.RData", sep=""))
 load(file = paste(filepath_for_import, "the_matrix_top10pct.RData", sep=""))
 load(file = paste(filepath_for_import, "the_matrix_top5pct.RData", sep=""))
+
+load(file = paste(filepath_for_import, "Rep_Nest_CV.RData", sep=""))
 
 
 library(tidyverse)
@@ -32,9 +34,8 @@ walk(list.files(paste(filepath_for_import, "R/", sep = ""), pattern = "*.R", ful
 
 
 library("parallelMap")
-parallelStartMulticore(cpus = AMOUNT_TO_FIX )
-# OR
-parallelStartMulticore(cpus = detectCores() - 1)
+parallelStartMulticore(cpus = 24 )
+
 
 
 # ==============================================================================

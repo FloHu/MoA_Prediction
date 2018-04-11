@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J MoA_pred_ML_BR_RF      
+#SBATCH -J MoA_pred_ML_BT_RF      
 #SBATCH -A typas              
 #SBATCH -N 1                        # number of nodes
 #SBATCH -n 24                       # number of cores
@@ -11,4 +11,6 @@
 #SBATCH --mail-user=leonard.dubois@embl.de
 
 
-Rscript cluster_run_trees.R
+module load R/3.4.3-foss-2017b-X11-20171023
+
+Rscript /home/dubois/MoA_Prediction/cluster_run_trees.R

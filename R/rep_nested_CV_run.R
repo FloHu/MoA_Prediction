@@ -4,7 +4,7 @@
 #For a given HyperParamter grid
 #For a given instance of resampling
 
-rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, run_tuning){
+rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, run_tuning, saveFeatImportance = F){
     
     if("drugname_typaslab" %in% colnames(data_matrix)){
         data_matrix = select(data_matrix, -drugname_typaslab)
@@ -56,6 +56,13 @@ rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, ru
             fold_name = paste("Outer fold ", as.character(outerCV_ind), sep = "")
             run_outer_fold[[fold_name]][["model"]] = model_outerCV 
             run_outer_fold[[fold_name]][["prediction"]] = pred_NCV
+            
+            if(saveFeatImportance){
+                featimp = generateFeatureImportanceData(task = predictMoa, method = "permutation.importance",
+                                                        learner = run_learner)
+                run_outer_fold[[fold_name]][["featuresImportance"]] = featimp 
+            }
+            
         }
         
         rep_name = paste("Nested CV ", repetition_index, sep = "")

@@ -84,13 +84,14 @@ svm_tuning = makeTuneControlGrid()
 
 ```{r}
 #Not the most relevant name, it was for some test
-swag = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.svm", rep_instance = Rep_Nest_CV_instance, run_hyp_param = svm_hyp_param, run_tuning = svm_tuning)
+swag = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.svm", rep_instance = Rep_Nest_CV_instance, 
+                         run_hyp_param = svm_hyp_param, run_tuning = svm_tuning, saveFeatImportance = T)
 
 
 parallelStop()
 ```
 
-
+    
 ***
 
 # System and session info
