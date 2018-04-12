@@ -50,10 +50,11 @@ bt_hyp_param = makeParamSet(
 )
 bt_tuning = makeTuneControlGrid()
 
-result_BT_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_BT_10pc, file = paste(filepath_for_export, "result_BT_10pc.RData", sep = ""))
-result_BT_5pc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_BT_5pc, file = paste(filepath_for_export, "result_BT_5pc.RData", sep = ""))
+# DONE !
+#result_BT_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+#save(result_BT_10pc, file = paste(filepath_for_export, "result_BT_10pc.RData", sep = ""))
+#result_BT_5pc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+#save(result_BT_5pc, file = paste(filepath_for_export, "result_BT_5pc.RData", sep = ""))
 
 
 
@@ -76,7 +77,7 @@ if("process_broad" %in% colnames(data_set)){
 }
 
 p = ncol(data_set)
-mtry_space <- floor( p, p*(3/4), p/2, p/4, sqrt(p))
+mtry_space <- floor(c(p, p*(3/4), p/2, p/4, sqrt(p)))
 
 rf_hyp_param <- makeParamSet(
     makeDiscreteParam("ntree", values = treespace), 
@@ -96,7 +97,7 @@ if("process_broad" %in% colnames(data_set)){
 }
 
 p = ncol(data_set)
-mtry_space <- floor( p, p*(3/4), p/2, p/4, sqrt(p))
+mtry_space <- floor(c(p, p*(3/4), p/2, p/4, sqrt(p)))
 
 rf_hyp_param <- makeParamSet(
     makeDiscreteParam("ntree", values = treespace), 
@@ -104,3 +105,33 @@ rf_hyp_param <- makeParamSet(
 )
 result_RF_5pc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.randomForest", rep_instance = Rep_Nest_CV_instance, run_hyp_param = rf_hyp_param, run_tuning = rf_tuning)
 save(result_RF_5pc, file = paste(filepath_for_export, "result_RF_5pc.RData", sep = ""))
+
+
+# ============================================
+
+data_set = the_matrix_hclust
+if("drugname_typaslab" %in% colnames(data_set)){
+    data_set = select(data_set, -drugname_typaslab)
+}
+if("process_broad" %in% colnames(data_set)){
+    data_set = select(data_set, -process_broad)
+}
+
+p = ncol(data_set)
+mtry_space <- floor(c(p, p*(3/4), p/2, p/4, sqrt(p)))
+
+rf_hyp_param <- makeParamSet(
+    makeDiscreteParam("ntree", values = treespace), 
+    makeDiscreteParam("mtry", values = mtry_space)
+)
+result_RF_hclust = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.randomForest", rep_instance = Rep_Nest_CV_instance, run_hyp_param = rf_hyp_param, run_tuning = rf_tuning)
+save(result_RF_hclust, file = paste(filepath_for_export, "result_RF_hclust.RData", sep = ""))
+
+
+
+
+#Run for BT with hclust, in the end because longer
+
+
+result_BT_hclust = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+save(result_BT_hclust, file = paste(filepath_for_export, "result_BT_hclust.RData", sep = ""))

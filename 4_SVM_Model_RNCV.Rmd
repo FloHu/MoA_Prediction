@@ -73,18 +73,20 @@ This grid is one of the main part of the computation cost. If it can be reduced,
 svm_hyp_param = makeParamSet(
     makeDiscreteParam("kernel", values = c("linear", "polynomial", "radial", "sigmoid")),
     makeDiscreteParam("type", values = c("C-classification")),
-    makeDiscreteParam("degree", values = c(2,3,4,5))
+    makeDiscreteParam("degree", values = c(2,3,4,5)),
+    makeDiscreteParam("cost", values =  10**seq(-3,3)),
+    makeDiscreteParam("gamma", values =  10**seq(-3,3))
 )
    
-svm_tuning = makeTuneControlGrid()
-#svm_tuning = makeTuneControlRandom(maxit = 100)
+#svm_tuning = makeTuneControlGrid()
+svm_tuning = makeTuneControlRandom(maxit = 100)
 
 ```
 
 
 ```{r}
 #Not the most relevant name, it was for some test
-swag = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.svm", rep_instance = Rep_Nest_CV_instance, 
+result_SVM_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.svm", rep_instance = Rep_Nest_CV_instance, 
                          run_hyp_param = svm_hyp_param, run_tuning = svm_tuning, saveFeatImportance = T)
 
 
