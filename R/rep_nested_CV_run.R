@@ -4,7 +4,7 @@
 #For a given HyperParamter grid
 #For a given instance of resampling
 
-rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, run_tuning, saveFeatImportance = F){
+rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, run_tuning, saveFeatImportance = F, tuning_measure = mmce){
     
     if("drugname_typaslab" %in% colnames(data_matrix)){
         data_matrix = select(data_matrix, -drugname_typaslab)
@@ -35,7 +35,7 @@ rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, ru
             predictMoa = makeClassifTask(data = data_matrix[ outerCV_training_set , ], target = "process_broad")
             
             #tuning hyperparameters based on the inner resampling
-            resTuning = tuneParams(learner = model, task = predictMoa, resampling = inner,
+            resTuning = tuneParams(learner = model, task = predictMoa, resampling = inner, measures = tuning_measure,
                              par.set = run_hyp_param, control = run_tuning)
             
             #use the best Hyperparams to create optimal learner
@@ -71,6 +71,6 @@ rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, ru
     
     
     end_time = Sys.time()
-    cat("Run finished - Time : ", end_time - start_time, " min", sep="")
+    cat("Run finished - Time : ", end_time - start_time, sep="")
     return(run_result)
 }
