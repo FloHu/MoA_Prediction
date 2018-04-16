@@ -53,7 +53,10 @@ if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
 Select 200 genes selected based on hierarchical clustering and some of the chemical features. 
 
 ```{r}
-load("the_matrix_hclust.RData")
+# load("the_matrix_hclust.RData")
+load("the_matrix_top10pct.RData")
+the_matrix_hclust <- the_matrix_top10pct
+
 
 rf_task <- makeClassifTask(data = select(the_matrix_hclust, -drugname_typaslab), 
                            target = "process_broad")
@@ -193,6 +196,7 @@ ggplot(nested_cv_res_measures, aes(x = repetition, y = mmce)) +
    labs(y = "Mean misclassification error (mean(response != truth))", 
         title = "Variability of mmce across folds/repeats") + 
    theme_bw()
+ggsave("./plots/mean_mmce_by_repeat.pdf", width = 12, height = 10)
 ```
 
 
@@ -227,24 +231,188 @@ ggplot(conf_df, aes(x = predicted, y = true)) +
    geom_text(aes(label = round(rel_fraction, digits = 2))) + 
    theme(axis.text.x = element_text(angle = 45, hjust = 0)) + 
    scale_x_discrete(position = "top")
+
+ggsave(filename = "./plots/confusion_matrix_norm_by_row.pdf", width = 12, height = 10)
 ```
 
 
 Make a precision-recall curve by varying the prediction threshold for one class vs. the others. 
 
 ```{r}
+# this is the relevant data frame:
+head(nested_cv_res_pred_df)
 
-calculate_precision <- function(target_class, responsevector, truthvector) {
-   tp <- (responsevector == target_class) & (responsevector == truthvector)
-   fp <- (responsevector == target_class) & (responsevector != truthvector)
-   precision <- sum(tp) / (sum(tp) + sum(fp))
+# step 1: adjust thresholds for prediction
+
+
+# step 2: calculate a confusion matrix based on the threshold (1 vs. other)
+calculateConfusionMatrix(nested_cv_res_pred)
+# alternatively:
+(my_cm <- table("true" = nested_cv_res_pred_df$truth, 
+                "predicted" = nested_cv_res_pred_df$response))
+
+n <- sum(my_cm) # number of instances
+nc <- nrow(my_cm) # number of classes
+rowsums <- rowSums(my_cm)
+colsums <- colSums(my_cm)
+
+# make a list with all all vs. all matrices:
+classnames_helper <- 1:nc
+names(classnames_helper) <- dimnames(my_cm)[["true"]]
+one_vs_all_matrices <- 
+   sapply(classnames_helper, function(i) {
+      m <- matrix(c(my_cm[i, i], rowsums[i] - my_cm[i, i], 
+                    colsums[i] - my_cm[i, i], n - rowsums[i] - colsums[i] + my_cm[i, i]), 
+                  nrow = 2, byrow = T)
+      return(m)
+   }, USE.NAMES = TRUE, simplify = FALSE)
+
+# given a 2x2 confusion matrix, we calculate precision and recall like this:
+my_calculate_prec <- function(m) {
+   # expects a 2x2 matrix, will return precision for the first of the two classes
+   if (! (all(dim(m) == c(2, 2)))) {
+      stop("Function expects a 2x2 matrix")
+   }
+   
+   precision <- m[1, 1] / colSums(m)[1]
+   
+   classname <- dimnames(m)[[1]][1]
+   if (is.null(classname)) {
+      classname <- "`1`"
+   }
+   names(precision) <- classname
    return(precision)
 }
 
-# testcase
-my_truth <- c('a', 'a', 'b', 'b', 'c', 'c', 'a', 'c', 'd')
-my_response <- c('a', 'c', 'b', 'b', 'c', 'a', 'a', 'a', 'a')
-data.frame(my_response, my_truth)
+my_calculate_recall <- function(m) {
+   if (! (all(dim(m) == c(2, 2)))) {
+      stop("Function expects a 2x2 matrix")
+   }
+   
+   recall <- m[1, 1] / rowSums(m)[1]
+   
+   classname <- dimnames(m)[[1]][1]
+   if (is.null(classname)) {
+      classname <- "`1`"
+   }
+   names(recall) <- classname
+   return(recall)
+}
+
+my_calculate_fpr <- function(m) {
+   if (! (all(dim(m) == c(2, 2)))) {
+      stop("Function expects a 2x2 matrix")
+   }
+   
+   fpr <- m[2, 1] / rowSums(m)[2]
+   
+   classname <- dimnames(m)[[1]][1]
+   if (is.null(classname)) {
+      classname <- "`1`"
+   }
+   names(fpr) <- classname
+   return(fpr)
+}
+
+# step 3: write a function that varies the threshold and then makes a plot
+# function to make the respective data frame:
+pred_df_to_onevsall_cm <- function(pred_df, targetclass, truthcol = "truth", predictcol = "response", 
+                                   probability_col = NULL, thresh = NULL) {
+   # turns a data frame into a one vs all confusion matrix
+   # can adjust the threshold for class prediction of targetclass by passing argument thresh
+   # otherwise truth and response columns are not modified
+   pred_df[, c(truthcol, predictcol)] <- 
+      lapply(pred_df[, c(truthcol, predictcol)], function(x) {
+         x <- as.character(x)
+         x <- ifelse(x == targetclass, targetclass, "other")
+         return(x)
+      }) 
+   
+   if (! is.null(thresh)) {
+      if (is.null(probability_col)) stop("Must provide a column for probability thresholding")
+      pred_df[[predictcol]] <- ifelse(pred_df[[probability_col]] > thresh, targetclass, "other")
+   }
+   
+   pred_df[, c(truthcol, predictcol)] <- 
+      lapply(pred_df[, c(truthcol, predictcol)], function(x) {
+         x <- factor(x, levels = c(targetclass, "other"))
+         return(x)
+      })
+   
+   cm <- table(pred_df[, c(truthcol)], 
+               pred_df[, c(predictcol)])
+   names(dimnames(cm)) <- list(truthcol, predictcol)
+   
+   return(cm)
+}
+
+get_measure_from_thresholds <- function(thresholds, perf_func, data, targetclass, prefix = "prob.") {
+   # takes a vector of thresholds, a function for a performance metric, a prediction data frame 
+   # and a target class to get a vector of the chosen performance metric for targetclass vs. all 
+   # the other classes
+   # thresholds: a vector of probability thresholds
+   # perf_func: a function to calculate a performance measure from a confusion matrix 
+   # data: a prediction data frame
+   # targetclass: the class for which the performance should be calculated
+   # prefix: the prefix for targetclass used in data to apply the thresholds to 
+   if ( (!is.numeric(thresholds)) | any(c(range(thresholds) < 0, range(thresholds) > 1)) ) {
+      stop("Provided vector thresholds is not numeric or thresholds don't lie between 0 and 1.")
+   }
+   if ( ! is.function(perf_func)) {
+      stop("perf_func is not a function.")
+   }
+   
+   probcol <- paste0(prefix, targetclass)
+   if (! probcol %in% colnames(data)) {
+      stop("Probabilities for the target class do not exist in the provided data.")
+   }
+   
+   res <- sapply(thresholds, function(x) {
+      tmp_dfr <- pred_df_to_onevsall_cm(pred_df = data, targetclass = targetclass, 
+                                        probability_col = probcol, thresh = x)
+      perf_func(tmp_dfr)
+   })
+   return(res)
+}
+
+threshold <- seq(from = 1, to = 0, by = -0.01)
+prec_recall_df <- data.frame(threshold = threshold, 
+                             targetclass = rep(unique(nested_cv_res_pred_df$truth), 
+                                               each = length(threshold)), 
+                             stringsAsFactors = F)
+
+# turn prec_recall_df into a list where each list contains a subdataframe defined by the 
+# targetclass values, then calculate performance measures on each one and rbind back together
+prec_recall_df <- 
+   do.call(rbind, 
+        lapply(split(prec_recall_df, prec_recall_df$targetclass), function(x) {
+           targetclass <- unique(x$targetclass)
+           
+           my_funcs <- list(precision = my_calculate_prec, 
+                            recall = my_calculate_recall, 
+                            fpr = my_calculate_fpr)
+           
+           x <- cbind(x, sapply(my_funcs, function(f) {
+              get_measure_from_thresholds(thresholds = x$threshold, perf_func = f, 
+                                          data = nested_cv_res_pred_df, targetclass = targetclass)
+           }, simplify = FALSE, USE.NAMES = TRUE))
+
+           return(x)
+        })
+)
+
+# precision-recall curves
+ggplot(prec_recall_df, aes(x = recall, y = precision)) + 
+   geom_line(aes(colour = targetclass, group = targetclass), size = 2) + 
+   theme(text = element_text(size = 24))
+ggsave("./plots/precision_recall_curve_rf_hclust.pdf", width = 14, height = 10)
+
+# AU ROC:
+ggplot(prec_recall_df, aes(x = fpr, y = recall)) + 
+   geom_line(aes(group = targetclass, colour = targetclass), size = 2) + 
+   geom_abline(intercept = 0, slope = 1, size = 2) + 
+   theme(text = element_text(size = 24))
+ggsave("./plots/au-roc_rf_hclust.pdf", width = 14, height = 10)
 
 ```
 
