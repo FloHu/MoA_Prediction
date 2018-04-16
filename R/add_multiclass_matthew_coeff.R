@@ -56,7 +56,7 @@ multi_mcc_compute <- function(task, model, pred, feats, extra.args){
 multiclass_mcc <- makeMeasure(
     id = "multiclass_mcc", name = "Multiclass Matthew Correlation Coefficient",
     properties = c("classif", "classif.multi"),
-    minimize = T,
+    minimize = F,
     best = 1, worst = -1,
     fun = multi_mcc_compute
 )

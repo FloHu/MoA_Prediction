@@ -32,7 +32,7 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
+parallelStartMulticore(cpus = 3)
 
 #Resampling Instances
 load(file = "Rep_Nest_CV.RData")
@@ -98,6 +98,28 @@ parallelStop()
 ```
 
 
+## Test with other algorithm - XgBoost
+
+```{r}
+
+if(!require(xgboost)){
+    install.packages("xgboost")
+}
+library(xgboost)
+
+bt_hyp_param = makeParamSet(
+    makeDiscreteParam("nrounds", values = c(500, 750, 1000)), # number of trees
+    makeDiscreteParam("max_depth", values = c(4,5,6,10)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
+    makeDiscreteParam("eta", values = c(0.1,0.2,0.3)), #Shrinkage to prevent overfitting
+    makeDiscreteParam("lambda", values = c(0.1,0.5,1)) # regularization to prevent overfitting
+)
+bt_tuning = makeTuneControlGrid()
+
+
+result_BT_xg_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+
+parallelStop()
+```
 
 
 
