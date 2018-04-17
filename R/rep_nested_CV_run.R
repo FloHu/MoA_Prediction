@@ -4,7 +4,14 @@
 #For a given HyperParamter grid
 #For a given instance of resampling
 
-rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, run_tuning, saveFeatImportance = F, tuning_measure = mmce){
+rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, 
+                            run_tuning, saveFeatImportance = F, tuning_measure = mmce,
+                            predict_type = "prob"){
+    
+    if(!require(foreach)){
+        install.packages("foreach")
+    }
+    library(foreach)
     
     if("drugname_typaslab" %in% colnames(data_matrix)){
         data_matrix = select(data_matrix, -drugname_typaslab)
@@ -19,12 +26,12 @@ rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, ru
     
     #Final output object containing everything needed, models - prediction of all outer fold of all repetitions
     run_result = list()
-
-    for (repetition_index in 1:n_rep) {
+    
+    foreach(repetition_index = icount(n_rep)) %do% {
         #initialize outer folds output data for the repetition
         run_outer_fold = list()
         
-        for (outerCV_ind in 1:n_outer) {
+        foreach(outerCV_ind = icount(n_outer)) %do% {
             
             outerCV_training_set = (get_outerCV(repetition_index, data = rep_instance))$train.ind[[outerCV_ind]]
             
@@ -36,10 +43,10 @@ rep_nested_CV_run = function(data_matrix, model, rep_instance, run_hyp_param, ru
             
             #tuning hyperparameters based on the inner resampling
             resTuning = tuneParams(learner = model, task = predictMoa, resampling = inner, measures = tuning_measure,
-                             par.set = run_hyp_param, control = run_tuning)
+                                   par.set = run_hyp_param, control = run_tuning)
             
             #use the best Hyperparams to create optimal learner
-            run_learner = setHyperPars(makeLearner(cl = model), par.vals = resTuning$x)
+            run_learner = setHyperPars(makeLearner(cl = model, predict.type = predict_type), par.vals = resTuning$x)
             
             #We are now in the outer fold, all data should be used
             predictMoa = makeClassifTask(data = data_matrix, target = "process_broad")
