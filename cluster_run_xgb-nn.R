@@ -60,21 +60,14 @@ xgb_tuning = makeTuneControlGrid()
 
 # with 10 % top variance features
 
-result_xgb_10pc_mmce = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = mmce)
-save(result_xgb_10pc_mmce, file = paste(filepath_for_export, "result_xgb_10pc_mmce.RData", sep = ""))
+#result_xgb_10pc_mmce = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
+#					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = mmce)
+#save(result_xgb_10pc_mmce, file = paste(filepath_for_export, "result_xgb_10pc_mmce.RData", sep = ""))
+#
+#result_xgb_10pc_mmcc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
+#					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass_mcc)
+#save(result_xgb_10pc_mmcc, file = paste(filepath_for_export, "result_xgb_10pc_mmcc.RData", sep = ""))
 
-result_xgb_10pc_mmcc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass_mcc)
-save(result_xgb_10pc_mmcc, file = paste(filepath_for_export, "result_xgb_10pc_mmcc.RData", sep = ""))
-
-result_xgb_10pc_au1p = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.au1p)
-save(result_xgb_10pc_au1p, file = paste(filepath_for_export, "result_xgb_10pc_au1p.RData", sep = ""))
-
-result_xgb_10pc_aunp = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.aunp)
-save(result_xgb_10pc_aunp, file = paste(filepath_for_export, "result_xgb_10pc_aunp.RData", sep = ""))
 
 # with 5 % top variance features
 
@@ -86,13 +79,6 @@ result_xgb_5pc_mmcc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model 
 					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass_mcc)
 save(result_xgb_5pc_mmcc, file = paste(filepath_for_export, "result_xgb_5pc_mmcc.RData", sep = ""))
 
-result_xgb_5pc_au1p = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.au1p)
-save(result_xgb_5pc_au1p, file = paste(filepath_for_export, "result_xgb_5pc_au1p.RData", sep = ""))
-
-result_xgb_5pc_aunp = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.aunp)
-save(result_xgb_5pc_aunp, file = paste(filepath_for_export, "result_xgb_5pc_aunp.RData", sep = ""))
 
 
 # with features selection based on hclust
@@ -105,13 +91,6 @@ result_xgb_hclust_mmcc = rep_nested_CV_run(data_matrix = the_matrix_hclust, mode
 					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass_mcc)
 save(result_xgb_hclust_mmcc, file = paste(filepath_for_export, "result_xgb_hclust_mmcc.RData", sep = ""))
 
-result_xgb_hclust_au1p = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.au1p)
-save(result_xgb_hclust_au1p, file = paste(filepath_for_export, "result_xgb_hclust_au1p.RData", sep = ""))
-
-result_xgb_hclust_aunp = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.xgboost", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = xgb_hyp_param, run_tuning = xgb_tuning, tuning_measure = multiclass.aunp)
-save(result_xgb_hclust_aunp, file = paste(filepath_for_export, "result_xgb_hclust_aunp.RData", sep = ""))
 
 
 
@@ -140,13 +119,6 @@ result_nn_10pc_mmcc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model
 					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass_mcc, saveFeatImportance = T)
 save(result_nn_10pc_mmcc, file = paste(filepath_for_export, "result_nn_10pc_mmcc.RData", sep = ""))
 
-result_nn_10pc_au1p = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.au1p, saveFeatImportance = T)
-save(result_nn_10pc_au1p, file = paste(filepath_for_export, "result_nn_10pc_au1p.RData", sep = ""))
-
-result_nn_10pc_aunp = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.aunp, saveFeatImportance = T)
-save(result_nn_10pc_aunp, file = paste(filepath_for_export, "result_nn_10pc_aunp.RData", sep = ""))
 
 # with 5 % top variance features
 
@@ -158,13 +130,6 @@ result_nn_5pc_mmcc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model =
 					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass_mcc, saveFeatImportance = T)
 save(result_nn_5pc_mmcc, file = paste(filepath_for_export, "result_nn_5pc_mmcc.RData", sep = ""))
 
-result_nn_5pc_au1p = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.au1p, saveFeatImportance = T)
-save(result_nn_5pc_au1p, file = paste(filepath_for_export, "result_nn_5pc_au1p.RData", sep = ""))
-
-result_nn_5pc_aunp = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.aunp, saveFeatImportance = T)
-save(result_nn_5pc_aunp, file = paste(filepath_for_export, "result_nn_5pc_aunp.RData", sep = ""))
 
 
 # with features selection based on hclust
@@ -177,12 +142,5 @@ result_nn_hclust_mmcc = rep_nested_CV_run(data_matrix = the_matrix_hclust, model
 					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass_mcc, saveFeatImportance = T)
 save(result_nn_hclust_mmcc, file = paste(filepath_for_export, "result_nn_hclust_mmcc.RData", sep = ""))
 
-result_nn_hclust_au1p = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.au1p, saveFeatImportance = T)
-save(result_nn_hclust_au1p, file = paste(filepath_for_export, "result_nn_hclust_au1p.RData", sep = ""))
-
-result_nn_hclust_aunp = rep_nested_CV_run(data_matrix = the_matrix_hclust, model = "classif.nnet", 
-					rep_instance = Rep_Nest_CV_instance, run_hyp_param = nn_hyp_param, run_tuning = nn_tuning, tuning_measure = multiclass.aunp, saveFeatImportance = T)
-save(result_nn_hclust_aunp, file = paste(filepath_for_export, "result_nn_hclust_aunp.RData", sep = ""))
 
 

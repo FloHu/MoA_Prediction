@@ -32,7 +32,7 @@ library(mlr)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 3)
+parallelStartMulticore(cpus = 2)
 
 #Resampling Instances
 load(file = "Rep_Nest_CV.RData")
@@ -44,6 +44,41 @@ load(file = "Rep_Nest_CV.RData")
 # Boosting tree Method
 
 Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
+
+## Description of `par.set` list - Parameters of BT function
+
+Parameters coming from the `boosting` function of package `adabag` :
+
+* `boos` : if TRUE (by default), a bootstrap sample of the training set is drawn using the weights for each observation on that iteration. 
+* `mfinal` : an integer, the number of iterations for which boosting is run or the number of trees to use. Defaults to mfinal = 100 iterations.
+* `coeflearn` : if `Breiman` (by default), $\alpha = 1/2ln((1-err)/err)$ is used. If `Freund`  $\alpha = ln((1-err)/err)$ is used. In both cases the AdaBoost.M1 algorithm is used and alpha is the weight updating coefficient. On the other hand, if coeflearn is `Zhu` the SAMME algorithm is implemented with $\alpha = ln((1-err)/err) + ln(nclasses-1)$.
+
+Note : People are talking about "algorithms" but only the $\alpha$ calculation is different.
+
+The others parameters come from the `rpart.control` function of package `rpart`:
+
+* `minsplit` : the minimum number of observations that must exist in a node in order for a split to be attempted.
+* `minbucket` : the minimum number of observations in any terminal leaf node
+* `cp` : complexity parameter. Any split that does not decrease the overall lack of fit by a factor of `cp` is not attempted.
+* `xval` : number of cross-validations. In our case, CV is managed by the `mlr` package anyway
+* `maxdepth` : Set the maximum depth of any node of the final tree, with the root node counted as depth 0. 
+
+*`maxcompete` : number of competitor split. Well explained [here](https://www.salford-systems.com/resources/webinars-tutorials/how-to/understanding-cart-splitters-competitors-and-surrogates)
+Which splits came in second, third position ? Could be interresting if the best split is not by far the best. Then one can build some alternate tree with differents splits nearly as relevant as the best ones. (Best based on the gain in the purity index). By default fixed to 4 which seems to be good.
+
+The last ones deal with missing values. As long as we don't have missing values, we don't care
+
+* `maxsurrogate`
+* `usesurrogate`
+* `surrogatestyle`
+
+`rpart.control` documentation : https://www.rdocumentation.org/packages/rpart/versions/4.1-12/topics/rpart.control
+
+`Adabag` package manual : https://cran.r-project.org/web/packages/adabag/adabag.pdf
+
+`Adabag` package paper : http://www.jstatsoft.org/v54/i02/
+
+
 
 ## Setup - Loading
 
@@ -92,7 +127,7 @@ bt_tuning = makeTuneControlGrid()
 
 ```{r}
 
-result_BT = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+result_BT_top7 = rep_nested_CV_run(data_matrix = the_matrix_top7, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
 
 parallelStop()
 ```
@@ -108,78 +143,16 @@ if(!require(xgboost)){
 library(xgboost)
 
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("nrounds", values = c(500, 750, 1000)), # number of trees
-    makeDiscreteParam("max_depth", values = c(4,5,6,10)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
-    makeDiscreteParam("eta", values = c(0.1,0.2,0.3)), #Shrinkage to prevent overfitting
+    makeDiscreteParam("nrounds", values = c(500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(3,5)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
+    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), #Shrinkage to prevent overfitting
     makeDiscreteParam("lambda", values = c(0.1,0.5,1)) # regularization to prevent overfitting
 )
 bt_tuning = makeTuneControlGrid()
 
 
-result_BT_xg_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+result_xgb_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)
 
-parallelStop()
-```
-
-
-
-
-
-# Main Nested Cross-Validation Loop
-
-Old chunk, keep it to be secure
-
-```{r eval = F}
-n_rep = length(Rep_Nest_CV_instance)
-n_outer = length(Rep_Nest_CV_instance[[1]]$outer$train.inds)
-n_inner = length(Rep_Nest_CV_instance[[1]]$inner[[1]]$train.inds)
-
-start_time = Sys.time()
-
-bt_RNCV_res_models = list()
-bt_RNCV_res_predictions = list()
-
-
-for (repetition_index in 1:n_rep) {
-    bt_models = list()
-    bt_predictions = list()
-    
-    for (outerCV_ind in 1:n_outer) {
-            
-        outerCV_training_set = (get_outerCV(repetition_index))$train.ind[[outerCV_ind]]
-        
-        #define inner CV in relation to the outer fold used
-        inner = get_innerCV(repetition_index)[[outerCV_ind]]
-        
-        #Thusm the task should change because only a subset of the whole data should be used
-        predictMoa = makeClassifTask(data = the_matrix_light[ outerCV_training_set , ], target = "process_broad")
-        #tuning hyperparameters based on the inner resampling
-        res = tuneParams("classif.boosting", task = predictMoa, resampling = inner,
-                par.set = bt_hyp_param, control = bt_tuning)
-        
-        #use the best Hyperparams to create optimal learner
-        bt_learner = setHyperPars(makeLearner("classif.boosting"), par.vals = res$x)
-        
-        #We are now in the outer fold, all data should be used
-        predictMoa = makeClassifTask(data = the_matrix_light, target = "process_broad")
-        
-        #Model trained on a training subset
-        model_outerCV = mlr::train(bt_learner, predictMoa, subset = outerCV_training_set)
-        
-        outerCV_test_set = seq_along(1:nrow(the_matrix_light))[-outerCV_training_set]
-        
-        pred_NCV = predict(model_outerCV, task = predictMoa, subset = outerCV_test_set)
-        
-        performance(pred_NCV, measures = list(mmce, kappa, multiclass_mcc))
-        
-        bt_models[[outerCV_ind]] = model_outerCV 
-        bt_predictions[[outerCV_ind]] = pred_NCV
-    }
-    bt_RNCV_res_models[[repetition_index]] = bt_models
-    bt_RNCV_res_predictions[[repetition_index]] = bt_predictions
-
-}
-end_time = Sys.time()
 parallelStop()
 ```
 
