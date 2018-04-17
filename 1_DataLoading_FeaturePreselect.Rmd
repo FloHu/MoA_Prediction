@@ -58,8 +58,8 @@ strains_has_genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains_h
 genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/genes.csv", header = T, sep = ";", 
                     stringsAsFactors = F)
 # KNIME table
-drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs_full.csv", header = T, 
-                         sep = ";", stringsAsFactors = F, dec = ",")
+drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", header = T, 
+                         sep = ";", stringsAsFactors = F, dec = ".")
 drugs_full$X <- NULL
 mode_of_action <- read.table("/Volumes/typas/Florian/dbsetup_tables/mode_of_action.csv", 
                              header = T, sep = ";", stringsAsFactors = F)

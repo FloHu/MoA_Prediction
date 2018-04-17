@@ -33,6 +33,7 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 load(file = "the_matrix.RData")
 the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+
 ```
 
 ***

@@ -164,7 +164,7 @@ bt_tuning = makeTuneControlGrid()
 
 result_xgb_5pc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)
 
-CONFIGURparallelStop()
+parallelStop()
 ```
 
 
