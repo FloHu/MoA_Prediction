@@ -50,15 +50,11 @@ if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
 
 ### Running the algorithm 
 
-Select 200 genes selected based on hierarchical clustering and some of the chemical features. 
-
 ```{r}
-# load("the_matrix_hclust.RData")
 load("the_matrix_top10pct.RData")
-the_matrix_hclust <- the_matrix_top10pct
+my_matrix <- the_matrix_top10pct
 
-
-rf_task <- makeClassifTask(data = select(the_matrix_hclust, -drugname_typaslab), 
+rf_task <- makeClassifTask(data = select(my_matrix, -drugname_typaslab), 
                            target = "process_broad")
 
 rf_learner <- makeLearner(cl = "classif.randomForest", predict.type = "prob")
@@ -67,7 +63,7 @@ rf_learner <- makeLearner(cl = "classif.randomForest", predict.type = "prob")
 treespace <- 200
 
 # would be nice to try m = p, m = p * (3/4), m = p/2, m = p / 4, m = sqrt(p)
-nfeats <- ncol(the_matrix_hclust) - 2
+nfeats <- ncol(my_matrix) - 2
 mtryspace <- floor(c(nfeats, nfeats * (3/4), nfeats / 2, nfeats / 4, sqrt(nfeats)))
 
 rf_paramset <- makeParamSet(
@@ -110,7 +106,7 @@ nested_cv_res$measures.test
 # how different are the testing performances? 
 hist(nested_cv_res$measures.test$mmce, breaks = 8, xlim = c(0.2, 0.8))
 
-# plot by repetition of the nested CV 
+# plot by repetition of the nested CV
 
 # accessing the predictions made during resampling:
 # which is of class "ResamplePrediction", a subclass of "Prediction" 
@@ -121,19 +117,18 @@ hist(nested_cv_res$measures.test$mmce, breaks = 8, xlim = c(0.2, 0.8))
 nested_cv_res_pred_l <- getRRPredictionList(nested_cv_res)
 nested_cv_res_pred_df <- as.data.frame(nested_cv_res_pred)
 
-# but not clear how it is organised: we have a column 'iter', which goes from 1 to 30 (3-fold CV 
-# with 10 repetitions) - so is every 3 folds a new repetition? - let's check
+# column 'iter', goes from 1 to 30 - every 3 folds is a new repetition: 
 all(nested_cv_res_pred_df$set == "test")
 
 # first we have all the test, then all the training sets:
 data.frame(lengths = rle(nested_cv_res_pred_df$iter)[1], 
            values = rle(nested_cv_res_pred_df$iter)[2])
 
-# it's quite clear that the repetitions of the nested CV are stacked on top of each other:
+# the repetitions of the nested CV are stacked on top of each other:
 sort(c(nested_cv_res_pred_df$id[1:72]))
 sort(c(nested_cv_res_pred_df$id[73:144]))
 
-# concerning the models: they are saved in the $model slot:
+# models are saved in the $model slot:
 # e.g.:
 model1 <- nested_cv_res$models[[1]] # is a fused learner (with tuning) - check also https://www.rdocumentation.org/packages/mlr/versions/2.12.1/topics/makeTuneWrapper
 lapply(nested_cv_res$models, getTuneResult)
@@ -239,13 +234,9 @@ ggsave(filename = "./plots/confusion_matrix_norm_by_row.pdf", width = 12, height
 Make a precision-recall curve by varying the prediction threshold for one class vs. the others. 
 
 ```{r}
-# this is the relevant data frame:
 head(nested_cv_res_pred_df)
 
-# step 1: adjust thresholds for prediction
-
-
-# step 2: calculate a confusion matrix based on the threshold (1 vs. other)
+# calculate a confusion matrix based on the threshold (1 vs. other)
 calculateConfusionMatrix(nested_cv_res_pred)
 # alternatively:
 (my_cm <- table("true" = nested_cv_res_pred_df$truth, 
@@ -256,7 +247,7 @@ nc <- nrow(my_cm) # number of classes
 rowsums <- rowSums(my_cm)
 colsums <- colSums(my_cm)
 
-# make a list with all all vs. all matrices:
+# make a list with all one vs. all matrices:
 classnames_helper <- 1:nc
 names(classnames_helper) <- dimnames(my_cm)[["true"]]
 one_vs_all_matrices <- 
@@ -266,114 +257,6 @@ one_vs_all_matrices <-
                   nrow = 2, byrow = T)
       return(m)
    }, USE.NAMES = TRUE, simplify = FALSE)
-
-# given a 2x2 confusion matrix, we calculate precision and recall like this:
-my_calculate_prec <- function(m) {
-   # expects a 2x2 matrix, will return precision for the first of the two classes
-   if (! (all(dim(m) == c(2, 2)))) {
-      stop("Function expects a 2x2 matrix")
-   }
-   
-   precision <- m[1, 1] / colSums(m)[1]
-   
-   classname <- dimnames(m)[[1]][1]
-   if (is.null(classname)) {
-      classname <- "`1`"
-   }
-   names(precision) <- classname
-   return(precision)
-}
-
-my_calculate_recall <- function(m) {
-   if (! (all(dim(m) == c(2, 2)))) {
-      stop("Function expects a 2x2 matrix")
-   }
-   
-   recall <- m[1, 1] / rowSums(m)[1]
-   
-   classname <- dimnames(m)[[1]][1]
-   if (is.null(classname)) {
-      classname <- "`1`"
-   }
-   names(recall) <- classname
-   return(recall)
-}
-
-my_calculate_fpr <- function(m) {
-   if (! (all(dim(m) == c(2, 2)))) {
-      stop("Function expects a 2x2 matrix")
-   }
-   
-   fpr <- m[2, 1] / rowSums(m)[2]
-   
-   classname <- dimnames(m)[[1]][1]
-   if (is.null(classname)) {
-      classname <- "`1`"
-   }
-   names(fpr) <- classname
-   return(fpr)
-}
-
-# step 3: write a function that varies the threshold and then makes a plot
-# function to make the respective data frame:
-pred_df_to_onevsall_cm <- function(pred_df, targetclass, truthcol = "truth", predictcol = "response", 
-                                   probability_col = NULL, thresh = NULL) {
-   # turns a data frame into a one vs all confusion matrix
-   # can adjust the threshold for class prediction of targetclass by passing argument thresh
-   # otherwise truth and response columns are not modified
-   pred_df[, c(truthcol, predictcol)] <- 
-      lapply(pred_df[, c(truthcol, predictcol)], function(x) {
-         x <- as.character(x)
-         x <- ifelse(x == targetclass, targetclass, "other")
-         return(x)
-      }) 
-   
-   if (! is.null(thresh)) {
-      if (is.null(probability_col)) stop("Must provide a column for probability thresholding")
-      pred_df[[predictcol]] <- ifelse(pred_df[[probability_col]] > thresh, targetclass, "other")
-   }
-   
-   pred_df[, c(truthcol, predictcol)] <- 
-      lapply(pred_df[, c(truthcol, predictcol)], function(x) {
-         x <- factor(x, levels = c(targetclass, "other"))
-         return(x)
-      })
-   
-   cm <- table(pred_df[, c(truthcol)], 
-               pred_df[, c(predictcol)])
-   names(dimnames(cm)) <- list(truthcol, predictcol)
-   
-   return(cm)
-}
-
-get_measure_from_thresholds <- function(thresholds, perf_func, data, targetclass, prefix = "prob.") {
-   # takes a vector of thresholds, a function for a performance metric, a prediction data frame 
-   # and a target class to get a vector of the chosen performance metric for targetclass vs. all 
-   # the other classes
-   # thresholds: a vector of probability thresholds
-   # perf_func: a function to calculate a performance measure from a confusion matrix 
-   # data: a prediction data frame
-   # targetclass: the class for which the performance should be calculated
-   # prefix: the prefix for targetclass used in data to apply the thresholds to 
-   if ( (!is.numeric(thresholds)) | any(c(range(thresholds) < 0, range(thresholds) > 1)) ) {
-      stop("Provided vector thresholds is not numeric or thresholds don't lie between 0 and 1.")
-   }
-   if ( ! is.function(perf_func)) {
-      stop("perf_func is not a function.")
-   }
-   
-   probcol <- paste0(prefix, targetclass)
-   if (! probcol %in% colnames(data)) {
-      stop("Probabilities for the target class do not exist in the provided data.")
-   }
-   
-   res <- sapply(thresholds, function(x) {
-      tmp_dfr <- pred_df_to_onevsall_cm(pred_df = data, targetclass = targetclass, 
-                                        probability_col = probcol, thresh = x)
-      perf_func(tmp_dfr)
-   })
-   return(res)
-}
 
 threshold <- seq(from = 1, to = 0, by = -0.01)
 prec_recall_df <- data.frame(threshold = threshold, 
@@ -388,9 +271,9 @@ prec_recall_df <-
         lapply(split(prec_recall_df, prec_recall_df$targetclass), function(x) {
            targetclass <- unique(x$targetclass)
            
-           my_funcs <- list(precision = my_calculate_prec, 
-                            recall = my_calculate_recall, 
-                            fpr = my_calculate_fpr)
+           my_funcs <- list(precision = calculate_prec, 
+                            recall = calculate_recall, 
+                            fpr = calculate_fpr)
            
            x <- cbind(x, sapply(my_funcs, function(f) {
               get_measure_from_thresholds(thresholds = x$threshold, perf_func = f, 
@@ -413,9 +296,7 @@ ggplot(prec_recall_df, aes(x = fpr, y = recall)) +
    geom_abline(intercept = 0, slope = 1, size = 2) + 
    theme(text = element_text(size = 24))
 ggsave("./plots/au-roc_rf_hclust.pdf", width = 14, height = 10)
-
 ```
-
 
 
 
@@ -424,10 +305,3 @@ parallelStop()
 R.version
 sessionInfo()
 ```
-
-
-
-
-
-
-
