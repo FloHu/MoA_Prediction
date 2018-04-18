@@ -51,7 +51,7 @@ if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
 ### Running the algorithm 
 
 ```{r}
-load("the_matrix_top10pct.RData")
+load("./data/the_matrix_top10pct.RData")
 my_matrix <- the_matrix_top10pct
 
 rf_task <- makeClassifTask(data = select(my_matrix, -drugname_typaslab), 
@@ -75,8 +75,7 @@ rf_ctrl <- makeTuneControlGrid()
 
 # define resampling
 rf_rdesc_inner <- makeResampleDesc("CV", iters = 3L, stratify = TRUE, predict = "both")
-# rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 10L, stratify = TRUE, predict = "both")
-rf_desc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 10L, stratify = TRUE, predict = "test")
+rf_rdesc_outer <- makeResampleDesc("RepCV", folds = 3L, reps = 10L, stratify = TRUE, predict = "test")
 
 rf_learner_wrapped <- makeTuneWrapper(learner = rf_learner, 
                                       resampling = rf_rdesc_inner, 
@@ -86,7 +85,7 @@ rf_learner_wrapped <- makeTuneWrapper(learner = rf_learner,
 
 nested_cv_res <- resample(learner = rf_learner_wrapped, 
                           task = rf_task, 
-                          resampling = rf_desc_outer, 
+                          resampling = rf_rdesc_outer, 
                           models = TRUE) # or extract only selected parts using extract argument
 ```
 
