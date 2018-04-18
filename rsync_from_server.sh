@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# Script name: rsync_to_server.sh
+# Script name: rsync_from_server.sh
 
-# Description: This script synchronises files from 'MoA_Prediction' to the EMBL
-# server so that jobs can be executed on the cluster.
+# Description: This script synchronises files from the directory /home/dubois/MoA_Prediction/run_results
+# to the local (Github) MoA_Prediction project into run_results_from_server/
 
-SOURCEFILES="/home/dubois/results/*.txt"
+SOURCEFILES="/home/dubois/MoA_Prediction/run_results/*.RData"
 SOURCEHOST="login.cluster.embl.de"
 USER=$(whoami)
-TARGETDIR="./results_from_server/"
+TARGETDIR="./run_results_from_server/"
 
 # echo "Sending from ${FROM_HOSTNAME}@${USER} to ${TO_HOSTNAME}@${USER}"
 
@@ -17,6 +17,5 @@ TARGETDIR="./results_from_server/"
 # -v = increase verbosity
 # -z = use compression
 # --progress: show progress during transfer
-# --relative: to preserve the full path (so that directories are reproduced at the target)
 
 rsync -avz --progress ${USER}@${SOURCEHOST}:${SOURCEFILES} ${TARGETDIR}

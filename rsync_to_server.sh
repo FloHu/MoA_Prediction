@@ -2,13 +2,14 @@
 
 # Script name: rsync_to_server.sh
 
-# Description: This script synchronises files from 'MoA_Prediction' to the EMBL
-# server so that jobs can be executed on the cluster.
+# Description: This script synchronises files from the directories R/ and clusterscripts/
+# in the 'MoA_Prediction' project (Github) to the EMBL server (/home/dubois/MoA_Prediction)
+# so that jobs can be executed on the cluster.
 
-SOURCEFILES="yetanothertestfile.txt testfolder/*.txt testfolder2/*.txt"
+SOURCEFILES="clusterscripts/*.sh clusterscripts/*.R R/*.R data/*.RData"
 TO_HOSTNAME="login.cluster.embl.de"
 USER=$(whoami)
-TARGETDIR="/home/dubois"
+TARGETDIR="/home/dubois/MoA_Prediction"
 
 # echo "Sending from ${FROM_HOSTNAME}@${USER} to ${TO_HOSTNAME}@${USER}"
 
