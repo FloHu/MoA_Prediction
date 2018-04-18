@@ -13,9 +13,8 @@ TARGETDIR="./run_results_from_server/"
 # echo "Sending from ${FROM_HOSTNAME}@${USER} to ${TO_HOSTNAME}@${USER}"
 
 # options:
-# -a = archive mode
 # -v = increase verbosity
 # -z = use compression
 # --progress: show progress during transfer
 
-rsync -avz --progress ${USER}@${SOURCEHOST}:${SOURCEFILES} ${TARGETDIR}
+rsync -vz --progress ${USER}@${SOURCEHOST}:${SOURCEFILES} ${TARGETDIR}
