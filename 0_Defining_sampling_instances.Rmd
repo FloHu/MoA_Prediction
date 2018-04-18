@@ -31,7 +31,7 @@ library(mlr)
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-load(file = "the_matrix.RData")
+load(file = "data/the_matrix.RData")
 the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 
 ```
@@ -57,7 +57,7 @@ Because of the size of the dataset, a 5x5 nested CV will end with very few membe
 ```{r function}
 
 #Makes more sense to put it here than in a seperate file
-instance_creation = function(printTest = F, nFoldsOuter = 3, nFoldsInner = 3){
+instance_creation = function(printTest = F, nFoldsOuter = 10, nFoldsInner = 10){
     the_matrix = select(the_matrix, -drugname_typaslab)
     sampling_method = makeResampleDesc(method = "CV", iters = nFoldsOuter, stratify = TRUE)
     
@@ -108,7 +108,7 @@ instance_creation = function(printTest = F, nFoldsOuter = 3, nFoldsInner = 3){
 
 
 
-```{r}
+```{r }
 
 Rep_Nest_CV_instance = list()
 for(i in 1:10){
@@ -144,7 +144,7 @@ for (i in 1:30){
 
 ```{r export data}
 
-save(Rep_Nest_CV_instance, file = "Rep_Nest_CV.RData")
+save(Rep_Nest_CV_instance, file = "data/Rep_Nest_CV.RData")
 
 ```
 
