@@ -14,10 +14,9 @@ TARGETDIR="/home/dubois/MoA_Prediction"
 # echo "Sending from ${FROM_HOSTNAME}@${USER} to ${TO_HOSTNAME}@${USER}"
 
 # options:
-# -a = archive mode
 # -v = increase verbosity
 # -z = use compression
 # --progress: show progress during transfer
 # --relative: to preserve the full path (so that directories are reproduced at the target)
 
-rsync -avz --progress --relative ${SOURCEFILES} ${USER}@${TO_HOSTNAME}:${TARGETDIR}
+rsync -vz --progress --relative ${SOURCEFILES} ${USER}@${TO_HOSTNAME}:${TARGETDIR}
