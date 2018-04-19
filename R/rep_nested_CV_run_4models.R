@@ -44,7 +44,9 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
                 #create a nez matrix of all data with different process annotation
                 custom_matrix = data_matrix %>% 
                                 mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
-                                
+                
+                custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
+
                 #Thus the task should change because only a subset of the whole data should be used
                 predictMoa = makeClassifTask(data = custom_matrix[ outerCV_training_set , ], target = "process_broad")
                 
