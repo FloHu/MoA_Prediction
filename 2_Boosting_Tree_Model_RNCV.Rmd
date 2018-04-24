@@ -154,15 +154,15 @@ if(!require(xgboost)){
 library(xgboost)
 
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("nrounds", values = c(300)), # number of trees
-    makeDiscreteParam("max_depth", values = c(2)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
+    makeDiscreteParam("nrounds", values = c(400)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1,2,3)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
     makeDiscreteParam("eta", values = c(0.1)), #Shrinkage to prevent overfitting
     makeDiscreteParam("lambda", values = c(0.1)) # regularization to prevent overfitting
 )
 bt_tuning = makeTuneControlGrid()
 
 
-result_xgb_5pc_4model_test2 = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)
+result_xgb_5pc_4model_fullDrugs = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
 
 
 #result_xgb_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)

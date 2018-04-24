@@ -2,7 +2,7 @@
 #
 #                   CLUSTER RUN FOR TREE BASED METHODS 
 #
-#                       run of 19/04/2018
+#                       run of 23/04/2018
 #
 # ==============================================================================
 
@@ -31,16 +31,6 @@ library(xgboost)
 library(rpart)
 library(randomForest)
 
-if(!require(foreach)){
-    install.packages("foreach")
-}
-library(foreach)
-
-if(!require(iterators)){
-    install.packages("iterators")
-}
-library(iterators)
-
 walk(list.files(paste(filepath_for_import, "R/", sep = ""), pattern = "*.R", full.names = T), source)
 
 
@@ -55,10 +45,9 @@ parallelStartMulticore(cpus = 24 )
 
 #Hyperparameter tuning
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("nrounds", values = c(400,500,1000)), # number of trees
+    makeDiscreteParam("nrounds", values = c(600)), # number of trees
     makeDiscreteParam("max_depth", values = c(1,2,3,5,10)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
-    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), #Shrinkage to prevent overfitting
-    makeDiscreteParam("lambda", values = c(0.1,0.5,1)) # regularization to prevent overfitting
+    makeDiscreteParam("eta", values = c(0.01,0.1,0.3))#Shrinkage to prevent overfitting
 )
 bt_tuning = makeTuneControlGrid()
 

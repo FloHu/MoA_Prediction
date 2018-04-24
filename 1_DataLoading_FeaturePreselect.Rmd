@@ -82,7 +82,17 @@ Join drug tables with mode of action information. We only keep drugs which targe
 'dna', 'protein_synthesis' and 'membrane_stress' because the other MoAs don't have enough class 
 members for predictions. Exclude the respective drugs from `the_matrix`. 
 
+Here, one has to choose to build the Matrix with MoA to predictm or all MoA except "unknown"
+
 ```{r}
+drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
+   select(-moa_id) %>% 
+   filter(!process_broad %in% c("unknown"))
+
+the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
+```
+
+```{r eval = F}
 moas_to_keep <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
 
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
@@ -91,6 +101,9 @@ drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad"
 
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
 ```
+
+
+
 
 For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
 them: the one with most phenotypes over all conditions.
@@ -180,18 +193,27 @@ the_matrix <- left_join(the_matrix, drugs_full_selected_features)
 labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 ```
 
-Done. 
-
-```{r}
-save("the_matrix", "labels", file = "the_matrix.RData")
-```
-
-
-## Do further feature preselection
 
 ```{r}
 the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
+
+Done. 
+
+```{r eval = F}
+save("the_matrix", "labels", file = "data/the_matrix.RData")
+```
+
+OR
+
+```{r}
+the_matrix_allDrugs = the_matrix
+labels_allDrugs = labels
+save(the_matrix_allDrugs, labels_allDrugs, file = "data/the_matrix_allDrugs.RData")
+```
+
+
+## Do further feature preselection
 
 
 ### Taking features with the highest variance
@@ -200,7 +222,7 @@ the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y 
 
 Top 10 % of features sorted by variance. 
 
-```{r}
+```{r eval = F}
 the_matrix_top10pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 10)
 the_matrix_top5pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 5)
 
@@ -220,10 +242,35 @@ the_matrix_top10pct <- the_matrix_top10pct[, ! (colnames(the_matrix_top10pct) %i
 the_matrix_top5pct <- the_matrix_top5pct[, ! (colnames(the_matrix_top5pct) %in% 
                                                  chem_features_to_exclude)]
 
-save("the_matrix_top10pct", file = "the_matrix_top10pct.RData")
-save("the_matrix_top5pct", file = "the_matrix_top5pct.RData")
+save("the_matrix_top10pct", file = "data/the_matrix_top10pct.RData")
+save("the_matrix_top5pct", file = "data/the_matrix_top5pct.RData")
 ```
 
+OR
+
+```{r }
+the_matrix_allDrugs_top10pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 10)
+the_matrix_allDrugs_top5pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 5)
+
+# exclude some of the chemical features that will have high variance but don't seem really 
+# important
+#### FIX later
+# crude way of defining which columns represent chemical features:
+chem_features <- colnames(the_matrix_allDrugs_top10pct)[nchar(colnames(the_matrix_allDrugs_top10pct)) > 4]
+chem_features <- setdiff(chem_features, c("drugname_typaslab", "process_broad"))
+chem_features_to_exclude <- c("NumAtoms", "NumHeavyAtoms", "NumHeteroAtoms", "NumStereocenters", 
+                              "NumUnspecifiedStereocenters")
+chem_features_kept <- setdiff(chem_features, chem_features_to_exclude)
+
+the_matrix_allDrugs_top10pct <- the_matrix_allDrugs_top10pct[, ! (colnames(the_matrix_allDrugs_top10pct) %in% 
+                                                   chem_features_to_exclude)]
+
+the_matrix_allDrugs_top5pct <- the_matrix_allDrugs_top5pct[, ! (colnames(the_matrix_allDrugs_top5pct) %in% 
+                                                 chem_features_to_exclude)]
+
+save("the_matrix_allDrugs_top10pct", file = "data/the_matrix_allDrugs_top10pct.RData")
+save("the_matrix_allDrugs_top5pct", file = "data/the_matrix_allDrugs_top5pct.RData")
+```
 
 #### Do hierarchical clustering on the genes
 

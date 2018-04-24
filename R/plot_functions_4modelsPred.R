@@ -3,7 +3,7 @@
 #Concatenate prediction of test set from each fold of the outer CV
 #Get prediction object for one model of 1vs ALL
 #Each individual is predected once
-cat_outer_fold_pred = function(res = result_xgb_5pc_4model, repetition = 1, moa = "dna"){
+cat_outer_fold_pred = function(res , repetition = 1, moa = "dna"){
     
     if(!moa %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
         print("Invalid Mode of action")
@@ -26,7 +26,7 @@ cat_outer_fold_pred = function(res = result_xgb_5pc_4model, repetition = 1, moa 
 #Plot function work for 1 MoA or all
 #Generate a boxplot of a measure across all repetition
 #moa = "all" allows to compare all classes 
-plot_mean_perf = function(res = result_xgb_5pc_4model, meas = auc, moa = "dna", ...){
+plot_mean_perf = function(res , meas = auc, moa = "dna", ...){
     
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
     
@@ -53,7 +53,7 @@ plot_mean_perf = function(res = result_xgb_5pc_4model, meas = auc, moa = "dna", 
     }else{
         toPlot = c()
         for(rep in 1:10){
-            pred = cat_outer_fold_pred(repetition = rep, moa = moa)
+            pred = cat_outer_fold_pred(res = res,repetition = rep, moa = moa)
             toPlot = c(toPlot, performance(pred, measures = meas))
         } 
         boxplot(toPlot, lwd = 1.5, outline = F, 
@@ -69,7 +69,7 @@ plot_mean_perf = function(res = result_xgb_5pc_4model, meas = auc, moa = "dna", 
 #Plot function work for 1 MoA or all
 #Generate a ROC curve of all repetition, each individual is then predicted 10 times
 #moa = "all" allows to compare all classes 
-plot_ROC_rep = function(res = result_xgb_5pc_4model, moa = "dna"){
+plot_ROC_rep = function(res , moa = "dna"){
 
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
     
@@ -83,13 +83,15 @@ plot_ROC_rep = function(res = result_xgb_5pc_4model, moa = "dna"){
             a = cat_outer_fold_pred(res = res, repetition = rep, moa = moa)
             all_rep$data = rbind(all_rep$data, a$data)
         }
-        toPlot = generateThreshVsPerfData(all_rep, measures = list( fpr, tpr))
+        dataPlot = generateThreshVsPerfData(all_rep, measures = list( fpr, tpr))
         
-        ggplot(toPlot$data, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
-            geom_path() +
-            labs(x = "fpr", y ="tpr") +
-            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5)
-
+        toPlot = ggplot(dataPlot$data, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
+            geom_path( size = 2) +
+            labs(x = "fpr", y ="tpr", title = paste0(deparse(substitute(res)), " - ", moa)) +
+            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
+            theme_bw()
+        
+        toPlot
     }else{
         dataPlot = c()
         
@@ -106,17 +108,65 @@ plot_ROC_rep = function(res = result_xgb_5pc_4model, moa = "dna"){
         }
         toPlot = ggplot(data = dataPlot, do.call(aes_string, list(x = "fpr", y = "tpr"))) +
             geom_path(mapping = aes(color = MoA), size = 2) +
-            labs(x = "fpr", y = "tpr") +
+            labs(x = "fpr", y = "tpr", title = deparse(substitute(res))) +
             geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) + 
-            scale_color_manual(values = rainbow(length(set_MoA)))
+            scale_color_manual(values = rainbow(length(set_MoA))) +
+            theme_bw()
         
         toPlot
     }
 }
 
 
+#Might be interesting to code a general function taking a list of results 
+compare_ROC_2models = function(res1, res2, moa = "dna"){
+    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+    
+    if(!moa %in% c(set_MoA, "all")){
+        print("Invalid Mode of action")
+        return(-1)
+    }
+    if(moa != "all"){
+        dataPlot = c()
+        all_rep_res1 = cat_outer_fold_pred(res = res1, repetition = 1, moa = moa)
+        for (rep in 2:10) {
+            a = cat_outer_fold_pred(res = res1, repetition = rep, moa = moa)
+            all_rep_res1$data = rbind(all_rep_res1$data, a$data)
+        }
+        all_rep_res2 = cat_outer_fold_pred(res = res2, repetition = 1, moa = moa)
+        for (rep in 2:10) {
+            a = cat_outer_fold_pred(res = res2, repetition = rep, moa = moa)
+            all_rep_res2$data = rbind(all_rep_res2$data, a$data)
+        }
+        
+        
+        x1 = generateThreshVsPerfData(all_rep_res1, measures = list( fpr, tpr))
+        x1 = x1$data
+        x1$Model = deparse(substitute(res1))
+        x2 = generateThreshVsPerfData(all_rep_res2, measures = list( fpr, tpr))
+        x2 = x2$data
+        x2$Model = deparse(substitute(res2))
+        dataPlot = rbind(x1, x2)
+        
+        ggplot(dataPlot, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
+            geom_path(mapping = aes(color = Model), size = 2) +
+            labs(x = "fpr", y ="tpr", title = paste0(deparse(substitute(res)), " - ", moa)) +
+            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
+            scale_color_manual(values = rainbow(length(set_MoA))) +
+            theme_bw()
+        
+    }else{
+        library(grid)
+        library(gridExtra)
+        grid.arrange(plot_ROC_rep(res = res1, moa = "all"), plot_ROC_rep(res = res2, moa = "all"), nrow = 1)
+    }
+    
+}
 
-plot_prec_recall = function(res = result_xgb_5pc_4model_test2, moa = "dna"){
+
+
+
+plot_prec_recall = function(res , moa = "dna"){
     
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
     
@@ -152,7 +202,8 @@ plot_prec_recall = function(res = result_xgb_5pc_4model_test2, moa = "dna"){
         toPlot = ggplot(data = dataPlot, do.call(aes_string, list(x = "ppv", y = "tpr"))) +
             geom_path(mapping = aes(color = MoA), size = 2) +
             labs(x = "tpr (Recall)", y ="ppv (Precision)") +
-            scale_color_manual(values = rainbow(length(set_MoA)))
+            scale_color_manual(values = rainbow(length(set_MoA))) +
+            theme_bw()
         
         toPlot
     }
@@ -160,10 +211,9 @@ plot_prec_recall = function(res = result_xgb_5pc_4model_test2, moa = "dna"){
 
 
 
-
 #as expected only a few features are really important, most of the time, features convey nearly no information
 #Might be interresting to just plot the top X (5,10) features and do a 4 class Venn Diagramm
-plot_feat_4model= function(res = result_xgb_5pc_4model_test2, moa = "dna"){
+plot_feat_4model= function(res , moa = "dna"){
     n_rep = length(res)
     n_folds = length(res[[1]])
    
@@ -188,4 +238,3 @@ plot_feat_4model= function(res = result_xgb_5pc_4model_test2, moa = "dna"){
     return(sort(apply(aa, 1, sum)))
 }
 
-plot_feat_4model()

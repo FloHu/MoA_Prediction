@@ -6,8 +6,12 @@
 
 rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_param, 
                              run_tuning, saveFeatImportance = F, tuning_measure = ppv,
-                             predict_type = "prob"){
+                             predict_type = "prob", wilcoxSelection = F){
     
+    if(!require(iterators)){
+        install.packages("iterators")
+    }
+    library(iterators)
     if(!require(foreach)){
         install.packages("foreach")
     }
@@ -41,12 +45,19 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
             #Seems better to put moa list inside the function, if arg would be less obvious when reading
             for (moa in c("dna", "cell_wall", "membrane_stress", "protein_synthesis")) {
                 
-                #create a nez matrix of all data with different process annotation
+                #create a new matrix of all data with different process annotation
                 custom_matrix = data_matrix %>% 
                                 mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
                 
                 custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
 
+                if(wilcoxSelection){
+                    toKeep = apply(custom_matrix[, -1], 2, function(x){
+                        wilcox.test(x ~ custom_matrix$process_broad)$p.value <= 0.05
+                    })
+                    custom_matrix = custom_matrix[, c(TRUE, toKeep)]
+                }
+                
                 #Thus the task should change because only a subset of the whole data should be used
                 predictMoa = makeClassifTask(data = custom_matrix[ outerCV_training_set , ], target = "process_broad")
                 
