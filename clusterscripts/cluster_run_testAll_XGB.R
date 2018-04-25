@@ -58,35 +58,35 @@ bt_hyp_param = makeParamSet(
 bt_tuning = makeTuneControlGrid()
 
 
-
-
-
-result_XGBT_5pc_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_XGBT_5pc_tunePPV, file = paste0(filepath_for_export, "result_XGBT_5pc_tunePPV.RData"))
-
-result_XGBT_5pc_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
-save(result_XGBT_5pc_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_5pc_tuneMMCE.RData"))
-
-result_XGBT_5pc_allDrugs_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_XGBT_5pc_allDrugs_tunePPV, file = paste0(filepath_for_export, "result_XGBT_5pc_allDrugs_tunePPV.RData"))
-
-result_XGBT_5pc_allDrugs_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
-save(result_XGBT_5pc_allDrugs_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_5pc_allDrugs_tuneMMCE.RData"))
-
-
-
-result_XGBT_10pc_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_XGBT_10pc_tunePPV, file = paste0(filepath_for_export, "result_XGBT_10pc_tunePPV.RData"))
-
-result_XGBT_10pc_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
-save(result_XGBT_10pc_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_10pc_tuneMMCE.RData"))
-
-result_XGBT_10pc_allDrugs_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-save(result_XGBT_10pc_allDrugs_tunePPV, file = paste0(filepath_for_export, "result_XGBT_10pc_allDrugs_tunePPV.RData"))
-
-result_XGBT_10pc_allDrugs_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
-save(result_XGBT_10pc_allDrugs_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_10pc_allDrugs_tuneMMCE.RData"))
-
+# 
+# 
+# 
+# result_XGBT_5pc_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+# save(result_XGBT_5pc_tunePPV, file = paste0(filepath_for_export, "result_XGBT_5pc_tunePPV.RData"))
+# 
+# result_XGBT_5pc_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
+# save(result_XGBT_5pc_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_5pc_tuneMMCE.RData"))
+# 
+# result_XGBT_5pc_allDrugs_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+# save(result_XGBT_5pc_allDrugs_tunePPV, file = paste0(filepath_for_export, "result_XGBT_5pc_allDrugs_tunePPV.RData"))
+# 
+# result_XGBT_5pc_allDrugs_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
+# save(result_XGBT_5pc_allDrugs_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_5pc_allDrugs_tuneMMCE.RData"))
+# 
+# 
+# 
+# result_XGBT_10pc_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+# save(result_XGBT_10pc_tunePPV, file = paste0(filepath_for_export, "result_XGBT_10pc_tunePPV.RData"))
+# 
+# result_XGBT_10pc_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
+# save(result_XGBT_10pc_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_10pc_tuneMMCE.RData"))
+# 
+# result_XGBT_10pc_allDrugs_tunePPV = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
+# save(result_XGBT_10pc_allDrugs_tunePPV, file = paste0(filepath_for_export, "result_XGBT_10pc_allDrugs_tunePPV.RData"))
+# 
+# result_XGBT_10pc_allDrugs_tuneMMCE = rep_nested_CV_run_4models(data_matrix = the_matrix_allDrugs_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance_allDrugs, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning, tuning_measure = mmce)
+# save(result_XGBT_10pc_allDrugs_tuneMMCE, file = paste0(filepath_for_export, "result_XGBT_10pc_allDrugs_tuneMMCE.RData"))
+# 
 
 
 

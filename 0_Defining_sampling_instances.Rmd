@@ -53,6 +53,11 @@ Thus, the exact strategy for assessing models' performances and comparing them c
 
 Because of the size of the dataset, a 5x5 nested CV will end with very few members of each class to predict in the inner testing sets. A 3x3 nested CV presents bigger sets and less computational loop (9 instead of 25) 
 
+24/04/2018
+After meeting Georg, turns out, for we have a small dataset, a bigger amount of fold is better. Thus the training set will countain more individuals. 
+The testing sets can be aggregated afterwards, each individual being predicted by a model which did not learn from him.
+
+## Function
 
 ```{r function}
 
@@ -106,6 +111,28 @@ instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInne
 
 ```
 
+## Creation of repeated CV instance
+
+```{r echo = F }
+
+the_matrix_allDrugs = mutate(the_matrix_allDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+
+Rep_Nest_CV_instance_allDrugs = list()
+for(i in 1:10){
+    name = paste("NCV_", as.character(i), sep="")
+    Rep_Nest_CV_instance_allDrugs[[name]] = instance_creation(dataset = the_matrix_allDrugs, printTest = T)
+}
+
+Rep_Nest_CV_instance = list()
+for(i in 1:10){
+    name = paste("NCV_", as.character(i), sep="")
+    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = the_matrix, printTest = T)
+}
+
+
+```
+
+
 # Adding blocking factor
 
 Too much chemical similarities beetween some drugs
@@ -127,26 +154,67 @@ fp_clust_groups = factor(fp_clust_groups)
 
 Error in makeResampleInstance(sampling_method, outer_task) : Blocking can currently not be mixed with stratification in resampling!
 
+## Blocking Resampling Functions 
 
+The trick here is not to generate a blocked sampling but instead to generate a sampling, check if it respects the blocking condition, keep it if yes or generate new sampling if not.
 
-```{r echo = F }
+In our case, this trick can work because the number of groups to block as well as their size is small enough.
 
-the_matrix_allDrugs = mutate(the_matrix_allDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
-
-Rep_Nest_CV_instance_allDrugs = list()
-for(i in 1:10){
-    name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance_allDrugs[[name]] = instance_creation(dataset = the_matrix_allDrugs, printTest = T)
+```{r}
+make_blocked_instance = function(sampling_method, sampleTask, nFolds, blockingFactor){
+    blocked_instance_outer = makeResampleInstance(sampling_method, sampleTask)
+    for(i in 1:nFolds){
+        blocked_instance_outer$train.inds[[i]] = c()
+        blocked_instance_outer$test.inds[[i]] = c()
+    }
+    nbBlocked = 1
+    while(nbBlocked < nFolds+1){
+        sample_instance_outer =  makeResampleInstance(sampling_method, sampleTask)
+        for(w in 1:nFolds){
+            groupsTrain = blockingFactor[sample_instance_outer$train.inds[[w]]]
+            groupsTest = blockingFactor[sample_instance_outer$test.inds[[w]]]
+            
+            if(length(intersect(groupsTest, groupsTrain)) == 0){
+                blocked_instance_outer$train.inds[[nbBlocked]] = sample_instance_outer$train.inds[[w]]
+                blocked_instance_outer$test.inds[[nbBlocked]] = sample_instance_outer$test.inds[[w]]
+                nbBlocked = nbBlocked +1
+            }
+            if(nbBlocked >= nFolds+1)
+                break()
+        }
+    }
+    #test if all folds are different
+    lapply(blocked_instance_outer$train.inds, sort)
+    
+    return(blocked_instance_outer)
 }
 
-Rep_Nest_CV_instance = list()
-for(i in 1:10){
-    name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = the_matrix, printTest = T)
+################################################################################
+
+instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8, blockingFactor){
+    dataset = select(dataset, -drugname_typaslab)
+    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsOuter, stratify = TRUE)
+    
+    # outer instance
+    outer_task =  makeClassifTask(data = dataset, target = "process_broad")
+
+    sample_instance_outer = make_blocked_instance(sampling_method = sampling_method, sampleTask = outer_task, nFolds = nFoldsOuter, blockingFactor = blockingFactor)
+    
+    # defining inner instances
+    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsInner, stratify = TRUE)
+    sample_instance_inner = list()
+    for(i in 1:nFoldsOuter){
+        inner_task = makeClassifTask(data = dataset[ sample_instance_outer$train.inds[[i]] , ], target = "process_broad")
+        sample_instance_inner[[i]] = make_blocked_instance(sampling_method = sampling_method, sampleTask = inner_task, nFolds = nFoldsInner, blockingFactor = blockingFactor)
+    }
+    
+    nested_CV_instance = list(outer = sample_instance_outer, inner = sample_instance_inner)
+    return(nested_CV_instance)
 }
-
-
 ```
+
+
+# Testting chunks - print class repartition inside Folds
 
 
 

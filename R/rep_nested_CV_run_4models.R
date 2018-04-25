@@ -52,10 +52,10 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
                 custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
 
                 if(wilcoxSelection){
-                    toKeep = apply(custom_matrix[, -1], 2, function(x){
-                        wilcox.test(x ~ custom_matrix$process_broad)$p.value <= 0.05
+                    toKeep = apply(custom_matrix[outerCV_training_set, -1], 2, function(x){
+                        wilcox.test(x ~ custom_matrix[outerCV_training_set, "process_broad"])$p.value <= 0.05
                     })
-                    custom_matrix = custom_matrix[, c(TRUE, toKeep)]
+                    custom_matrix = custom_matrix[ , c(TRUE, toKeep)]
                 }
                 
                 #Thus the task should change because only a subset of the whole data should be used

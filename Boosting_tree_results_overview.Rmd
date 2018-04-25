@@ -1,0 +1,147 @@
+---
+title: "Boosting Tree model : Results overview"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = F)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+```
+
+# Results loading
+
+
+```{r}
+walk(list.files("./run_results_from_server", pattern = "result_XGBT*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
+```
+
+the grid used to tune the models was the following one :
+- `nrounds` (number of trees) : 200,500
+- `max_depth` : 1,2,3
+- `eta` (learning rate) : 0.01, 0.1, 0.5
+
+
+```{r eval = F, echo = F}
+library(grid)
+library(gridExtra)
+
+grid.arrange(nrow = 4, ncol = 2,
+    plot_ROC_rep(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"),
+    plot_ROC_rep(result_XGBT_10pc_allDrugs_tunePPV, moa = "all"),
+    plot_ROC_rep(result_XGBT_10pc_tuneMMCE, moa = "all"),
+    plot_ROC_rep(result_XGBT_10pc_tunePPV, moa = "all"),
+    plot_ROC_rep(result_XGBT_5pc_allDrugs_tuneMMCE, moa = "all"),
+    plot_ROC_rep(result_XGBT_5pc_allDrugs_tunePPV, moa = "all"),
+    plot_ROC_rep(result_XGBT_5pc_tuneMMCE, moa = "all"),
+    plot_ROC_rep(result_XGBT_5pc_tunePPV, moa = "all")
+)
+
+```
+
+# Hyperparameter tuning measure
+
+## Feature selection 5 % top variance
+
+```{r fig.height=5, fig.width=12}
+# Effect of mesure used for HyperParameter tuning
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_5pc_allDrugs_tunePPV, moa = "all")
+compare_ROC_2models(res1 = result_XGBT_5pc_tuneMMCE, res2 = result_XGBT_5pc_tunePPV, moa = "all")
+
+```
+
+The measure PPV or MMCE chosen for hyperparamter tuning seems to have no effect when all Drugs used. In models built with only the 72 drugs whose MoA is predicted, slight changes are present but could also be explained by a lack a robustness 
+
+## Feature selection 10 % top variance
+
+
+```{r fig.height=5, fig.width=12}
+# Effect of mesure used for HyperParameter tuning
+compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tunePPV, moa = "all")
+compare_ROC_2models(res1 = result_XGBT_10pc_tuneMMCE, res2 = result_XGBT_10pc_tunePPV, moa = "all")
+
+```
+
+Slight differences here, nothing to conclude from ROC curves
+
+
+# All drugs VS only the ones whose MoA is predicted
+
+## Feature selection 10 % top variance
+
+```{r fig.height=5, fig.width=12}
+compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_tuneMMCE, moa = "all")
+compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tunePPV, res2 = result_XGBT_10pc_tunePPV, moa = "all")
+
+```
+
+
+## Feature selection 5 % top variance
+
+```{r fig.height=5, fig.width=12}
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_5pc_tuneMMCE, moa = "all")
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tunePPV, res2 = result_XGBT_5pc_tunePPV, moa = "all")
+
+```
+
+
+In brief, no strong differences but all Drugs should be more robust, so focus on this kind of dataset
+Moreover, one measure for tuning has to be chosen. MMCE seems better than PPV which can not always be computed in small inner folds
+
+
+
+
+# Detailed measure - Feature selection - All drugs + MMCE parameter tuning
+
+```{r fig.height=5, fig.width=12}
+# Effect of mesure used for HyperParameter tuning
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
+```
+```{r fig.height=5, fig.width=7}
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+```
+
+Chosing 5 % makes well predicted MoA slightly better and badly predicted MoA slightly worse
+
+
+
+# Draft for feature Importance
+
+```{r }
+
+dna_feat = list()
+
+m = "dna"
+for (r in ls(pattern = "result*")) {
+    print(r)
+    a = plot_feat_4model(res= get(r), moa = m)
+    a = sort(a, decreasing = T)[1:10]
+    dna_feat[[r]] = a
+}
+
+```
