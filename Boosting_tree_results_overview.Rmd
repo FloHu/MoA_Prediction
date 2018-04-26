@@ -36,6 +36,8 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 ```{r}
 walk(list.files("./run_results_from_server", pattern = "result_XGBT*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
+#walk(list.files("./run_results_from_server", pattern = "result_RF_*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
+
 ```
 
 the grid used to tune the models was the following one :
@@ -72,7 +74,7 @@ compare_ROC_2models(res1 = result_XGBT_5pc_tuneMMCE, res2 = result_XGBT_5pc_tune
 
 ```
 
-The measure PPV or MMCE chosen for hyperparamter tuning seems to have no effect when all Drugs used. In models built with only the 72 drugs whose MoA is predicted, slight changes are present but could also be explained by a lack a robustness 
+The measure PPV or MMCE chosen for hyperparamter tuning seems to have no effect when all Drugs used (MMCE slightly better). In models built with only the 72 drugs whose MoA is predicted, slight changes are present but could also be explained by a lack a robustness 
 
 ## Feature selection 10 % top variance
 
@@ -145,3 +147,41 @@ for (r in ls(pattern = "result*")) {
 }
 
 ```
+
+
+# Best runs comparison RF vs XGB
+
+grid for RF was 
+- `ntree` (number of trees) : 200,500
+- `mtry` : p, p*(3/4), p/2, p/4, sqrt(p)
+
+
+```{r}
+load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
+```
+
+
+
+```{r fig.height=5, fig.width=7}
+compare_ROC_2models(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+compare_ROC_2models(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+compare_ROC_2models(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+compare_ROC_2models(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+
+```
+
+## RF 10 % top variance all drugs, tune MMCE
+
+```{r fig.height=5, fig.width=7}
+plot_mean_perf(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "all", meas = mmce)
+plot_mean_perf(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "all", meas = auc)
+```
+
+## XGBT 10 % top variance all drugs, tune MMCE
+
+```{r fig.height=5, fig.width=7}
+plot_mean_perf(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all", meas = mmce)
+plot_mean_perf(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all", meas = auc)
+```
+

@@ -1,0 +1,165 @@
+---
+title: "RF and XGBT : Features used"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = F)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+```
+
+# Results loading
+
+
+Hyperparameter grid for RF was :
+- `ntree` (number of trees) : 200,500
+- `mtry` : p, p*(3/4), p/2, p/4, sqrt(p)
+
+Hyperparameter grid for XGBT was :
+- `nrounds` (number of trees) : 200,500
+- `max_depth` : 1,2,3
+- `eta` (learning rate) : 0.01, 0.1, 0.5
+
+```{r}
+load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
+load("./data/the_matrix_allDrugs_top10pct.RData")
+load("../dbsetup/data/genesWithEG_ID.RData")
+```
+
+Focus only on these two, mainly because RF is really better with 10% top variance and MMCE tuning so one should use the exact same results set for XGBT
+
+## DNA features importance
+
+```{r}
+feat_RF_dna = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
+feat_XGBT_dna = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+
+a = names(sort(feat_RF_dna, decreasing = T)[1:10])
+b = names(sort(feat_XGBT_dna, decreasing = T)[1:10])
+
+#If value is 2, feature in core features set, if 1, feature in pan features set
+feat_dna = sort(table(c(a,b)), decreasing = T)
+feat_dna
+```
+
+Test sum of ranks
+
+```{r}
+feat_RF_dna = sort(feat_RF_dna, decreasing = T)
+feat_XGBT_dna = sort(feat_XGBT_dna, decreasing = T)
+
+res = rep(0, length(feat_RF_dna))
+names(res) = names(feat_RF_dna)
+res =lapply(names(res), function(x){ 
+    which(names(feat_RF_dna) == x) + which(names(feat_XGBT_dna) == x)
+    } )
+names(res) = names(feat_RF_dna)
+res = sort(unlist(res))
+```
+
+
+### Visualise Features distribution
+
+```{r}
+for (f in names(feat_dna)) {
+    feature_distrib(m = the_matrix_allDrugs_top10pct, feature = f )
+}
+
+filter(genes, gene_synonym %in% names(feat_dna)) %>% select(gene_synonym, name)
+
+```
+
+
+## Cell WALL features importance
+
+```{r}
+feat_RF_cell_wall = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+feat_XGBT_cell_wall = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+
+a = names(sort(feat_RF_cell_wall, decreasing = T)[1:10])
+b = names(sort(feat_XGBT_cell_wall, decreasing = T)[1:10])
+
+#If value is 2, feature in core features set, if 1, feature in pan features set
+feat_cell_wall = sort(table(c(a,b)), decreasing = T)
+feat_cell_wall
+```
+
+Test sum of ranks
+
+```{r}
+feat_RF_cell_wall = sort(feat_RF_cell_wall, decreasing = T)
+feat_XGBT_cell_wall = sort(feat_XGBT_cell_wall, decreasing = T)
+
+res2 = rep(0, length(feat_RF_cell_wall))
+names(res2) = names(feat_RF_cell_wall)
+res2 =lapply(names(res2), function(x){ 
+    which(names(feat_RF_cell_wall) == x) + which(names(feat_XGBT_cell_wall) == x)
+    } )
+names(res2) = names(feat_RF_cell_wall)
+res2 = sort(unlist(res2))
+```
+
+### Visualise Features distribution
+
+```{r}
+for (f in names(feat_cell_wall)) {
+    feature_distrib(m = the_matrix_allDrugs_top10pct, feature =f )
+}
+
+filter(genes, gene_synonym %in% names(feat_cell_wall)) %>% select(gene_synonym, name)
+
+```
+
+## Protein Synthesis features importance
+
+```{r}
+feat_RF_protein_synthesis = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+feat_XGBT_protein_synthesis = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+
+a = names(sort(feat_RF_protein_synthesis, decreasing = T)[1:10])
+b = names(sort(feat_XGBT_protein_synthesis, decreasing = T)[1:10])
+
+#If value is 2, feature in core features set, if 1, feature in pan features set
+feat_protein_synthesis = sort(table(c(a,b)), decreasing = T)
+feat_protein_synthesis
+```
+
+Test sum of ranks
+
+```{r}
+feat_RF_proteiresn_synthesis = sort(feat_RF_protein_synthesis, decreasing = T)
+feat_XGBT_protein_synthesis = sort(feat_XGBT_protein_synthesis, decreasing = T)
+
+res3 = rep(0, length(feat_RF_protein_synthesis))
+names(res3) = names(feat_RF_protein_synthesis)
+res3 =lapply(names(res3), function(x){ 
+    which(names(feat_RF_protein_synthesis) == x) + which(names(feat_XGBT_protein_synthesis) == x)
+    } )
+names(res3) = names(feat_RF_protein_synthesis)
+res3 = sort(unlist(res3))
+```

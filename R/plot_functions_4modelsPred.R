@@ -1,5 +1,4 @@
 
-
 #Concatenate prediction of test set from each fold of the outer CV
 #Get prediction object for one model of 1vs ALL
 #Each individual is predected once
@@ -165,7 +164,6 @@ compare_ROC_2models = function(res1, res2, moa = "dna"){
 
 
 
-
 plot_prec_recall = function(res , moa = "dna"){
     
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
@@ -210,7 +208,6 @@ plot_prec_recall = function(res , moa = "dna"){
 }
 
 
-
 #as expected only a few features are really important, most of the time, features convey nearly no information
 #Might be interresting to just plot the top X (5,10) features and do a 4 class Venn Diagramm
 plot_feat_4model= function(res , moa = "dna"){
@@ -238,3 +235,32 @@ plot_feat_4model= function(res , moa = "dna"){
     return(sort(apply(aa, 1, sum)))
 }
 
+
+
+
+plot_ROC_allRep = function(res, moa = "dna"){
+    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+    
+    if(!moa %in% set_MoA){
+        print("Invalid Mode of action")
+        return(-1)
+    }
+    
+    toPlot = ggplot()
+    
+    for (r in 1:10){
+        all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = moa)
+        
+        x = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
+        x = x$data
+        toPlot = toPlot + geom_path(data = x, mapping = do.call(aes_string, list(x = "fpr", y = "tpr", color = "grey")), size = 2)
+    }
+    toPlot = toPlot +
+        labs(x = "fpr", y = "tpr", title = deparse(substitute(res))) +
+        geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) + 
+        theme_bw()
+    
+    toPlot
+}
+    
+    
