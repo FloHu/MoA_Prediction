@@ -111,9 +111,9 @@ library(iterators)
 ## Data selection
 
 ```{r}
-load(file = "data/the_matrix_hclust.RData")
-load(file = "data/the_matrix_top10pct.RData")
-load(file = "data/the_matrix_top5pct.RData")
+load(file = "data/the_matrix_allDrugs_top10pct.RData")
+load(file = "data/the_matrix_allDrugs.RData")
+
 
 ```
 
@@ -125,7 +125,7 @@ This grid is one of the main part of the computation cost. If it can be reduced,
 
 #Hyperparameter tuning
 bt_hyp_param = makeParamSet(
-    makeDiscreteParam("mfinal", values = c(500)), # or  seq(from = 100, to = 400, by = 20)
+    makeDiscreteParam("mfinal", values = c(600)), # or  seq(from = 100, to = 400, by = 20)
     makeDiscreteParam("maxdepth", values = c(3,5)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
     makeDiscreteParam("coeflearn", values = "Zhu") #Best for multiclass problem
 )

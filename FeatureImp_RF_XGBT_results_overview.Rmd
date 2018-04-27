@@ -67,7 +67,7 @@ feat_dna = sort(table(c(a,b)), decreasing = T)
 feat_dna
 ```
 
-Test sum of ranks
+### Test sum of ranks
 
 ```{r}
 feat_RF_dna = sort(feat_RF_dna, decreasing = T)
@@ -94,72 +94,154 @@ filter(genes, gene_synonym %in% names(feat_dna)) %>% select(gene_synonym, name)
 
 ```
 
-
-## Cell WALL features importance
+### Test scale sum
 
 ```{r}
-feat_RF_cell_wall = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
-feat_XGBT_cell_wall = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
 
-a = names(sort(feat_RF_cell_wall, decreasing = T)[1:10])
-b = names(sort(feat_XGBT_cell_wall, decreasing = T)[1:10])
+feat_RF_dna = scale(feat_RF_dna)
+feat_XGBT_dna = scale(feat_XGBT_dna)
 
-#If value is 2, feature in core features set, if 1, feature in pan features set
-feat_cell_wall = sort(table(c(a,b)), decreasing = T)
-feat_cell_wall
+feat_RF_dna = feat_RF_dna[rownames(feat_XGBT_dna), ]
+
+a = cbind(feat_RF_dna, feat_XGBT_dna)
+a = apply(a, 1, sum)
+a = sort(a, decreasing = T)
+feat_dna = a[a > 0]
+
+
 ```
 
-Test sum of ranks
+
+
+## Function to extract feat imp
+
 
 ```{r}
-feat_RF_cell_wall = sort(feat_RF_cell_wall, decreasing = T)
-feat_XGBT_cell_wall = sort(feat_XGBT_cell_wall, decreasing = T)
 
-res2 = rep(0, length(feat_RF_cell_wall))
-names(res2) = names(feat_RF_cell_wall)
-res2 =lapply(names(res2), function(x){ 
-    which(names(feat_RF_cell_wall) == x) + which(names(feat_XGBT_cell_wall) == x)
-    } )
-names(res2) = names(feat_RF_cell_wall)
-res2 = sort(unlist(res2))
-```
-
-### Visualise Features distribution
-
-```{r}
-for (f in names(feat_cell_wall)) {
-    feature_distrib(m = the_matrix_allDrugs_top10pct, feature =f )
+get_main_features = function(res1, res2, moa){
+    
+    feat1 = plot_feat_4model(res = res1, moa = moa)
+    feat2 = plot_feat_4model(res = res2, moa = moa)
+    
+    feat1 = scale(feat1)
+    feat2 = scale(feat2)
+    
+    feat1 = feat1[rownames(feat2), ]
+    a = cbind(feat1, feat2)
+    a = apply(a, 1, sum)
+    a = sort(a, decreasing = T)
+    res = a[a > 0]
+    res 
 }
 
-filter(genes, gene_synonym %in% names(feat_cell_wall)) %>% select(gene_synonym, name)
+feat_dna = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+feat_cell_wall = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+feat_membrane_stress = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+feat_protein_synthesis = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
 
+
+overview = sort(table(names(c(feat_protein_synthesis, feat_membrane_stress, feat_cell_wall, feat_dna))), decreasing = T)
+overview
 ```
 
-## Protein Synthesis features importance
+Extracting gene names and testing them in a panther analysis BP slim give only one overrepresented ontology : response to toxic substance.
 
-```{r}
-feat_RF_protein_synthesis = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
-feat_XGBT_protein_synthesis = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
 
-a = names(sort(feat_RF_protein_synthesis, decreasing = T)[1:10])
-b = names(sort(feat_XGBT_protein_synthesis, decreasing = T)[1:10])
 
-#If value is 2, feature in core features set, if 1, feature in pan features set
-feat_protein_synthesis = sort(table(c(a,b)), decreasing = T)
-feat_protein_synthesis
+
+# Interaction plot
+
+
+
+```{r fig.height=5, fig.width=5}
+
+plot_interaction = function(feat1, feat2, dt = the_matrix_allDrugs_top10pct){
+    
+    set_Moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis" )
+    colMoa = rainbow(length(set_Moa))
+    names(colMoa) = set_Moa
+    a = list()
+    
+    for(m in set_Moa){
+        a[[m]] = filter(dt, process_broad == m) %>% select(feat1, feat2)
+    }
+    
+    plot(a[[set_Moa[1]]], pch = 21, col = "black", bg = colMoa[1], xlim = c(min(unlist(a)), max(unlist(a))),
+         ylim = c(min(unlist(a)), max(unlist(a))), cex = 1.5 )
+    abline(coef = (line(a[[set_Moa[1]]]))$coefficients, lwd = 2, col = colMoa[1])
+    
+    for(m in 2:(length(set_Moa))){
+        
+        points(a[[set_Moa[m]]],  pch = 21, col = "black", bg = colMoa[m], cex = 1.5)
+        abline(coef = (line(a[[set_Moa[m]]]))$coefficients, lwd = 2, col = colMoa[m])
+    }
+    legend("bottomright", legend=set_Moa,
+       col=colMoa, lty=1, lwd = 3)
+}
+
+# Is it really an interaction plot or is it smthing else ?
+#No interaction ?
+plot_interaction(feat1 = "DAM", feat2= "FRE")
+# Interaction ?
+plot_interaction(feat1 = "RECC", feat2= "RECA")
+#   Meaning : the relative effect of RECC on RECA is depending with the fact it's a DNA targeting drug or not ?
+# Interaction beetween effect of RECC on RECA and dna target or not
+
+
+plot_interaction_moa = function(feat1, feat2, dt = the_matrix_allDrugs_top10pct, moa = "dna"){
+    x1 = filter(dt, process_broad == moa) %>% select(feat1, feat2)
+    x2 = filter(dt, process_broad != moa) %>% select(feat1, feat2)
+    
+    plot(x1, pch = 21,  bg = "blue", xlim = c(min(x1[,1], x2[,1]), max(x1[,1], x2[,1])),
+         ylim = c(min(x1[,2], x2[,2]), max(x1[,2], x2[,2])),  cex = 1.5 )
+    abline(coef = (line(x1))$coefficients, lwd = 2, col = "blue")
+    
+    points(x2,  pch = 21, bg = "orange", cex = 1.5)
+    abline(coef = (line(x2))$coefficients, lwd = 2, col = "orange")
+
+    legend("bottomright", legend=c(moa, paste0("not_",moa)),
+       col=c("blue", "orange"), lty=1, lwd = 3)
+}
+
+
+correlation_moa = function(feat1, feat2, dt = the_matrix_allDrugs_top10pct){
+    set_Moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis" )
+
+    res = c()
+    for(m in set_Moa){
+        a = filter(dt, process_broad == m) %>% select(feat1, feat2)
+        res = c(res, cor(a[,1], a[,2]))
+    }
+    names(res) = set_Moa
+    return(res)
+}
 ```
 
-Test sum of ranks
+Time to screen
+In fact not really clever to run it, will generate thousand of plot
+Look at the difference in line slopes ? take genes couples with the biggest difference ?
+
 
 ```{r}
-feat_RF_proteiresn_synthesis = sort(feat_RF_protein_synthesis, decreasing = T)
-feat_XGBT_protein_synthesis = sort(feat_XGBT_protein_synthesis, decreasing = T)
 
-res3 = rep(0, length(feat_RF_protein_synthesis))
-names(res3) = names(feat_RF_protein_synthesis)
-res3 =lapply(names(res3), function(x){ 
-    which(names(feat_RF_protein_synthesis) == x) + which(names(feat_XGBT_protein_synthesis) == x)
-    } )
-names(res3) = names(feat_RF_protein_synthesis)
-res3 = sort(unlist(res3))
+
+for (f1 in names(overview)){
+    for (f2 in names(overview)) {
+        if(f1 != f2)
+            plot_interaction(feat1 = f1, feat2 = f2)
+    }
+}
+
+#Get rid of chemical feat
+
+corFeat = data.frame(matrix(ncol = 4, nrow = 0))
+colnames(corFeat) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis" ) 
+for (f1 in names(overview)[-c(14, 17, 39, 54 )]){
+    for (f2 in names(overview)[-c(14, 17, 39, 54 )]) {
+        if(f1 != f2)
+            corFeat[paste0(f1, " * ", f2), ] = correlation_moa(feat1 = f1, feat2 = f2)
+    }
+}
+
+stripchart(abs(corFeat), pch = 21, bg = "orange", method = "jitter")
 ```

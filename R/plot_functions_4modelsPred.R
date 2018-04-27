@@ -64,57 +64,61 @@ plot_mean_perf = function(res , meas = auc, moa = "dna", ...){
 }
 
 
-
-#Plot function work for 1 MoA or all
-#Generate a ROC curve of all repetition, each individual is then predicted 10 times
-#moa = "all" allows to compare all classes 
-plot_ROC_rep = function(res , moa = "dna"){
-
+plot_ROC_allRep = function(res, moa = "dna", plotAllRep = T){
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-    
     if(!moa %in% c(set_MoA, "all")){
         print("Invalid Mode of action")
         return(-1)
     }
+    
+    toPlot = ggplot()
+    
     if(moa != "all"){
-        all_rep = cat_outer_fold_pred(res = res, repetition = 1, moa = moa)
-        for (rep in 2:10) {
-            a = cat_outer_fold_pred(res = res, repetition = rep, moa = moa)
-            all_rep$data = rbind(all_rep$data, a$data)
+        allData = c()
+        
+        for (r in 1:10){
+            all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = moa)
+            allData = rbind(allData, all_test_set$data)
+            if(plotAllRep){
+                x = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
+                x = x$data
+                toPlot = toPlot + geom_path(data = x, mapping = do.call(aes_string, list(x = "fpr", y = "tpr")), size = 0.5, color = "grey", alpha = 0.6)
+            }
         }
-        dataPlot = generateThreshVsPerfData(all_rep, measures = list( fpr, tpr))
+        all_test_set$data = allData
+        plotData = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
         
-        toPlot = ggplot(dataPlot$data, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
-            geom_path( size = 2) +
-            labs(x = "fpr", y ="tpr", title = paste0(deparse(substitute(res)), " - ", moa)) +
-            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
-            theme_bw()
-        
-        toPlot
+        toPlot = toPlot + geom_path(data = plotData$data, mapping = do.call(aes_string, list(x = "fpr", y = "tpr")), size = 2) +
+                annotate("text", size = 8, x = 0.8, y = 0.1, label = paste0("AUC : ", round(performance(all_test_set, auc), digits = 3)))
     }else{
-        dataPlot = c()
+        colMoa = rainbow(length(set_MoA))
+        plotDataMoa = list()
         
         for (m in set_MoA){
-            all_rep = cat_outer_fold_pred(res = res, repetition = 1, moa = m)
-            for (rep in 2:10) {
-                a = cat_outer_fold_pred(res = res, repetition = rep, moa = m)
-                all_rep$data = rbind(all_rep$data, a$data)
+            allData = c()
+            
+            for (r in 1:10){
+                all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = m)
+                allData = rbind(allData, all_test_set$data)
             }
-            x = generateThreshVsPerfData(all_rep, measures = list(fpr, tpr))
-            x = x$data
-            x$MoA = m
-            dataPlot = rbind(dataPlot, x)
+            all_test_set$data = allData
+            l = paste0(m, " AUC : ", round(performance(all_test_set, auc), digits = 3))
+            plotDataMoa[[l]] = all_test_set
+           
         }
-        toPlot = ggplot(data = dataPlot, do.call(aes_string, list(x = "fpr", y = "tpr"))) +
-            geom_path(mapping = aes(color = MoA), size = 2) +
-            labs(x = "fpr", y = "tpr", title = deparse(substitute(res))) +
-            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) + 
-            scale_color_manual(values = rainbow(length(set_MoA))) +
-            theme_bw()
-        
-        toPlot
+        plotDataMoa = generateThreshVsPerfData(plotDataMoa, measures = list(fpr, tpr))
+        toPlot = plotROCCurves(plotDataMoa) + scale_color_manual(values=colMoa)
+        toPlot$layers[[1]]$aes_params$size = 2
+        toPlot$labels$colour = "Mode of action"
+
     }
+    toPlot = toPlot +
+        geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
+        labs(x = "False positive rate", y = "True positive rate", title = paste0(deparse(substitute(res)), " - ", moa )) +
+        theme_bw(base_size=15) 
+    toPlot
 }
+
 
 
 #Might be interesting to code a general function taking a list of results 
@@ -164,48 +168,57 @@ compare_ROC_2models = function(res1, res2, moa = "dna"){
 
 
 
-plot_prec_recall = function(res , moa = "dna"){
-    
+plot_prec_recall = function(res , moa = "dna", plotAllRep = T){
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-    
     if(!moa %in% c(set_MoA, "all")){
         print("Invalid Mode of action")
         return(-1)
     }
+    toPlot = ggplot()
+    
     if(moa != "all"){
-        all_rep = cat_outer_fold_pred(res = res, repetition = 1, moa = moa)
-        for (rep in 2:10) {
-            a = cat_outer_fold_pred(res = res, repetition = rep, moa = moa)
-            all_rep$data = rbind(all_rep$data, a$data)
+        allData = c()
+        for (r in 1:10){
+            all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = moa)
+            allData = rbind(allData, all_test_set$data)
+            if(plotAllRep){
+                x = generateThreshVsPerfData(all_test_set, measures = list(tpr, ppv))
+                x = x$data
+                toPlot = toPlot + geom_path(data = x, mapping = do.call(aes_string, list(x = "tpr", y = "ppv")), size = 0.5, color = "grey", alpha = 0.6)
+            }
         }
-        toPlot = generateThreshVsPerfData(all_rep, measures = list( ppv, tpr))
+        all_test_set$data = allData
+        plotData = generateThreshVsPerfData(all_test_set, measures = list(tpr, ppv))
         
-        ggplot(toPlot$data, do.call(aes_string,  list(x = "tpr", y = "ppv")) ) +
-            geom_path() +
-            labs(x = "tpr (Recall)", y ="ppv (Precision)")
+        toPlot = toPlot +
+            geom_path(data = plotData$data, mapping = do.call(aes_string, list(x = "tpr", y = "ppv")), size = 2)
+        
     }else{
-        dataPlot = c()
+        colMoa = rainbow(length(set_MoA))
+        plotDataMoa = list()
         
         for (m in set_MoA){
-            all_rep = cat_outer_fold_pred(res = res, repetition = 1, moa = m)
-            for (rep in 2:10) {
-                a = cat_outer_fold_pred(res = res, repetition = rep, moa = m)
-                all_rep$data = rbind(all_rep$data, a$data)
+            allData = c()
+            
+            for (r in 1:10){
+                all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = m)
+                allData = rbind(allData, all_test_set$data)
             }
-            x = generateThreshVsPerfData(all_rep, measures = list(ppv, tpr))
-            x = x$data
-            x$MoA = m
-            dataPlot = rbind(dataPlot, x)
+            all_test_set$data = allData
+            plotDataMoa[[m]] = all_test_set
+            
         }
-        toPlot = ggplot(data = dataPlot, do.call(aes_string, list(x = "ppv", y = "tpr"))) +
-            geom_path(mapping = aes(color = MoA), size = 2) +
-            labs(x = "tpr (Recall)", y ="ppv (Precision)") +
-            scale_color_manual(values = rainbow(length(set_MoA))) +
-            theme_bw()
+        plotDataMoa = generateThreshVsPerfData(plotDataMoa, measures = list(tpr, ppv))
+        toPlot = plotROCCurves(plotDataMoa, diagonal = F ) + scale_color_manual(values=colMoa)
+        toPlot$layers[[1]]$aes_params$size = 2
+        toPlot$labels$colour = "Mode of action"
         
-        toPlot
     }
+    toPlot = toPlot +  labs(x = "tpr (Recall)", y ="ppv (Precision)", title = paste0(deparse(substitute(res)), " - ", moa )) + theme_bw()
+    toPlot
 }
+
+
 
 
 #as expected only a few features are really important, most of the time, features convey nearly no information
@@ -235,32 +248,4 @@ plot_feat_4model= function(res , moa = "dna"){
     return(sort(apply(aa, 1, sum)))
 }
 
-
-
-
-plot_ROC_allRep = function(res, moa = "dna"){
-    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-    
-    if(!moa %in% set_MoA){
-        print("Invalid Mode of action")
-        return(-1)
-    }
-    
-    toPlot = ggplot()
-    
-    for (r in 1:10){
-        all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = moa)
-        
-        x = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
-        x = x$data
-        toPlot = toPlot + geom_path(data = x, mapping = do.call(aes_string, list(x = "fpr", y = "tpr", color = "grey")), size = 2)
-    }
-    toPlot = toPlot +
-        labs(x = "fpr", y = "tpr", title = deparse(substitute(res))) +
-        geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) + 
-        theme_bw()
-    
-    toPlot
-}
-    
     

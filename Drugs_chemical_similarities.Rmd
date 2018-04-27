@@ -27,7 +27,7 @@ library(dendextend)
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-load(file = "data/the_matrix.RData")
+load(file = "data/the_matrix_allDrugs.RData")
 
 drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", header = T, 
                          sep = ";", stringsAsFactors = F, dec = ".")
@@ -49,7 +49,7 @@ For that, chemicla similarity beetween drugs must be computed. Here, fingerprint
 
 ```{r}
 
-all_inchi = filter(drugs_full, drugname_typaslab %in% the_matrix$drugname_typaslab) %>% select(drugname_typaslab, data_stdinchi)
+all_inchi = filter(drugs_full, drugname_typaslab %in% the_matrix_allDrugs$drugname_typaslab) %>% select(drugname_typaslab, data_stdinchi)
 write_tsv(all_inchi, col_names = T, path = "data/all_inchi.tsv")
 
 ```
@@ -97,7 +97,7 @@ plot_dend = function(drugs_fingerprint, ...){
     hclust_fp = hclust(dist_fp_matrix)
     dend_fp = as.dendrogram(hclust_fp, hang = 0.1)
     
-    labels_colors(dend_fp) <- color_moa[the_matrix[order.dendrogram(dend_fp), "process_broad"]]
+    labels_colors(dend_fp) <- color_moa[the_matrix_allDrugs[order.dendrogram(dend_fp), "process_broad"]]
     par(mar = c(3,2,2,8)) 
     dend_fp %>%
         set("labels_cex", 0.7) %>%
@@ -142,9 +142,9 @@ MACCS fingerprint also shows similarity beetween Minocycline and Tetracycline
 
 ```{r}
 
-chemgen_mat = select(the_matrix,  -process_broad, -drugname_typaslab)
+chemgen_mat = select(the_matrix_allDrugs,  -process_broad, -drugname_typaslab)
 #CecropinB is an outlier strongly influencing to final plot
-rownames(chemgen_mat) = the_matrix$drugname_typaslab
+rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
 chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
 
 dist_chemgen = dist(chemgen_mat, method = "euclidian")
@@ -155,7 +155,7 @@ names(color_moa) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis",
 hclust_chemgen = hclust(dist_chemgen, method = "complete")
 dend_chemgen = as.dendrogram(hclust_chemgen, hang = 0.1)
     
-labels_colors(dend_chemgen) <- color_moa[the_matrix[order.dendrogram(dend_chemgen), "process_broad"]]
+labels_colors(dend_chemgen) <- color_moa[the_matrix_allDrugs[order.dendrogram(dend_chemgen), "process_broad"]]
 par(mar = c(3,2,2,8)) 
 dend_chemgen %>%
     set("labels_cex", 0.7) %>%
