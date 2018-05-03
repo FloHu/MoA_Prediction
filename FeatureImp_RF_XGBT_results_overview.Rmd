@@ -25,6 +25,8 @@ Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
 library(tidyverse)
 library(mlr)
+library(randomForest)
+library(xgboost)
 
 
 #Custom functions
@@ -33,7 +35,6 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 # Results loading
-
 
 Hyperparameter grid for RF was :
 - `ntree` (number of trees) : 200,500
@@ -53,8 +54,13 @@ load("../dbsetup/data/genesWithEG_ID.RData")
 
 Focus only on these two, mainly because RF is really better with 10% top variance and MMCE tuning so one should use the exact same results set for XGBT
 
-## DNA features importance
+# DNA Prediction - Features importance
 
+First "try" to assess feature importance : Take the top 10 features in each model (top 10% variance, all Drugs used, tuning hyperparamter based on MMCE, RF *and* XGBT )
+
+Then have a look at the intersection and union of these sets of top 10 features
+
+Can test the same with other values, top15, top20 features...
 ```{r}
 feat_RF_dna = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
 feat_XGBT_dna = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
@@ -67,7 +73,10 @@ feat_dna = sort(table(c(a,b)), decreasing = T)
 feat_dna
 ```
 
-### Test sum of ranks
+
+## Test sum of ranks
+
+Second try, order features in each model, make the sum of ranks for each feature and reorder it.
 
 ```{r}
 feat_RF_dna = sort(feat_RF_dna, decreasing = T)
@@ -82,6 +91,24 @@ names(res) = names(feat_RF_dna)
 res = sort(unlist(res))
 ```
 
+## Test scale sum
+
+Third try, scale each feature list inside a given model, make sum of scaled values and take only those which are above 0.
+
+
+```{r}
+feat_RF_dna = scale(feat_RF_dna)
+feat_XGBT_dna = scale(feat_XGBT_dna)
+
+feat_RF_dna = feat_RF_dna[rownames(feat_XGBT_dna), ]
+
+a = cbind(feat_RF_dna, feat_XGBT_dna)
+a = apply(a, 1, sum)
+a = sort(a, decreasing = T)
+feat_dna = a[a > 0]
+```
+
+We end with a thirty-one-feature set. Plot distribution across MoA and names from the genes table of DBsetup.
 
 ### Visualise Features distribution
 
@@ -94,27 +121,11 @@ filter(genes, gene_synonym %in% names(feat_dna)) %>% select(gene_synonym, name)
 
 ```
 
-### Test scale sum
-
-```{r}
-
-feat_RF_dna = scale(feat_RF_dna)
-feat_XGBT_dna = scale(feat_XGBT_dna)
-
-feat_RF_dna = feat_RF_dna[rownames(feat_XGBT_dna), ]
-
-a = cbind(feat_RF_dna, feat_XGBT_dna)
-a = apply(a, 1, sum)
-a = sort(a, decreasing = T)
-feat_dna = a[a > 0]
-
-
-```
-
 
 
 ## Function to extract feat imp
 
+We do the scale sum method for each MoA and have a look at the union of all MoA. How many features are in common across how many MoA ?
 
 ```{r}
 
@@ -139,19 +150,20 @@ feat_cell_wall = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2
 feat_membrane_stress = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
 feat_protein_synthesis = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
 
-
 overview = sort(table(names(c(feat_protein_synthesis, feat_membrane_stress, feat_cell_wall, feat_dna))), decreasing = T)
 overview
 ```
 
-Extracting gene names and testing them in a panther analysis BP slim give only one overrepresented ontology : response to toxic substance.
+Extracting gene names and testing them in a panther analysis BP-Slim give only one overrepresented significant ontology : response to toxic substance.
 
 
 
 
 # Interaction plot
 
+Try to visualize interaction and correlation beetween two features in one MoA compared to the others.
 
+Maybe for some features couples, the correlation is really different inside one MoA
 
 ```{r fig.height=5, fig.width=5}
 
@@ -182,8 +194,11 @@ plot_interaction = function(feat1, feat2, dt = the_matrix_allDrugs_top10pct){
 # Is it really an interaction plot or is it smthing else ?
 #No interaction ?
 plot_interaction(feat1 = "DAM", feat2= "FRE")
+plot_interaction_moa(feat1 = "DAM", feat2= "FRE", moa = "dna")
 # Interaction ?
 plot_interaction(feat1 = "RECC", feat2= "RECA")
+plot_interaction_moa(feat1 = "RECC", feat2= "RECA", moa = "dna")
+
 #   Meaning : the relative effect of RECC on RECA is depending with the fact it's a DNA targeting drug or not ?
 # Interaction beetween effect of RECC on RECA and dna target or not
 
@@ -223,8 +238,6 @@ Look at the difference in line slopes ? take genes couples with the biggest diff
 
 
 ```{r}
-
-
 for (f1 in names(overview)){
     for (f2 in names(overview)) {
         if(f1 != f2)
@@ -233,7 +246,6 @@ for (f1 in names(overview)){
 }
 
 #Get rid of chemical feat
-
 corFeat = data.frame(matrix(ncol = 4, nrow = 0))
 colnames(corFeat) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis" ) 
 for (f1 in names(overview)[-c(14, 17, 39, 54 )]){
@@ -245,3 +257,40 @@ for (f1 in names(overview)[-c(14, 17, 39, 54 )]){
 
 stripchart(abs(corFeat), pch = 21, bg = "orange", method = "jitter")
 ```
+
+
+
+Screen all first order interaction beetween features and plot the distribution of coefficients.
+Most of them are (nearly) equal to zero but there's still some which are significants outliers.
+
+Problem to fix cutoff of pvalue (not a new problem) : 0.05 takes to much interaction as significant and Bonferroni correction is too much, none left...
+
+
+```{r}
+data_matrix = the_matrix_allDrugs_top10pct
+moa = "dna"
+
+custom_matrix = data_matrix %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
+
+
+interFeat = data.frame(matrix(ncol = 1, nrow = 0))
+for (f1 in names(overview)){
+    for (f2 in names(overview)) {
+        if(f1 != f2){
+            x = glm(custom_matrix$process_broad ~ custom_matrix[ ,f1] * custom_matrix[ ,f2], family = binomial)
+            #Pvalue
+            interFeat[paste0(f1, " * ", f2), ] = (summary(x))$coefficients[2,4]
+            #Coefficient 
+            #interFeat[paste0(f1, " * ", f2), ] = x$coefficients[4] 
+        }
+    }
+}
+
+hist(as.matrix(interFeat), breaks = 50, col = "orange")
+```
+
+
+
+
+

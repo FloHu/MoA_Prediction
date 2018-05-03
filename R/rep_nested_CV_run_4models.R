@@ -6,7 +6,7 @@
 
 rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_param, 
                              run_tuning, saveFeatImportance = F, tuning_measure = ppv,
-                             predict_type = "prob", wilcoxSelection = F){
+                             predict_type = "prob", wilcoxSelection = 0){
     
     if(!require(iterators)){
         install.packages("iterators")
@@ -26,7 +26,6 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
     n_outer = length(rep_instance[[1]]$outer$train.inds)
     n_inner = length(rep_instance[[1]]$inner[[1]]$train.inds)
     
-
     #Final output object containing everything needed, models - prediction of all outer fold of all repetitions
     run_result = list()
     
@@ -51,11 +50,14 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
                 
                 custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
 
-                if(wilcoxSelection){
+                #Inside Fold feature selection based on Wilcoxon test (non parametric t-test)
+                if(wilcoxSelection > 1 && wilcoxSelection < 100){
                     toKeep = apply(custom_matrix[outerCV_training_set, -1], 2, function(x){
-                        wilcox.test(x ~ custom_matrix[outerCV_training_set, "process_broad"])$p.value <= 0.05
+                        wilcox.test(x ~ custom_matrix[outerCV_training_set, "process_broad"])$p.value
                     })
-                    custom_matrix = custom_matrix[ , c(TRUE, toKeep)]
+                    toKeep = sort(toKeep)
+                    toKeep = toKeep[1:(length(toKeep)/wilcoxSelection)]
+                    custom_matrix = custom_matrix[ , c("process_broad", names(toKeep))]
                 }
                 
                 #Thus the task should change because only a subset of the whole data should be used
@@ -77,15 +79,12 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
                 outerCV_test_set = seq_along(1:nrow(custom_matrix))[-outerCV_training_set]
                 pred_NCV = predict(model_outerCV, task = predictMoa, subset = outerCV_test_set)
                 
-                
                 fold_name = paste0("Outer fold ", as.character(outerCV_ind))
                 model_name = paste0("model_", moa)
                 pred_name = paste0("prediction_", moa)
                 run_outer_fold[[fold_name]][[model_name]] = model_outerCV 
                 run_outer_fold[[fold_name]][[pred_name]] = pred_NCV
             }
-            
-            
             
             #if(saveFeatImportance){
             #    featimp = generateFeatureImportanceData(task = predictMoa, method = "permutation.importance",
@@ -99,6 +98,5 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
         run_result[[rep_name]] = run_outer_fold
     }
     
-
     return(run_result)
 }

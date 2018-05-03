@@ -25,6 +25,8 @@ Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
 library(tidyverse)
 library(mlr)
+library(randomForest)
+library(xgboost)
 
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
@@ -185,3 +187,69 @@ plot_mean_perf(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all", meas = mmc
 plot_mean_perf(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all", meas = auc)
 ```
 
+
+
+
+
+
+
+# Closer look at random Forest Objects
+
+Thanks to very convenients functions lots of interesting plot are available
+
+
+```{r}
+
+plot_RF_perf_allRep = function(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna"){
+    res_all500 = matrix(0, nrow = 500, ncol = 3)
+    res_all200 = matrix(0, nrow = 200, ncol = 3)
+    nb500 = 0
+    nb200 = 0
+    
+    plot(NULL, xlim = c(1,500), ylim = c(0,1), xlab = "Number of trees", ylab = "Error rate")
+    for (i in 1:length(res)){
+        for(j in 1:length(res[[1]])){
+            rf_res = res[[i]][[j]][[paste0("model_",moa)]]$learner.model
+            plot(rf_res, lty = 1, col = c("lightgrey", "lightblue", "orange"), add =T)
+            if(dim(rf_res$err.rate)[1] == 500){
+                res_all500 = res_all500 + rf_res$err.rate
+                nb500 = nb500 +1
+            }else{
+                res_all200 = res_all200 + rf_res$err.rate
+                nb200 = nb200 + 1
+            }
+        }
+    }
+    
+    res200 = (res_all200 +res_all500[1:200,]) / (nb200 + nb500)
+    res500 = res_all500 / nb500
+    
+    lines(res200[ ,1], lty = 1, lwd = 3, col = "black")
+    lines(x = seq(201, 500), y = res500[201:500, 1], lty = 1, lwd = 3, col = "black")
+    lines(res200[ ,2], lty = 1, lwd = 3, col = "blue")
+    lines(x = seq(201, 500), y = res500[201:500, 2], lty = 1, lwd = 3, col = "blue")
+    lines(res200[ ,3], lty = 1, lwd = 3, col = "red")
+    lines(x = seq(201, 500), y = res500[201:500, 3], lty = 1, lwd = 3, col = "red")
+    legend("topright", legend= colnames(res500), col=c("black", "blue", "red"), lwd=3, cex=1)  
+}
+
+
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+
+```
+
+
+
+
+```{r}
+
+
+rf_res = result_RF_10pc_allDrugs_tuneMMCE[[1]][[1]]$model_dna
+rf_res$features 
+
+ getTree(rf_res$learner.model, k = 1)
+
+```

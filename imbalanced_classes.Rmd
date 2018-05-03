@@ -1,0 +1,99 @@
+---
+title: "Imbalanced Classes"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = F)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+library(randomForest)
+library(xgboost)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+load(file = "data/the_matrix_allDrugs.RData")
+
+```
+
+
+
+```{r}
+
+
+for (moa in c("dna", "protein_synthesis", "cell_wall", "membrane_stress")) {
+    
+    #SEE what to do...
+}
+
+
+moa = "dna"
+
+dt = dplyr::select(the_matrix_allDrugs, -drugname_typaslab)
+dt = dt %>%  mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+dt$process_broad = factor(dt$process_broad, levels = c(moa, paste0("not_", moa)))
+
+task = makeClassifTask(data = dt, target = "process_broad")
+
+######################################### UNDERSAMPLING ########################
+
+#Fine but loss of information, we already don't have that much...
+
+lol = list()
+for(i in 1:10){
+    task.under = undersample(task, rate = 1/4)
+    
+    lrn = setHyperPars(makeLearner(cl = "classif.randomForest", predict.type = "prob"), par.vals = list(ntree = 1000, mtry = 30))
+    mod_under = train(lrn, task.under)
+    oob_under = getOOBPreds(mod_under, task.u nder)
+    lol[[i]] = generateThreshVsPerfData(oob_under, measures = list(fpr, tpr))
+}
+
+p= plotROCCurves(lol[[1]])
+for(i in 2:10){
+    p = p + geom_path(data = lol[[i]]$data)
+}
+p
+
+######################################### overSAMPLING ########################
+
+#it's shit cause it is always the same dataset, there is no random in it
+
+lol = list()
+for(i in 1:10){
+    task.over = oversample(task, rate = 3)
+
+    lrn = setHyperPars(makeLearner(cl = "classif.randomForest", predict.type = "prob"), par.vals = list(ntree = 1000, mtry = 30))
+    mod_over = train(lrn, task.over)
+    oob_over = getOOBPreds(mod_over, task.over)
+    lol[[i]] = generateThreshVsPerfData(oob_under, measures = list(fpr, tpr))
+}
+
+p= plotROCCurves(lol[[1]])
+for(i in 2:10){
+    p = p + geom_path(data = lol[[i]]$data)
+}
+p
+
+
+
+```

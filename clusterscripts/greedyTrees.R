@@ -7,7 +7,8 @@
 #
 # ==============================================================================
 
-filepath_for_export = "/home/dubois/MoA_Prediction/run_results/"
+filepath_for_export = "/scratch/typas/cluster_run_results/"
+#filepath_for_export = "/home/dubois/MoA_Prediction/run_results/"
 filepath_for_import = "/home/dubois/MoA_Prediction/"
 
 

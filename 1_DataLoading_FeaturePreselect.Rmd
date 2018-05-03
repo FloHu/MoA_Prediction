@@ -367,6 +367,32 @@ for (ind in seq_along(my_steps)) {
 
 
 
+
+# Random Forest Feature Selection
+
+Use of the `rfcv` function of `randomForest` package to assess error related to number of features used
+
+```{r}
+load("./data/the_matrix_allDrugs.RData")
+library(randomForest)
+library(tidyverse)
+
+
+for (moa in c("dna", "protein_synthesis", "cell_wall", "membrane_stress")) {
+    dt = dplyr::select(the_matrix_allDrugs, -drugname_typaslab)
+    dt = dt %>%  mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+    dt$process_broad = factor(dt$process_broad, levels = c(moa, paste0("not_", moa)))
+
+    res = rfcv(trainx = select(dt, -process_broad), trainy = dt$process_broad, cv.fold = 8, scale = "", step = -1, ntree = 250)
+
+    plot(res$error.cv, type = "l", xaxt = "n", ylab = "CV error", xlab = "Number of features used", main = moa)
+    axis(1, res$n.var, at = seq(1,length(res$n.var)))  
+}
+
+
+
+```
+
 # System and session info
 
 ```{r}
