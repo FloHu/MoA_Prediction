@@ -161,7 +161,7 @@ compare_ROC_2models = function(res1, res2, moa = "dna"){
     }else{
         library(grid)
         library(gridExtra)
-        grid.arrange(plot_ROC_rep(res = res1, moa = "all"), plot_ROC_rep(res = res2, moa = "all"), nrow = 1)
+        grid.arrange(plot_ROC_allRep(res = res1, moa = "all"), plot_ROC_allRep(res = res2, moa = "all"), nrow = 1)
     }
     
 }
@@ -249,3 +249,24 @@ plot_feat_4model= function(res , moa = "dna"){
 }
 
     
+
+
+plot_predProb_moa = function(res, rep, moa = "dna"){
+    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+    if(!moa %in% c(set_MoA, "all")){
+        print("Invalid Mode of action")
+        return(-1)
+    }
+    
+    dt = cat_outer_fold_pred(res =res, repetition = rep, moa = moa)
+    dt = dt$data
+    
+    dt_moa = filter(dt, truth == moa)
+    dt_not_moa = filter(dt, truth == paste0("not_", moa))
+    
+    toPlot = list(dt_moa[, paste0("prob.", moa)], dt_moa[, paste0("prob.not_", moa)], dt_not_moa[, paste0("prob.", moa)], dt_not_moa[, paste0("prob.not_", moa)])
+    boxplot(toPlot, at = c(1,2,4,5), main = "Truth", col = rainbow(2), lwd = 2, xaxt = "n")
+    axis(side = 1, at = c(1,2,4,5), labels = c(paste0("prob ", moa), paste0("not_", moa), paste0("prob ", moa), paste0("not_", moa)))
+    axis(side = 3, at = c(1.5,4.5), labels = c(moa, paste0("not_", moa)))
+    
+}

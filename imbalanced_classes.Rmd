@@ -64,7 +64,7 @@ for(i in 1:10){
     
     lrn = setHyperPars(makeLearner(cl = "classif.randomForest", predict.type = "prob"), par.vals = list(ntree = 1000, mtry = 30))
     mod_under = train(lrn, task.under)
-    oob_under = getOOBPreds(mod_under, task.u nder)
+    oob_under = getOOBPreds(mod_under, task.under)
     lol[[i]] = generateThreshVsPerfData(oob_under, measures = list(fpr, tpr))
 }
 
