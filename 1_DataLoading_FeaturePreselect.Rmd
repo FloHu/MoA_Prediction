@@ -1,6 +1,6 @@
 ---
 title: "Predicting drug mode of action: loading data and preselecting features"
-author: "Florian Huber, L??onard Dubois"
+author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -18,28 +18,16 @@ editor_options:
 # Setup, library loading
 
 ```{r}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
 
-library(tidyverse)
-library(mlr)
-if(!require(dendextend)){
-   install.packages("dendextend")
-}
-library(dendextend)
-if(!require(tree)){
-    install.packages("tree")
-}
-library(tree)
-if(!require(randomForest)){
-    install.packages("randomForest")
-}
-library(randomForest)
+ipak(dendextend)
+ipak(tree)
+ipak(randomForest)
 
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
@@ -78,11 +66,7 @@ the_matrix <-
 the_matrix$significant <- the_matrix$qvalue <= 0.05
 ```
 
-Join drug tables with mode of action information. We only keep drugs which target 'cell_wall', 
-'dna', 'protein_synthesis' and 'membrane_stress' because the other MoAs don't have enough class 
-members for predictions. Exclude the respective drugs from `the_matrix`. 
-
-Here, one has to choose to build the Matrix with MoA to predictm or all MoA except "unknown"
+Join drug tables with mode of action information. We keep all drugs except those with label 'unknown'. 
 
 ```{r}
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
@@ -92,21 +76,8 @@ drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad"
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
 ```
 
-```{r eval = F}
-moas_to_keep <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
-
-drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
-   select(-moa_id) %>% 
-   filter(process_broad %in% moas_to_keep)
-
-the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
-```
-
-
-
-
 For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
-them: the one with most phenotypes over all conditions.
+them: always the one with most phenotypes over all conditions.
 
 ```{r}
 the_matrix <- 
@@ -195,26 +166,22 @@ labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 
 
 ```{r}
-the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+# the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
 
-Done. 
 
-```{r eval = F}
-save("the_matrix", "labels", file = "data/the_matrix.RData")
-```
+```{r, eval = F}
+the_matrix_allDrugs <- the_matrix
+labels_allDrugs <- labels
+save(the_matrix_allDrugs, labels_allDrugs, file = "the_matrix_allDrugs.RData")
 
-OR
-
-```{r}
-the_matrix_allDrugs = the_matrix
-labels_allDrugs = labels
-save(the_matrix_allDrugs, labels_allDrugs, file = "data/the_matrix_allDrugs.RData")
+# note: used to only select drugs with MoA falling into one of the categories of (i) protein_synthesis, 
+# (ii) dna, (iii) cell_wall, and (iv) membrane_stress - the object is still available under 
+# data/the_matrix.RData 
 ```
 
 
 ## Do further feature preselection
-
 
 ### Taking features with the highest variance
 
@@ -248,7 +215,7 @@ save("the_matrix_top5pct", file = "data/the_matrix_top5pct.RData")
 
 OR
 
-```{r }
+```{r eval = F}
 the_matrix_allDrugs_top10pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 10)
 the_matrix_allDrugs_top5pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 5)
 
@@ -278,120 +245,59 @@ This was part of the first few prediction attempts last year. Idea: do hierarchi
 all genes based on the correlations of their s-scores, then make 50/200 clusters and select the 
 medoids. Try both complete and average linkage. 
 
+We're not using this anymore, probably delete later on.
+
 ```{r}
-# first need a matrix of all the genes
-genes_only <- select(the_matrix, -drugname_typaslab, -process_broad, -(SlogP:data_effective_rotor_count))
-high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
-
-feature_container <- list()
-
-# these are the 200 most variable genes (i.e. sorted by variance)
-feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
-feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
-
-gene_mat <- as.matrix(genes_only)
-corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
-dists <- as.dist(corm)
-cluster_methods <- c('complete', 'average') # single and ward gave some C stack error
-n_clusters <- c(50, 200)
-
-# plot dendrograms and pull out genes: keep only one gene (the medoid of each cluster)
-# btw: calculation of centroids if only distances given?
-for (m in cluster_methods) {
-   hc <- hclust(dists, method = m)
-   hc_p <- as.dendrogram(hc)
-   for (k in n_clusters){
-      clusts <- cutree(hc, k = k)
-      feature_container[[paste0("hclust_", m, "_", k, "_medoids")]] <- retrieve_medoids(clusts, corm)
-      pdf(file = paste0("./plots/Dendrogram_", k, "_clusters", m, ".pdf"), width = 200, height = 1000)
-      hc_p %>%
-         set("branches_k_color", value = c(2, 3, 4), k = k) %>%
-         highlight_branches_lwd() %>%
-         hang.dendrogram() %>%
-         rotate(rev(colnames(gene_mat))) %>%
-         plot(horiz = T)
-      abline(v = c(0.8, 0.9, 0.95, 1), col = 2, lty = 2)
-      dev.off()
-   }
-}
-
-save("feature_container", file = "feature_container.RData")
+# # first need a matrix of all the genes
+# genes_only <- select(the_matrix, -drugname_typaslab, -process_broad, -(SlogP:data_effective_rotor_count))
+# high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
+# 
+# feature_container <- list()
+# 
+# # these are the 200 most variable genes (i.e. sorted by variance)
+# feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
+# feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
+# 
+# gene_mat <- as.matrix(genes_only)
+# corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
+# dists <- as.dist(corm)
+# cluster_methods <- c('complete', 'average') # single and ward gave some C stack error
+# n_clusters <- c(50, 200)
+# 
+# # plot dendrograms and pull out genes: keep only one gene (the medoid of each cluster)
+# # btw: calculation of centroids if only distances given?
+# for (m in cluster_methods) {
+#    hc <- hclust(dists, method = m)
+#    hc_p <- as.dendrogram(hc)
+#    for (k in n_clusters){
+#       clusts <- cutree(hc, k = k)
+#       feature_container[[paste0("hclust_", m, "_", k, "_medoids")]] <- retrieve_medoids(clusts, corm)
+#       pdf(file = paste0("./plots/Dendrogram_", k, "_clusters", m, ".pdf"), width = 200, height = 1000)
+#       hc_p %>%
+#          set("branches_k_color", value = c(2, 3, 4), k = k) %>%
+#          highlight_branches_lwd() %>%
+#          hang.dendrogram() %>%
+#          rotate(rev(colnames(gene_mat))) %>%
+#          plot(horiz = T)
+#       abline(v = c(0.8, 0.9, 0.95, 1), col = 2, lty = 2)
+#       dev.off()
+#    }
+# }
+# 
+# save("feature_container", file = "feature_container.RData")
 ```
 
 Save matrix including only the 200 genes based on hierarchical clustering with complete linkage as 
 well as the chemical features from above.
 
 ```{r}
-the_matrix_hclust <- 
-   the_matrix[, c("drugname_typaslab", "process_broad", 
-                  c(feature_container$hclust_complete_200_medoids), 
-                  c(chem_features_kept))]
-save("the_matrix_hclust", file = "the_matrix_hclust.RData")
+# the_matrix_hclust <- 
+#    the_matrix[, c("drugname_typaslab", "process_broad", 
+#                   c(feature_container$hclust_complete_200_medoids), 
+#                   c(chem_features_kept))]
+# save("the_matrix_hclust", file = "the_matrix_hclust.RData")
 ```
 
-
-#### Excluding correlated features
-
-<!--
-TO DO
-Exclude drug features that correlate with another drug feature with 0.9. 
--->
-
-```{r eval = F, echo = F}
-# and the drug features we also want to keep 
-selected_drug_features <- colnames(select(the_matrix, SlogP:data_effective_rotor_count))
-round(cor(the_matrix[, selected_drug_features]), digits = 3)
-
-
-# plotting all variables will make a huge plot 
-# generate a sequence of pairplots with a maximum of 9 variables per plot
-# breakpoints:
-my_stepsize = 9
-my_steps <- c(seq(from = 1, to = length(selected_drug_features), by = my_stepsize), 
-              length(selected_drug_features))
-
-# generate integer sequences from one breakpoint to the next
-for (ind in seq_along(my_steps)) {
-   if (ind == length(my_steps)) {
-      break # we've reached the end, no further plots needed
-   }
-   my_seq <- seq(from = my_steps[ind], to = (my_steps[ind + 1] - 1))
-   pdf(paste0("./plots/drugfeatures_pairplot_", ind, ".pdf"), width = my_stepsize * 2, 
-       height = my_stepsize * 2)
-   pairs(x = the_matrix[, selected_drug_features[my_seq]], 
-         labels = colnames(the_matrix[, selected_drug_features[my_seq]]))
-   dev.off()
-}
-
-```
-
-
-
-
-# Random Forest Feature Selection
-
-Use of the `rfcv` function of `randomForest` package to assess error related to number of features used
-
-```{r}
-load("./data/the_matrix_allDrugs.RData")
-library(randomForest)
-library(tidyverse)
-
-
-for (moa in c("dna", "protein_synthesis", "cell_wall", "membrane_stress")) {
-    dt = dplyr::select(the_matrix_allDrugs, -drugname_typaslab)
-    dt = dt %>%  mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
-    dt$process_broad = factor(dt$process_broad, levels = c(moa, paste0("not_", moa)))
-
-    res = rfcv(trainx = select(dt, -process_broad), trainy = dt$process_broad, cv.fold = 8, scale = "", step = -1, ntree = 250)
-
-    plot(res$error.cv, type = "l", xaxt = "n", ylab = "CV error", xlab = "Number of features used", main = moa)
-    axis(1, res$n.var, at = seq(1,length(res$n.var)))  
-}
-
-
-
-```
 
 # System and session info
 
