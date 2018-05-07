@@ -43,12 +43,20 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 
+# Fitting models
+
+This was done on the cluster. See directory './clusterscripts' with corresponding .sh and .R files. 
+
+The following combinations were tested:
+* features: top 10% (by variance), top 5% (by variance), Wilcoxon test to distinguish groups (run within CV to avoid overfitting)
+* the_matrix vs. the_matrix_all_drugs: the former contains only drugs with moa dna, cell_wall, protein_synthesis, membrane_stress; the latter all moas. But note that in any case we only attempt to predict the mentioned four classes using 1-vs-all predictions. 
+* optimisation of hyperparameters either by (i) ppv or (ii) by mmce
+
 <!--
-cluster stuff happens:
+not included in this notebook, just kept in case old code is needed for the time being:
 '2_Boosting_Tree_Model_RNCV.Rmd'
-? - '3_Random_Forest_Model.Rmd'
-'4_SVM_Model_RNCV.Rmd'
-...
+'3_Random_Forest_Model.Rmd'
+'4_SVM_Model_RNCV.Rmd' (SVM doesn't seem to work for us, we don't have enough data points)
 -->
 
 # Overview of results

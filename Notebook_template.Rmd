@@ -18,24 +18,10 @@ output:
 This part is the general setup, whichever model we are using.
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
-
-library(tidyverse)
-library(mlr)
-
-#Custom functions
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-
-library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
-
-load(file = "the_matrix.RData")
-the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 ```
-
-

@@ -13,18 +13,17 @@ output:
     toc_float: yes
 ---
 
+# Setup
+
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = F)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
 
-library(tidyverse)
-library(dendextend)
+ipak(dendextend)
 
-#Custom functions
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 load(file = "data/the_matrix_allDrugs.RData")
@@ -35,34 +34,37 @@ drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", head
 ```
 
 
-# Aim of the study
+# Aim of this notebook
 
-During model construction, some bias can be introduced based on two (or more) very similar drugs. If during the sampling these drugs are seperated beetween the test and training set, then one can argue that the model is tested with data it has already seen.
+During model construction, some bias can be introduced based on two (or more) very similar drugs. If 
+during the sampling these drugs are separated between the test and training set, then one can argue 
+that the model is tested with data it has already seen.
 
-To prevent that, blocking can be introduced during the CV instances definition. Blocked individual are always in the same set.
+To prevent that, blocking can be introduced during the CV instances definition. Blocked individuals 
+will always end up in the same set.
 
-For that, chemicla similarity beetween drugs must be computed. Here, fingerprints fom KNIME are used. These fingerprints use InChI (International Chemical Identifier)
+For that, chemical similarity beetween drugs must be computed. Here, fingerprints fom KNIME are used. 
+These fingerprints use InChI (International Chemical Identifier)
 
 
-# Export InChI in a file
+# Analysis of chemical similarities
 
+## Export InChI in a file
 
 ```{r}
-
-all_inchi = filter(drugs_full, drugname_typaslab %in% the_matrix_allDrugs$drugname_typaslab) %>% select(drugname_typaslab, data_stdinchi)
+all_inchi = 
+   filter(drugs_full, drugname_typaslab %in% the_matrix_allDrugs$drugname_typaslab) %>% 
+   select(drugname_typaslab, data_stdinchi)
 write_tsv(all_inchi, col_names = T, path = "data/all_inchi.tsv")
-
 ```
 
+Then one only has to use again the KNIME workflow used for dbsetup construction. Just the input and 
+output files have to be changed.
 
-Then one only has to use again the KNIME workflow used for dbsetup construction. Just the input and output files have to be changed
 
-
-# Read Fingerprint
-
+## Read fingerprints
 
 ```{r}
-
 drugs_RDkit_fingerprint = read_csv2(file = "data/RDkit_fingerprint.csv")
 drugs_RDkit_fingerprint = merge(all_inchi, drugs_RDkit_fingerprint, by = "data_stdinchi")
 colnames(drugs_RDkit_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RDkit_fingerprint")
@@ -74,76 +76,54 @@ colnames(drugs_morgan_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "R
 drugs_MACCS_fingerprint = read_csv2(file = "data/MACCS_fingerprint.csv")
 drugs_MACCS_fingerprint = merge(all_inchi, drugs_MACCS_fingerprint, by = "data_stdinchi")
 colnames(drugs_MACCS_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RDkit_fingerprint")
-
 ```
 
 
-```{r}
-
-plot_dend = function(drugs_fingerprint, ...){
-        
-    fp_matrix = apply(drugs_fingerprint, 1,  function(x) {
-                unlist(strsplit(x["RDkit_fingerprint"], split = "" ))
-        }
-    )
-    fp_matrix = t(fp_matrix)
-    rownames(fp_matrix) = drugs_fingerprint$drugnames_typaslab
-    
-    color_moa = c(rainbow(4), rep("black", 3))
-    names(color_moa) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis", "protein_qc", "oxidative_stress", "pmf")
-    
-    dist_fp_matrix = dist(fp_matrix, method = "binary")
-    
-    hclust_fp = hclust(dist_fp_matrix)
-    dend_fp = as.dendrogram(hclust_fp, hang = 0.1)
-    
-    labels_colors(dend_fp) <- color_moa[the_matrix_allDrugs[order.dendrogram(dend_fp), "process_broad"]]
-    par(mar = c(3,2,2,8)) 
-    dend_fp %>%
-        set("labels_cex", 0.7) %>%
-        set("branches_lwd", 1.5) %>%
-        plot(horiz = T, cex = 0.5, ...)
-    
-    abline(v = 0.1, lty = "dotted", lwd = 2, col ="darkgrey")
-}
-
-```
-
+## Plot dendrogram of similarities
 
 ```{r}
-
 plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint")
+
+#### Leonard: doesn't work - why? 
+# pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
+# print(plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint"))
+# dev.off()
+```
+
+```{r}
 plot_dend(drugs_fingerprint = drugs_MACCS_fingerprint, main = "Hclust of binary distance - MACCS fingerprint")
+```
+
+```{r}
 plot_dend(drugs_fingerprint = drugs_morgan_fingerprint, main = "Hclust of binary distance - Morgan fingerprint")
-
-
-
 ```
 
 
-# Analysis of the results
+## Conclusions
 
-RDKit fingerprint shows more similarities beetween drugs, in particular, drugs with the same mode of action which are way too close (more than 90% chemical fingerprint similarities) are :
+RDKit fingerprint shows more similarities beetween drugs, in particular, drugs with the same mode of 
+action which are way too close (more than 90% chemical fingerprint similarities) are :
 
 - Group 1 : Phleomycin and Bleomycin
 - Group 2 : Tetracycline, Minocycline, Streptonigrin
 - Group 3 : Actinomycin D, Vancomycin and mitomycin C
 - Group 4 : Ampicillin and Carbenicillin
 
-Groups 1 and 2 can also be linked together for the maximum difference beetween two of the five drugs from these groups is less than 10%
-
+Groups 1 and 2 can also be linked together for the maximum difference beetween two of the five drugs 
+from these groups is less than 10%
 
 MACCS fingerprint also shows similarity beetween Minocycline and Tetracycline
 
 
 
-# Drugs chemogenomic similarities
-
+# Analysis of chemogenomic similarities. 
 
 ```{r}
+#### Leonard: please rerun using correlation as a distance
+#### then save the plot into ./plots like above
 
-chemgen_mat = select(the_matrix_allDrugs,  -process_broad, -drugname_typaslab)
-#CecropinB is an outlier strongly influencing to final plot
+chemgen_mat = select(the_matrix_allDrugs, -process_broad, -drugname_typaslab)
+# CecropinB is an outlier strongly influencing to final plot
 rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
 chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
 
@@ -163,3 +143,4 @@ dend_chemgen %>%
     plot(horiz = T, cex = 0.5)
 
 ```
+

@@ -13,22 +13,14 @@ output:
     toc_float: yes
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = F)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
-
-library(tidyverse)
-library(mlr)
-
-#Custom functions
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 load(file = "data/the_matrix.RData")
@@ -36,28 +28,34 @@ load(file = "data/the_matrix.RData")
 #load(file = "data/the_matrix_allDrugs.RData")
 ```
 
-***
 
-# Why defining sampling instances ?
+# Aim of notebook: defining sampling instances - motivation
 
-In order to compare performances of different models (e.g. Random Forest, Boosting trees...), one has to use the *exact same samples in every fold* (inner and outer) of the nested Cross Validation.
+In order to compare performances of different models (e.g. Random Forest, Boosting trees...), one has 
+to use the *exact same samples in every fold* (inner and outer) of the nested cross-validation.
 
-The function ` makeResampleInstance()` could be used to keep in memory a object containing details on the sampling. For a 5-fold by 5-fold nested cross validation, 6 resampling instances are needed : one for each inner fold and one for the outer loop. In particular, instances of the inner fold should be based on the training sets defined in the outer loop instances.
+The function `makeResampleInstance()` could be used to keep in memory a object containing details 
+on the sampling. For a 5-fold by 5-fold nested cross-validation, 6 resampling instances are needed : 
+one for each inner fold and one for the outer loop. In particular, instances of the inner fold should 
+be based on the training sets defined in the outer loop instances.
 
-Even if such a strategy can't be avoided in order to obtain an unbiased comparison of models, it still presents some weaknesses : one can easily argue that the choosen instances are the ones giving the best performances. To prevent such criticism, a repeated cross validation is possible. Let's say 10 times.
+Even if such a strategy can't be avoided in order to obtain an unbiased comparison of models, it 
+still presents some weaknesses : one can easily argue that the choosen instances are the ones giving 
+the best performances. To prevent such criticism, a repeated cross validation is possible, e.g. 
+10 times. 
 
-Thus, the exact strategy for assessing models' performances and comparing them could be called : **Repeated-Nested Cross-Validation with instanced resampling**
+Thus, the exact strategy for assessing models' performances and comparing them could be called : 
+**Repeated nested cross-validation with instanced resampling**
 
 
-# Instances creation
+## Generating instances
 
-Because of the size of the dataset, a 5x5 nested CV will end with very few members of each class to predict in the inner testing sets. A 3x3 nested CV presents bigger sets and less computational loop (9 instead of 25) 
+#### Leonard: please continue here: remove superfluous definitions and if possible put functions into R/
 
-24/04/2018
-After meeting Georg, turns out, for we have a small dataset, a bigger amount of fold is better. Thus the training set will countain more individuals. 
-The testing sets can be aggregated afterwards, each individual being predicted by a model which did not learn from him.
+Since we have a small data set, it is actually better to use more folds. Thus, the training set will 
+contain more individuals. The testing set results can be concatenated afterwards, with each individual 
+having been predicted by a model in which it was not included. 
 
-## Function
 
 ```{r function}
 
@@ -246,7 +244,6 @@ save(Rep_Nest_CV_instance_allDrugs, file = "data/Rep_Nest_CV_instance_allDrugs.R
 save(Rep_Nest_CV_instance, file = "data/Rep_Nest_CV_instance.RData")
 ```
 
-***
 
 # System and session info
 

@@ -21,27 +21,27 @@ editor_options:
 This part is the general setup, whichever model we are using.
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# knitr::opts_chunk$set(echo = T)
+# knitr::opts_chunk$set(message = T)
+# knitr::opts_chunk$set(warning = F)
+# knitr::opts_chunk$set(error = T)
+# knitr::opts_chunk$set(cache = T)
+# Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# 
+# library(tidyverse)
+# library(mlr)
 
-library(tidyverse)
-library(mlr)
-
-#Custom functions
+#Custom functions and setup.R
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-
-library("parallelMap") #Always useful
-library("parallel")
-
-if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
-   parallelStartMulticore(cpus = 10)
-} else {
-   parallelStartMulticore(cpus = detectCores() - 1)
-}
+# 
+# library("parallelMap") #Always useful
+# library("parallel")
+# 
+# if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
+#    parallelStartMulticore(cpus = 10)
+# } else {
+#    parallelStartMulticore(cpus = detectCores() - 1)
+# }
 ```
 
 
@@ -295,6 +295,29 @@ ggplot(prec_recall_df, aes(x = fpr, y = recall)) +
    geom_abline(intercept = 0, slope = 1, size = 2) + 
    theme(text = element_text(size = 24))
 ggsave("./plots/au-roc_rf_hclust.pdf", width = 14, height = 10)
+```
+
+
+#### Random Forest Feature Selection
+
+Use of the `rfcv` function of `randomForest` package to assess error related to number of features used
+
+```{r}
+load("./data/the_matrix_allDrugs.RData")
+library(randomForest)
+library(tidyverse)
+
+
+for (moa in c("dna", "protein_synthesis", "cell_wall", "membrane_stress")) {
+    dt = dplyr::select(the_matrix_allDrugs, -drugname_typaslab)
+    dt = dt %>%  mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+    dt$process_broad = factor(dt$process_broad, levels = c(moa, paste0("not_", moa)))
+
+    res = rfcv(trainx = select(dt, -process_broad), trainy = dt$process_broad, cv.fold = 8, scale = "", step = -1, ntree = 250)
+
+    plot(res$error.cv, type = "l", xaxt = "n", ylab = "CV error", xlab = "Number of features used", main = moa)
+    axis(1, res$n.var, at = seq(1,length(res$n.var)))  
+}
 ```
 
 

@@ -13,35 +13,33 @@ output:
     toc_float: yes
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
 
-library(tidyverse)
-library(mlr)
+ipak(adabag)
+ipak(rpart)
+ipak(foreach)
+ipak(iterators)
+ipak(xgboost)
 
-#Custom functions
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-library("parallelMap") #Always useful
-parallelStartMulticore(cpus = 2)
-
-#Resampling Instances
+# Resampling Instances
 load(file = "data/Rep_Nest_CV_instance_allDrugs.RData")
 
+# data selection
+load(file = "data/the_matrix_allDrugs_top10pct.RData")
+load(file = "data/the_matrix_allDrugs.RData")
 ```
 
-***
 
-# Boosting tree Method
+# Boosting tree method
 
 Boosting tree (BT) works in a similar way to Random Forest but trees are build sequentially. Each tree is a *weak* learner whose aim is to correct errors from the previous tree. In BT, trees present high bias and low variance and are sometimes as small as a decision stump (one root and two leaves). By aggregating these weak learners, one reduces bias.
 
@@ -79,44 +77,6 @@ The last ones deal with missing values. As long as we don't have missing values,
 `Adabag` package paper : http://www.jstatsoft.org/v54/i02/
 
 
-
-## Setup - Loading
-
-Learner used is `classif.boosting`, a classification learner based on boosting tree method and allowing multiclass probability prediction.
-On top of `mlr` package, one should also install `adabag` and `rpart`.
-
-```{r }
-if(!require(adabag)){
-    install.packages("adabag")
-}
-if(!require(rpart)){
-    install.packages("rpart")
-}
-library(adabag)
-library(rpart)
-
-if(!require(foreach)){
-    install.packages("foreach")
-}
-library(foreach)
-
-if(!require(iterators)){
-    install.packages("iterators")
-}
-library(iterators)
-
-
-```
-
-## Data selection
-
-```{r}
-load(file = "data/the_matrix_allDrugs_top10pct.RData")
-load(file = "data/the_matrix_allDrugs.RData")
-
-
-```
-
 ## Hyperparamters Tuning grid
 
 This grid is one of the main part of the computation cost. If it can be reduced, it would be great !
@@ -130,29 +90,18 @@ bt_hyp_param = makeParamSet(
     makeDiscreteParam("coeflearn", values = "Zhu") #Best for multiclass problem
 )
 bt_tuning = makeTuneControlGrid()
-
-
 ```
 
 # Analysis run
 
 ```{r}
-
 result_BT_top7 = rep_nested_CV_run(data_matrix = the_matrix_top7, model = "classif.boosting", rep_instance = Rep_Nest_CV_instance, run_hyp_param = bt_hyp_param, run_tuning = bt_tuning)
-
-parallelStop()
 ```
 
 
 ## Test with other algorithm - XgBoost
 
 ```{r}
-
-if(!require(xgboost)){
-    install.packages("xgboost")
-}
-library(xgboost)
-
 bt_hyp_param = makeParamSet(
     makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
     makeDiscreteParam("max_depth", values = c(1,2,3)), #depth 1 = stump, 2 leaves for 4 classes, makes no sense 
@@ -167,13 +116,8 @@ result_XGBT_10wilcox_allDrugs_tuneMMCE = rep_nested_CV_run_4models(data_matrix =
 
 #result_xgb_10pc = rep_nested_CV_run(data_matrix = the_matrix_top10pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)
 #result_xgb_5pc = rep_nested_CV_run(data_matrix = the_matrix_top5pct, model = "classif.xgboost", rep_instance = Rep_Nest_CV_instance, run_hyp_param =  bt_hyp_param, run_tuning = bt_tuning)
-
-parallelStop()
 ```
 
-
-
-***
 
 # System and session info
 
