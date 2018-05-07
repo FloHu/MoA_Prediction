@@ -1,0 +1,93 @@
+---
+title: "MoA Prediction: the whole story"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(message = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(error = T)
+knitr::opts_chunk$set(cache = T)
+Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+
+library(tidyverse)
+library(mlr)
+
+#Custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+# library("parallelMap") #Always useful
+# parallelStartMulticore(cpus = 2)
+# 
+# load(file = "the_matrix.RData")
+# the_matrix = merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+```
+
+
+
+# Loading data and selecting features
+
+```{r data_loading_feature_select, child = '1_DataLoading_FeaturePreselect.Rmd'}
+```
+
+# Defining which drugs should be 'blocked'
+
+```{r drug_similarities, child = 'Drugs_chemical_similarities.Rmd'}
+```
+
+# Generating a cross-validation instance
+
+```{r cv_instantiation, child = '0_Defining_sampling_instances.Rmd'}
+```
+
+
+<!--
+cluster stuff happens:
+'2_Boosting_Tree_Model_RNCV.Rmd'
+? - '3_Random_Forest_Model.Rmd'
+'4_SVM_Model_RNCV.Rmd'
+...
+-->
+
+# Overview of results
+<!--
+compares roc, precision-recall curves, confusion matrices using different models/parameter sets
+-->
+
+```{r results_overview, child = 'Boosting_tree_results_overview.Rmd'}
+```
+
+# Understanding feature importances
+
+```{r feature_importances, child = 'FeatureImp_RF_XGBT_results_overview.Rmd'}
+```
+
+<!--
+? - imbalanced_classes.Rmd
+-->
+
+
+
+
+
+
+
+
+
+
+
