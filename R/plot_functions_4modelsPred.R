@@ -251,12 +251,15 @@ plot_feat_4model= function(res , moa = "dna"){
     
 
 
-plot_predProb_moa = function(res, rep, moa = "dna"){
+plot_predProb_moa = function(res, rep, moa = "dna", dt_matrix = the_matrix_allDrugs){
     set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
     if(!moa %in% c(set_MoA, "all")){
         print("Invalid Mode of action")
         return(-1)
     }
+    
+    color_moa = c(rainbow(4), rep("black", 3))
+    names(color_moa) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis", "protein_qc", "oxidative_stress", "pmf")
     
     dt = cat_outer_fold_pred(res =res, repetition = rep, moa = moa)
     dt = dt$data
@@ -264,11 +267,16 @@ plot_predProb_moa = function(res, rep, moa = "dna"){
     dt_moa = filter(dt, truth == moa)
     dt_not_moa = filter(dt, truth == paste0("not_", moa))
     
+    
     toPlot = list(dt_moa[, paste0("prob.", moa)], dt_moa[, paste0("prob.not_", moa)], dt_not_moa[, paste0("prob.", moa)], dt_not_moa[, paste0("prob.not_", moa)])
-    boxplot(toPlot, at = c(1,2,4,5), main = "Truth", col = rainbow(2), lwd = 2, xaxt = "n")
+    
+    boxplot(toPlot, at = c(1,2,4,5), main = "Truth", col = rainbow(2), lwd = 2, xaxt = "n", outline = F)
+    
+    stripchart(at = 4, vertical = T, dt_not_moa[, paste0("prob.", moa)], pch = 21, bg = color_moa[the_matrix_allDrugs[dt_not_moa$id, "process_broad"]] , cex = 1.2, method = "jitter", add =T)
+    stripchart(at = 5, vertical = T, dt_not_moa[, paste0("prob.not_", moa)], pch = 21, bg = color_moa[the_matrix_allDrugs[dt_not_moa$id, "process_broad"]] , cex = 1.2, method = "jitter", add =T)
+    
     axis(side = 1, at = c(1,2,4,5), labels = c(paste0("prob ", moa), paste0("not_", moa), paste0("prob ", moa), paste0("not_", moa)))
     axis(side = 3, at = c(1.5,4.5), labels = c(moa, paste0("not_", moa)))
-    
 }
 
 
@@ -327,4 +335,26 @@ plot_ROC_optThres = function(res, moa = "dna"){
     
 
     grid.arrange(plotThreshVsPerf(mccCurve), toPlot , nrow = 1)
+}
+
+
+
+distrib_drug_prob = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){
+    
+    idDrug =  which(dt_matrix$drugname_typaslab == drug)
+    drugMoa = filter(the_matrix_allDrugs, drugname_typaslab == drug) %>% select(process_broad)
+    
+    prob_allMoa = list()
+    
+    for (m in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")) {
+        allData = c()
+        for (r in 1:10){
+            all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = m)
+            allData = rbind(allData, all_test_set$data)
+        }
+        all_test_set$data = allData
+        prob_allMoa[[paste0("prob_", m)]] = filter(all_test_set$data, id == idDrug ) %>% select(paste0("prob.", m)) %>% t(.)
+    }
+    
+    boxplot(prob_allMoa, lwd = 2, col = rainbow(length(prob_allMoa)), main = paste0("Prediction Probabilities - ", drug, " - Truth = ", drugMoa))
 }
