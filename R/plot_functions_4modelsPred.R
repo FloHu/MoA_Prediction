@@ -270,3 +270,61 @@ plot_predProb_moa = function(res, rep, moa = "dna"){
     axis(side = 3, at = c(1.5,4.5), labels = c(moa, paste0("not_", moa)))
     
 }
+
+
+
+
+
+# ==============================================================================
+
+
+
+plot_ROC_optThres = function(res, moa = "dna"){
+    
+    if(!require(ggrepel)){
+        install.packages("ggrepel")
+    }
+    library(ggrepel)
+    library(grid)
+    library(gridExtra)
+    
+    #Concatenate all Data from all repetition/outerFolds
+    allData = c()
+    for (r in 1:10){
+        all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = moa)
+        allData = rbind(allData, all_test_set$data)
+    }
+    all_test_set$data = allData
+    
+    
+    mccCurve = generateThreshVsPerfData(all_test_set, measures = mcc)
+    #Best Threshold
+    bestThres = mccCurve$data[which.max(mccCurve$data$mcc),"threshold"]
+    
+    #Custom Threshold
+    all_test_set = setThreshold(all_test_set, threshold = bestThres)
+    confMat = calculateConfusionMatrix(all_test_set)
+    TP = confMat$result[1,1]
+    FP = confMat$result[2,1]
+    FN = confMat$result[1,2]
+    TN = confMat$result[2,2]
+    
+    
+    plotData = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
+    toPlot = ggplot() + geom_path(data = plotData$data, mapping = do.call(aes_string, list(x = "fpr", y = "tpr")), size = 2) +
+        annotate("text", size = 8, x = 0.8, y = 0.1, label = paste0("AUC : ", round(performance(all_test_set, auc), digits = 3)))
+    
+    
+    
+    bestPoint = plotData$data[which(round(plotData$data$threshold, digits = 2) == round(bestThres, digits = 2)) , ]
+    
+    toPlot = toPlot + annotate("point", x = bestPoint$fpr, y = bestPoint$tpr, colour = "red", cex = 5) + 
+        geom_label(aes(label = paste0("Threshold = ", round(bestThres, digits = 2) ,"\nTP : ", TP, " FP : ", FP, "\nFN : ", FN, " TN : ", TN),
+                            size = 3.5, x = bestPoint$fpr+0.15, y = bestPoint$tpr - 0.05 ), show.legend = FALSE) +
+        geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
+        labs(x = "False positive rate", y = "True positive rate", title = paste0(deparse(substitute(res)), " - ", moa )) 
+        
+    
+
+    grid.arrange(plotThreshVsPerf(mccCurve), toPlot , nrow = 1)
+}
