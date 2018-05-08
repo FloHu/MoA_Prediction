@@ -86,7 +86,7 @@ plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary 
 
 #### Leonard: doesn't work - why? 
 # pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
-# print(plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint"))
+# plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint")
 # dev.off()
 ```
 
