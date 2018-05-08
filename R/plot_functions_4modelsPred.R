@@ -302,6 +302,10 @@ plot_predProb_moa = function(res, rep = 1, moa = "dna", dt_matrix = the_matrix_a
 
 # ==============================================================================
 
+#AIM : Plot a ROC curve for one MoA as well as the MCC depending on the threshold
+#       For the optimal threshold (highest MCC), display a confusion matrix on the ROC curve
+#INPUT :  A result object and a MoA
+#OUTPUT : Splitted double plot of the 2 curves and return a confusionMatrix object
 plot_ROC_optThres = function(res, moa = "dna"){
     
     if(!require(ggrepel)){
@@ -344,10 +348,14 @@ plot_ROC_optThres = function(res, moa = "dna"){
         labs(x = "False positive rate", y = "True positive rate", title = paste0(deparse(substitute(res)), " - ", moa )) 
 
     grid.arrange(plotThreshVsPerf(mccCurve), toPlot , nrow = 1)
+    confMat
 }
 
 # ==============================================================================
 
+#AIM : Display distribution of prediction probabilities by MoA for one drug in a result object
+#INPUT : Result object, drugname (typaslab)
+#OUTPUT : Boxplot of probabilities across all repetitions
 distrib_drug_prob = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){
     
     idDrug =  which(dt_matrix$drugname_typaslab == drug)
@@ -364,5 +372,8 @@ distrib_drug_prob = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs)
         all_test_set$data = allData
         prob_allMoa[[paste0("prob_", m)]] = filter(all_test_set$data, id == idDrug ) %>% select(paste0("prob.", m)) %>% t(.)
     }
-    boxplot(prob_allMoa, lwd = 2, col = rainbow(length(prob_allMoa)), main = paste0("Prediction Probabilities - ", drug, " - Truth = ", drugMoa))
+    boxplot(prob_allMoa, lwd = 2, col = rainbow(length(prob_allMoa)), 
+            main = paste0("Prediction Probabilities - ", drug, " - Truth = ", drugMoa),
+            sub = paste0("Dataset : ", deparse(substitute(res))))
+    stripchart(prob_allMoa, vertical = T, add = T, method = "jitter", pch = 21, bg = "grey", cex = 1.5)
 }
