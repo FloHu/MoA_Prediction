@@ -23,9 +23,8 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-load(file = "data/the_matrix.RData")
-#OR
-#load(file = "data/the_matrix_allDrugs.RData")
+load(file = "data/the_matrix_allDrugs.RData")
+load(file = "data/the_matrix_newDrugs.RData")
 ```
 
 
@@ -50,11 +49,9 @@ Thus, the exact strategy for assessing models' performances and comparing them c
 
 ## Generating instances
 
-#### Leonard: please continue here: remove superfluous definitions and if possible put functions into R/
-
 Since we have a small data set, it is actually better to use more folds. Thus, the training set will 
 contain more individuals. The testing set results can be concatenated afterwards, with each individual 
-having been predicted by a model in which it was not included. 
+having been predicted by a model in which it was not trained. 
 
 
 ```{r function}
@@ -121,100 +118,30 @@ for(i in 1:10){
     Rep_Nest_CV_instance_allDrugs[[name]] = instance_creation(dataset = the_matrix_allDrugs, printTest = T)
 }
 
-Rep_Nest_CV_instance = list()
+```
+
+
+
+## Creation of repeated CV instance - NEW LABELS
+
+Creation of instances based on Nassos correstion from 05/08/2018
+
+```{r echo = F }
+
+the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+
+Rep_Nest_CV_instance_newDrugs = list()
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = the_matrix, printTest = T)
+    Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = the_matrix_newDrugs, printTest = F)
 }
-
 
 ```
 
 
-# Adding blocking factor
+# Testing chunks - print class repartition inside Folds
 
-Too much chemical similarities beetween some drugs
-
-- Phleomycin and Bleomycin,  Tetracycline, Minocycline, Streptonigrin (13,57, 74, 46, 70)
-- Actinomycin D, Vancomycin and mitomycin C (3, 81 and 47)
-- Ampicillin and Carbenicillin (6 and 14)
-```{r eval = F}
-#Numbers different for each drug
-#Inside a group, all take the same number as the first one
-fp_clust_groups = seq(1,82)
-fp_clust_groups[c(57,74,46,70)] = fp_clust_groups[13] 
-fp_clust_groups[c(81,47)] = fp_clust_groups[3] 
-fp_clust_groups[c(14)] = fp_clust_groups[6] 
-
-fp_clust_groups = factor(fp_clust_groups)
-
-```
-
-Error in makeResampleInstance(sampling_method, outer_task) : Blocking can currently not be mixed with stratification in resampling!
-
-## Blocking Resampling Functions 
-
-The trick here is not to generate a blocked sampling but instead to generate a sampling, check if it respects the blocking condition, keep it if yes or generate new sampling if not.
-
-In our case, this trick can work because the number of groups to block as well as their size is small enough.
-
-```{r}
-make_blocked_instance = function(sampling_method, sampleTask, nFolds, blockingFactor){
-    blocked_instance_outer = makeResampleInstance(sampling_method, sampleTask)
-    for(i in 1:nFolds){
-        blocked_instance_outer$train.inds[[i]] = c()
-        blocked_instance_outer$test.inds[[i]] = c()
-    }
-    nbBlocked = 1
-    while(nbBlocked < nFolds+1){
-        sample_instance_outer =  makeResampleInstance(sampling_method, sampleTask)
-        for(w in 1:nFolds){
-            groupsTrain = blockingFactor[sample_instance_outer$train.inds[[w]]]
-            groupsTest = blockingFactor[sample_instance_outer$test.inds[[w]]]
-            
-            if(length(intersect(groupsTest, groupsTrain)) == 0){
-                blocked_instance_outer$train.inds[[nbBlocked]] = sample_instance_outer$train.inds[[w]]
-                blocked_instance_outer$test.inds[[nbBlocked]] = sample_instance_outer$test.inds[[w]]
-                nbBlocked = nbBlocked +1
-            }
-            if(nbBlocked >= nFolds+1)
-                break()
-        }
-    }
-    #test if all folds are different
-    lapply(blocked_instance_outer$train.inds, sort)
-    
-    return(blocked_instance_outer)
-}
-
-################################################################################
-
-instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8, blockingFactor){
-    dataset = select(dataset, -drugname_typaslab)
-    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsOuter, stratify = TRUE)
-    
-    # outer instance
-    outer_task =  makeClassifTask(data = dataset, target = "process_broad")
-
-    sample_instance_outer = make_blocked_instance(sampling_method = sampling_method, sampleTask = outer_task, nFolds = nFoldsOuter, blockingFactor = blockingFactor)
-    
-    # defining inner instances
-    sampling_method = makeResampleDesc(method = "CV", iters = nFoldsInner, stratify = TRUE)
-    sample_instance_inner = list()
-    for(i in 1:nFoldsOuter){
-        inner_task = makeClassifTask(data = dataset[ sample_instance_outer$train.inds[[i]] , ], target = "process_broad")
-        sample_instance_inner[[i]] = make_blocked_instance(sampling_method = sampling_method, sampleTask = inner_task, nFolds = nFoldsInner, blockingFactor = blockingFactor)
-    }
-    
-    nested_CV_instance = list(outer = sample_instance_outer, inner = sample_instance_inner)
-    return(nested_CV_instance)
-}
-```
-
-
-# Testting chunks - print class repartition inside Folds
-
-
+Just to be sure...The amount of each class in an inner set and the corresponding training set of the outer fold should be the same.
 
 ```{r eval = F}
 #Test of outer folds, if they are all differents
@@ -239,9 +166,9 @@ for (i in 1:30){
 
 
 ```{r export data}
-
 save(Rep_Nest_CV_instance_allDrugs, file = "data/Rep_Nest_CV_instance_allDrugs.RData")
-save(Rep_Nest_CV_instance, file = "data/Rep_Nest_CV_instance.RData")
+save(Rep_Nest_CV_instance_newDrugs, file = "data/Rep_Nest_CV_instance_newDrugs.RData")
+
 ```
 
 

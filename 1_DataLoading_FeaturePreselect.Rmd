@@ -165,15 +165,30 @@ labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 ```
 
 
+Correction of drug classification by Nassos on the 08/05/2018, we then create a new data matrix bbut keep the old one available 
+
 ```{r}
-# the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+new_labels <- labels
+new_labels[match("BACITRACIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
+new_labels[match("VANCOMYCIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
+new_labels[match("INDOLICIDIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
+new_labels[match("BICYCLOMYCIN" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
+new_labels[match("CECROPINB" , new_labels$drugname_typaslab), "process_broad"] = "oxidative_stress"
+new_labels[match("ETHANOL" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
+new_labels[match("ISONIAZID" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
+
+the_matrix_newDrugs <- merge(x = new_labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
+the_matrix_newDrugs = filter(the_matrix_newDrugs, process_broad  != "unknown")
+save(the_matrix_newDrugs, new_labels, file = "data/the_matrix_newDrugs.RData")
+
 ```
 
 
 ```{r, eval = F}
+the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
 the_matrix_allDrugs <- the_matrix
 labels_allDrugs <- labels
-save(the_matrix_allDrugs, labels_allDrugs, file = "the_matrix_allDrugs.RData")
+save(the_matrix_allDrugs, labels_allDrugs, file = "data/the_matrix_allDrugs.RData")
 
 # note: used to only select drugs with MoA falling into one of the categories of (i) protein_synthesis, 
 # (ii) dna, (iii) cell_wall, and (iv) membrane_stress - the object is still available under 

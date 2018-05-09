@@ -1,0 +1,90 @@
+---
+title: "Predicting drug mode of action: Random Forest Models without Nested Cross-Validation"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup, library loading
+
+```{r}
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+
+ipak("tidyverse")
+ipak("mlr")
+ipak("randomForest")
+ipak("iterators")
+ipak("foreach")
+
+# custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+load(file = "data/Rep_Nest_CV_instance_allDrugs.RData")
+load(file = "data/Rep_Nest_CV_instance_newDrugs.RData")
+load(file = "data/the_matrix_newDrugs.RData")
+load(file = "data/the_matrix_allDrugs.RData")
+
+```
+
+
+
+```{r function}
+
+
+RF_without_NCV_run_4models = function(data_matrix, rep_instance){
+    
+    if("drugname_typaslab" %in% colnames(data_matrix)){
+        data_matrix = select(data_matrix, -drugname_typaslab)
+    }
+    
+    #Final output object containing everything needed, models - prediction of all outer fold of all repetitions
+    run_result = list()
+    p = dim(data_matrix)[2]
+    hyp_grid = makeParamSet(
+        makeDiscreteParam("ntree", values = c(100,200,500,800,1000)),
+        makeDiscreteParam("mtry", values = floor(c(p,p/2, p/4, p*(3/4), sqrt(p))))
+    )
+
+    for (moa in c("dna", "cell_wall", "membrane_stress", "protein_synthesis")) {
+                
+        #create a new matrix of all data with different process annotation
+        custom_matrix = data_matrix %>% 
+                        mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+                
+        custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
+
+        predictMoa = makeClassifTask(data = custom_matrix, target = "process_broad")
+                
+        #tuning hyperparameters based on the inner resampling
+        resTuning = tuneParams(learner = "classif.randomForest", task = predictMoa, resampling = rep_instance[[1]]$outer, measures = mcc,
+                               par.set = hyp_grid, control =  makeTuneControlGrid())
+                
+        #use the best Hyperparams to create optimal learner
+        run_learner = setHyperPars(makeLearner(cl = "classif.randomForest", predict.type = "prob"), par.vals = resTuning$x)
+
+        #Model trained on a training subset
+        model_RF = mlr::train(run_learner, predictMoa)
+                
+        pred_OOB = getOOBPreds(model_RF, task = predictMoa)
+                
+        model_name = paste0("model_", moa)
+        pred_name = paste0("prediction_", moa)
+        run_result[[model_name]] = model_RF 
+        run_result[[pred_name]] = pred_OOB
+    }
+    return(run_result)
+}
+
+```
