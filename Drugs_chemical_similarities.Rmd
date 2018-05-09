@@ -84,9 +84,16 @@ colnames(drugs_MACCS_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RD
 ```{r}
 plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint")
 
+<<<<<<< HEAD
 pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
 print(plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint"))
 dev.off()
+=======
+#### Leonard: doesn't work - why? 
+# pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
+# plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint")
+# dev.off()
+>>>>>>> 0edf0c4563b4181c4378777fe32c17cd3e85b89b
 ```
 
 ```{r}

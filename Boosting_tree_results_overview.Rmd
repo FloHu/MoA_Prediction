@@ -11,41 +11,69 @@ output:
     toc_float: yes
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = F)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
 
-library(tidyverse)
-library(mlr)
-library(randomForest)
-library(xgboost)
+ipak(randomForest)
+ipak(xgboost)
 
-#Custom functions
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-
 ```
 
-# Results loading
 
+# Analysis
+
+## Loading results
 
 ```{r}
 walk(list.files("./run_results_from_server", pattern = "result_XGBT*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
-#walk(list.files("./run_results_from_server", pattern = "result_RF_*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
+load("./run_results_from_server/result_greedy_XGBT_allFeat_allDrugs_tuneMMCE.RData")
 
+load("./run_results_from_server/result_greedy_RF_10pc_allDrugs_tuneMMCE.RData") # uses 10 pc variance features, mtry = grid search
+load("./run_results_from_server/result_RF_27feat_allDrugs_tuneMMCE.RData") # uses all features, but mtry = 27 - best performer for random forests
+# best for gradient boosting: result_XGBT_10pc_allDrugs
+#walk(list.files("./run_results_from_server", pattern = "result_RF_*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
 ```
 
 the grid used to tune the models was the following one :
 - `nrounds` (number of trees) : 200,500
 - `max_depth` : 1,2,3
 - `eta` (learning rate) : 0.01, 0.1, 0.5
+
+```{r florians_chunk}
+# hyp_param_study(result_XGBT_10pc_allDrugs_tuneMMCE)
+# plot_feat(result_XGBT_10pc_allDrugs_tuneMMCE)
+
+plot_mean_perf(result_XGBT_10pc_allDrugs_tuneMMCE, meas = auc, moa = "dna") 
+plot_ROC_allRep(result_XGBT_10pc_allDrugs_tuneMMCE)
+plot_ROC_allRep(result_XGBT_10pc_allDrugs_tunePPV)
+plot_ROC_allRep(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
+plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE)
+plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
+plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
+plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+compare_ROC_2models(result_XGBT_10topWilcox_allDrugs_tuneMMCE, 
+                    result_XGBT_10worstWilcox_allDrugs_tuneMMCE, 
+                    moa = "all")
+plot_ROC_allRep(result_XGBT_10wilcox_allDrugs_tuneMMCE)
+ggsave(filename = "plot.pdf", compare_ROC_2models(result_greedy_XGBT_allFeat_allDrugs_tuneMMCE, 
+                    result_XGBT_10pc_allDrugs_tuneMMCE, 
+                    moa = "all"), width = 14)
+
+ggsave(filename = "plot2.pdf", compare_ROC_2models(result_RF_27feat_allDrugs_tuneMMCE, 
+                                                   result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"), 
+       width = 14)
+
+plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna") # only for one moa
+plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress") # only for one moa
+
+```
 
 
 ```{r eval = F, echo = F}
