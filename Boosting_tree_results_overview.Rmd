@@ -21,6 +21,8 @@ source("./setup.R")
 
 ipak(randomForest)
 ipak(xgboost)
+ipak(grid)
+ipak(gridExtra)
 
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
@@ -28,6 +30,12 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 
 # Analysis
+
+The grid used to tune the models was the following one :
+- `nrounds` (number of trees) : 200, 500
+- `max_depth` : 1, 2, 3
+- `eta` (learning rate) : 0.01, 0.1, 0.5
+
 
 ## Loading results
 
@@ -37,80 +45,133 @@ load("./run_results_from_server/result_greedy_XGBT_allFeat_allDrugs_tuneMMCE.RDa
 
 load("./run_results_from_server/result_greedy_RF_10pc_allDrugs_tuneMMCE.RData") # uses 10 pc variance features, mtry = grid search
 load("./run_results_from_server/result_RF_27feat_allDrugs_tuneMMCE.RData") # uses all features, but mtry = 27 - best performer for random forests
+load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
 # best for gradient boosting: result_XGBT_10pc_allDrugs
 #walk(list.files("./run_results_from_server", pattern = "result_RF_*", full.names = T ), function(x) load(x , envir = .GlobalEnv))
 ```
 
-the grid used to tune the models was the following one :
-- `nrounds` (number of trees) : 200,500
-- `max_depth` : 1,2,3
-- `eta` (learning rate) : 0.01, 0.1, 0.5
 
-```{r florians_chunk}
-# hyp_param_study(result_XGBT_10pc_allDrugs_tuneMMCE)
-# plot_feat(result_XGBT_10pc_allDrugs_tuneMMCE)
+## Some plots and conclusions
 
-plot_mean_perf(result_XGBT_10pc_allDrugs_tuneMMCE, meas = auc, moa = "dna") 
-plot_ROC_allRep(result_XGBT_10pc_allDrugs_tuneMMCE)
-plot_ROC_allRep(result_XGBT_10pc_allDrugs_tunePPV)
-plot_ROC_allRep(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
-plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE)
-plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
-plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
-plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
-compare_ROC_2models(result_XGBT_10topWilcox_allDrugs_tuneMMCE, 
-                    result_XGBT_10worstWilcox_allDrugs_tuneMMCE, 
-                    moa = "all")
-plot_ROC_allRep(result_XGBT_10wilcox_allDrugs_tuneMMCE)
-ggsave(filename = "plot.pdf", compare_ROC_2models(result_greedy_XGBT_allFeat_allDrugs_tuneMMCE, 
-                    result_XGBT_10pc_allDrugs_tuneMMCE, 
-                    moa = "all"), width = 14)
+### Plots for presentation
 
-ggsave(filename = "plot2.pdf", compare_ROC_2models(result_RF_27feat_allDrugs_tuneMMCE, 
-                                                   result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"), 
-       width = 14)
+Compare best RF vs. best XGBT outcomes - performances are similar. In both cases it's: all drugs, 
+optimising MMCE, using top 10 per cent variance features.
 
-plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna") # only for one moa
-plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress") # only for one moa
+```{r}
+(p <- compare_ROC_2models(result_XGBT_10pc_allDrugs_tuneMMCE, 
+                          result_RF_10pc_allDrugs_tuneMMCE, 
+                          moa = "all"))
+ggsave(filename = "./plots/present_bestXGBT_vs_bestRF.pdf", 
+       p, width = 14, height = 7)
+```
+
+
+Compare features: 
+Wilcoxon test based feature selection shows that some features contain information, others don't.
+
+```{r}
+(p <- compare_ROC_2models(result_XGBT_10topWilcox_allDrugs_tuneMMCE, 
+                          result_XGBT_10worstWilcox_allDrugs_tuneMMCE, 
+                          moa = "all"))
+ggsave(filename = "./plots/present_10topWilcoxXGBT_vs_10worstWilcoxXGBT.pdf", 
+       p, width = 14, height = 7)
+```
+
+
+Compare features: using all vs. top 10 pc variance. Both RF and XGBT improve when using top 10% 
+variance features instead of all. 
+
+```{r}
+load("run_results_from_server/result_greedy_RF_allFeat_allDrugs_tuneMMCE.RData")
+load("run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+
+(p <- compare_ROC_2models(result_greedy_RF_allFeat_allDrugs_tuneMMCE, 
+                    result_RF_10pc_allDrugs_tuneMMCE, moa = "all"))
+ggsave(filename = "./plots/present_allFeatsRF_vs_10pcRF.pdf", 
+       p, width = 14, height = 7)
+
+rm(result_greedy_RF_allFeat_allDrugs_tuneMMCE)
+
+load("run_results_from_server/result_greedy_XGBT_allFeat_allDrugs_tuneMMCE.RData")
+load("run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
+
+(p <- compare_ROC_2models(result_greedy_XGBT_allFeat_allDrugs_tuneMMCE, 
+                    result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"))
+ggsave(filename = "./plots/present_allFeatsXGBT_vs_10pcXGBT.pdf", 
+       p, width = 14, height = 7)
+```
+
+
+Compare features: top 5 vs. top 10 pc variance. Both RF and XGBT seem to be slightly better at top 
+10 per cent than at top 5 per cent variance. 
+
+```{r}
+(p <- compare_ROC_2models(result_XGBT_10pc_allDrugs_tuneMMCE, 
+                          result_XGBT_5pc_allDrugs_tuneMMCE, 
+                          moa = "all"))
+ggsave(filename = "./plots/present_10pcXGBT_vs_5pcXGBT.pdf", 
+       p, width = 14, height = 7)
+
+load("run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+load("run_results_from_server/result_RF_5pc_allDrugs_tuneMMCE.RData")
+(p <- compare_ROC_2models(result_RF_10pc_allDrugs_tuneMMCE, 
+                          result_RF_5pc_allDrugs_tuneMMCE, 
+                          moa = "all"))
+ggsave(filename = "./plots/present_10pcRF_vs_5pcRF.pdf", 
+       p, width = 14, height = 7)
+```
+
+
+Comparing ppv vs. mmce optimisation
+
+```{r}
+(p <- compare_ROC_2models(result_XGBT_10pc_allDrugs_tuneMMCE, 
+                          result_XGBT_10pc_allDrugs_tunePPV, 
+                          moa = "all"))
+ggsave(filename = "./plots/present_ppvXGBT_vs_mmceXGBT.pdf", 
+       p, width = 14, height = 7)
 
 ```
 
 
-```{r eval = F, echo = F}
-library(grid)
-library(gridExtra)
+Get a precision-recall curve, then discuss issue with curves: imbalanced class problem. 
 
-grid.arrange(nrow = 4, ncol = 2,
-    plot_ROC_rep(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"),
-    plot_ROC_rep(result_XGBT_10pc_allDrugs_tunePPV, moa = "all"),
-    plot_ROC_rep(result_XGBT_10pc_tuneMMCE, moa = "all"),
-    plot_ROC_rep(result_XGBT_10pc_tunePPV, moa = "all"),
-    plot_ROC_rep(result_XGBT_5pc_allDrugs_tuneMMCE, moa = "all"),
-    plot_ROC_rep(result_XGBT_5pc_allDrugs_tunePPV, moa = "all"),
-    plot_ROC_rep(result_XGBT_5pc_tuneMMCE, moa = "all"),
-    plot_ROC_rep(result_XGBT_5pc_tunePPV, moa = "all")
-)
+```{r}
+p <- grid.arrange(nrow = 1, ncol = 2, 
+                  plot_ROC_allRep(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"), 
+                  plot_prec_recall(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all"))
 
+ggsave(filename = "./plots/present_prec-rec-auc_XGBT.pdf", 
+       p, width = 14, height = 7)
 ```
 
-# Hyperparameter tuning measure
 
-## Feature selection 5 % top variance
+Precision-recall curves and class imbalances.
+
+```{r}
+my_res <- plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+View(my_res$confMat)
+
+ggsave(filename = "./plots/present_optThres.pdf", width = 14, height = 7, 
+       plot = my_res$plot)
+```
+
+
+### Other points 
 
 ```{r fig.height=5, fig.width=12}
 # Effect of mesure used for HyperParameter tuning
 compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_5pc_allDrugs_tunePPV, moa = "all")
 compare_ROC_2models(res1 = result_XGBT_5pc_tuneMMCE, res2 = result_XGBT_5pc_tunePPV, moa = "all")
-
 ```
 
-The measure PPV or MMCE chosen for hyperparamter tuning seems to have no effect when all Drugs used (MMCE slightly better). In models built with only the 72 drugs whose MoA is predicted, slight changes are present but could also be explained by a lack a robustness 
-
-## Feature selection 10 % top variance
-
+The measure PPV or MMCE chosen for hyperparamter tuning seems to have no effect when all Drugs used 
+(MMCE slightly better). In models built with only the 72 drugs whose MoA is predicted, slight 
+changes are present but could also be explained by a lack a robustness 
 
 ```{r fig.height=5, fig.width=12}
-# Effect of mesure used for HyperParameter tuning
+# Effect of measure used for HyperParameter tuning
 compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tunePPV, moa = "all")
 compare_ROC_2models(res1 = result_XGBT_10pc_tuneMMCE, res2 = result_XGBT_10pc_tunePPV, moa = "all")
 
@@ -119,9 +180,9 @@ compare_ROC_2models(res1 = result_XGBT_10pc_tuneMMCE, res2 = result_XGBT_10pc_tu
 Slight differences here, nothing to conclude from ROC curves
 
 
-# All drugs VS only the ones whose MoA is predicted
+#### Using all drugs for prediction or only those falling into one of our 4 classes
 
-## Feature selection 10 % top variance
+Here with 10% variance. Using all drugs seems to slightly improve performances. 
 
 ```{r fig.height=5, fig.width=12}
 compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_tuneMMCE, moa = "all")
@@ -129,28 +190,18 @@ compare_ROC_2models(res1 = result_XGBT_10pc_allDrugs_tunePPV, res2 = result_XGBT
 
 ```
 
-
-## Feature selection 5 % top variance
-
-```{r fig.height=5, fig.width=12}
-compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_5pc_tuneMMCE, moa = "all")
-compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tunePPV, res2 = result_XGBT_5pc_tunePPV, moa = "all")
-
-```
+In brief, no strong differences but using all drugs should be more robust, so focus on this kind of 
+dataset. Moreover, one measure for tuning has to be chosen. MMCE seems better than PPV, which cannot 
+always be computed in small inner folds. 
 
 
-In brief, no strong differences but all Drugs should be more robust, so focus on this kind of dataset
-Moreover, one measure for tuning has to be chosen. MMCE seems better than PPV which can not always be computed in small inner folds
-
-
-
-
-# Detailed measure - Feature selection - All drugs + MMCE parameter tuning
+Chosing 5 % seems to make well predicted MoA slightly better and badly predicted MoA slightly worse: 
 
 ```{r fig.height=5, fig.width=12}
 # Effect of mesure used for HyperParameter tuning
 compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all")
 ```
+
 ```{r fig.height=5, fig.width=7}
 compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
 compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
@@ -158,31 +209,11 @@ compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT
 compare_ROC_2models(res1 = result_XGBT_5pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
 ```
 
-Chosing 5 % makes well predicted MoA slightly better and badly predicted MoA slightly worse
 
-
-
-# Draft for feature Importance
-
-```{r }
-
-dna_feat = list()
-
-m = "dna"
-for (r in ls(pattern = "result*")) {
-    print(r)
-    a = plot_feat_4model(res= get(r), moa = m)
-    a = sort(a, decreasing = T)[1:10]
-    dna_feat[[r]] = a
-}
-
-```
-
-
-# Best runs comparison RF vs XGB
+#### Comparison of best runs RF vs. XGB
 
 grid for RF was 
-- `ntree` (number of trees) : 200,500
+- `ntree` (number of trees) : 200, 500
 - `mtry` : p, p*(3/4), p/2, p/4, sqrt(p)
 
 
@@ -190,7 +221,6 @@ grid for RF was
 load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
 load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
 ```
-
 
 
 ```{r fig.height=5, fig.width=7}
@@ -201,12 +231,14 @@ compare_ROC_2models(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_
 
 ```
 
+
 ## RF 10 % top variance all drugs, tune MMCE
 
 ```{r fig.height=5, fig.width=7}
 plot_mean_perf(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "all", meas = mmce)
 plot_mean_perf(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "all", meas = auc)
 ```
+
 
 ## XGBT 10 % top variance all drugs, tune MMCE
 
@@ -217,14 +249,9 @@ plot_mean_perf(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "all", meas = auc
 
 
 
-
-
-
-
-# Closer look at random Forest Objects
+## A closer look at Random Forest objects
 
 Thanks to very convenients functions lots of interesting plot are available
-
 
 ```{r}
 
@@ -273,11 +300,8 @@ plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synth
 
 
 ```{r}
-
-
 rf_res = result_RF_10pc_allDrugs_tuneMMCE[[1]][[1]]$model_dna
 rf_res$features 
 
- getTree(rf_res$learner.model, k = 1)
-
+getTree(rf_res$learner.model, k = 1)
 ```

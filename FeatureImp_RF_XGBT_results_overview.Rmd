@@ -11,38 +11,33 @@ output:
     toc_float: yes
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
-knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = F)
-Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
 
-library(tidyverse)
-library(mlr)
-library(randomForest)
-library(xgboost)
+ipak(randomForest)
+ipak(xgboost)
 
-
-#Custom functions
+# custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-
 ```
 
-# Results loading
+
+# Analysis
+
+## Loading results
 
 Hyperparameter grid for RF was :
-- `ntree` (number of trees) : 200,500
+- `ntree` (number of trees) : 200, 500
 - `mtry` : p, p*(3/4), p/2, p/4, sqrt(p)
 
 Hyperparameter grid for XGBT was :
-- `nrounds` (number of trees) : 200,500
-- `max_depth` : 1,2,3
+- `nrounds` (number of trees) : 200, 500
+- `max_depth` : 1, 2, 3
 - `eta` (learning rate) : 0.01, 0.1, 0.5
 
 ```{r}
@@ -52,21 +47,69 @@ load("./data/the_matrix_allDrugs_top10pct.RData")
 load("../dbsetup/data/genesWithEG_ID.RData")
 ```
 
-Focus only on these two, mainly because RF is really better with 10% top variance and MMCE tuning so one should use the exact same results set for XGBT
+Focus only on these two, mainly because RF is really better with 10% top variance and MMCE tuning so 
+one should use the exact same results set for XGBT. 
 
-# DNA Prediction - Features importance
 
-First "try" to assess feature importance : Take the top 10 features in each model (top 10% variance, all Drugs used, tuning hyperparamter based on MMCE, RF *and* XGBT )
+## Feature importance of DNA Prediction
 
-Then have a look at the intersection and union of these sets of top 10 features
+### Most important features - approach 1
 
-Can test the same with other values, top15, top20 features...
+Top features are usually based on average decrease in node impurity. 
+
+First "try" to assess feature importance : Take the top 10 features in each model (top 10% variance, 
+all drugs used, tuning hyperparamter based on MMCE, RF *and* XGBT).
+
+Then have a look at the intersection and union of these sets of top 10 features.
+
+Can test the same with other values, top15, top20 features ...
+
 ```{r}
-feat_RF_dna = plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
-feat_XGBT_dna = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+# modified the function, it now returns both the plot (as a recordedplot instance) and the 
+# feature importance vector
+feat_RF_dna <- plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
+save_baseplot(filename = "./plots/feature_importance_dna_rf.pdf", width = 10, height = 15, 
+              plot = feat_RF_dna$plot)
 
-a = names(sort(feat_RF_dna, decreasing = T)[1:10])
-b = names(sort(feat_XGBT_dna, decreasing = T)[1:10])
+# make data frame for alternative way of plotting:
+make_importance_dfr <- function(feat_4model_output, nfeats = 20, normalise = TRUE, cutoff = 0.05) {
+   # takes feature importances produced by plot_feat_4model() and turns them into a data frame 
+   # for easy plotting + labelling
+   # normalise: to normalise highest importance to 1
+   dfr <-  data.frame(importance = rev(feat_4model_output$features))
+   dfr$gene <- factor(names(rev(feat_4model_output$features)), 
+                      levels = names(rev(feat_4model_output$features)))
+   if (normalise) {
+      dfr$importance <- dfr$importance / max(dfr$importance)
+   }
+   dfr$label <- ifelse(dfr$importance > cutoff, as.character(dfr$gene), "")
+   return(dfr)
+}
+
+plot_importance <- function(dfr) {
+   ggplot(dfr, aes(x = gene, y = importance)) + 
+      geom_point(shape = 1) + 
+      geom_text_repel(aes(label = label), size = 3) + 
+      #geom_text(aes(label = gene), size = 2, check_overlap = TRUE, nudge_x = 5) + 
+      theme_classic() + 
+      theme(axis.text.x = element_blank(), text = element_text(size = 16)) + 
+      labs(title = "Feature importances for MoA dna", x = "Gene", y = "Importance (mean decrease in node impurity)")
+}
+
+feat_RF_dna_dfr <- make_importance_dfr(feat_RF_dna, cutoff = 0.05)
+plot_importance(feat_RF_dna_dfr)
+ggsave("./plots/present_feat_imp_dna.pdf", width = 7, height = 5)
+
+
+feat_XGBT_dna = plot_feat_4model(res = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+save_baseplot(filename = "./plots/feature_importance_dna_xgbt.pdf", width = 10, height = 15, 
+              plot = feat_XGBT_dna$plot)
+feat_xgbt_dfr <- make_importance_dfr(feat_XGBT_dna)
+plot_importance(feat_xgbt_dfr)
+ggsave("./plots/present_feat_imp_xgbt.pdf", width = 7, height = 5)
+
+a = names(sort(feat_RF_dna$features, decreasing = T)[1:10])
+b = names(sort(feat_XGBT_dna$features, decreasing = T)[1:10])
 
 #If value is 2, feature in core features set, if 1, feature in pan features set
 feat_dna = sort(table(c(a,b)), decreasing = T)
@@ -74,68 +117,62 @@ feat_dna
 ```
 
 
-## Test sum of ranks
+### Most important features - approach 2
 
-Second try, order features in each model, make the sum of ranks for each feature and reorder it.
+Order features in each model, make the sum of ranks for each feature and reorder it.
 
 ```{r}
-feat_RF_dna = sort(feat_RF_dna, decreasing = T)
-feat_XGBT_dna = sort(feat_XGBT_dna, decreasing = T)
+feat_RF_dna = sort(feat_RF_dna$features, decreasing = T)
+feat_XGBT_dna = sort(feat_XGBT_dna$features, decreasing = T)
 
-res = rep(0, length(feat_RF_dna))
+res = numeric(length(feat_RF_dna))
 names(res) = names(feat_RF_dna)
-res =lapply(names(res), function(x){ 
+res = sapply(names(res), function(x){ 
     which(names(feat_RF_dna) == x) + which(names(feat_XGBT_dna) == x)
-    } )
-names(res) = names(feat_RF_dna)
-res = sort(unlist(res))
+    })
+res = sort(res)
 ```
 
-## Test scale sum
 
-Third try, scale each feature list inside a given model, make sum of scaled values and take only those which are above 0.
+### Most important features - approach 3
 
+Scale each feature list inside a given model, make sum of scaled values and take only those which 
+are above 0.
 
 ```{r}
-feat_RF_dna = scale(feat_RF_dna)
-feat_XGBT_dna = scale(feat_XGBT_dna)
+feat_RF_dna_scaled = scale(feat_RF_dna)
+feat_XGBT_dna_scaled = scale(feat_XGBT_dna)
 
-feat_RF_dna = feat_RF_dna[rownames(feat_XGBT_dna), ]
-
-a = cbind(feat_RF_dna, feat_XGBT_dna)
-a = apply(a, 1, sum)
-a = sort(a, decreasing = T)
-feat_dna = a[a > 0]
+features_scaled = cbind(feat_RF_dna_scaled, feat_XGBT_dna_scaled)
+sum_of_scales <- apply(features_scaled, 1, sum)
+sum_of_scales[sum_of_scales > 0]
 ```
 
 We end with a thirty-one-feature set. Plot distribution across MoA and names from the genes table of DBsetup.
 
-### Visualise Features distribution
+
+### Most important features - visualise feature distributios
 
 ```{r}
-for (f in names(feat_dna)) {
-    feature_distrib(m = the_matrix_allDrugs_top10pct, feature = f )
+for (f in names(sum_of_scales[sum_of_scales > 0])) {
+    feature_distrib(m = the_matrix_allDrugs_top10pct, feature = f)
 }
-
-filter(genes, gene_synonym %in% names(feat_dna)) %>% select(gene_synonym, name)
-
 ```
 
 
 
-## Function to extract feat imp
+#### Function to extract feature importances
 
-We do the scale sum method for each MoA and have a look at the union of all MoA. How many features are in common across how many MoA ?
+We do the scale sum method for each MoA and have a look at the union of all MoA. How many features 
+are in common across how many MoA ?
 
 ```{r}
-
 get_main_features = function(res1, res2, moa){
-    
     feat1 = plot_feat_4model(res = res1, moa = moa)
     feat2 = plot_feat_4model(res = res2, moa = moa)
     
-    feat1 = scale(feat1)
-    feat2 = scale(feat2)
+    feat1 = scale(feat1$features)
+    feat2 = scale(feat2$features)
     
     feat1 = feat1[rownames(feat2), ]
     a = cbind(feat1, feat2)
@@ -145,21 +182,19 @@ get_main_features = function(res1, res2, moa){
     res 
 }
 
-feat_dna = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
-feat_cell_wall = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
-feat_membrane_stress = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
-feat_protein_synthesis = get_main_features(res1 = result_RF_10pc_allDrugs_tuneMMCE, res2 = result_XGBT_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+moas <- c("dna", "cell_wall", "membrane_stress", "protein_synthesis")
 
-overview = sort(table(names(c(feat_protein_synthesis, feat_membrane_stress, feat_cell_wall, feat_dna))), decreasing = T)
-overview
+main_features <- sapply(moas, get_main_features, res1 = result_RF_10pc_allDrugs_tuneMMCE, 
+                        res2 = result_XGBT_10pc_allDrugs_tuneMMCE, simplify = FALSE, USE.NAMES = TRUE)
+
+(overview <- sort(table(do.call(c, sapply(main_features, names))), decreasing = TRUE))
 ```
 
-Extracting gene names and testing them in a panther analysis BP-Slim give only one overrepresented significant ontology : response to toxic substance.
+Extracting gene names and testing them in a panther analysis BP-Slim give only one overrepresented 
+significant ontology : response to toxic substance.
 
 
-
-
-# Interaction plot
+### Probing interaction between features
 
 Try to visualize interaction and correlation beetween two features in one MoA compared to the others.
 
