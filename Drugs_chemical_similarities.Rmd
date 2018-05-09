@@ -84,18 +84,25 @@ colnames(drugs_MACCS_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RD
 ```{r}
 plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint")
 
-#### Leonard: doesn't work - why? 
-# pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
-# print(plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint"))
-# dev.off()
+pdf("./plots/fingerprint_RDKit_hclust.pdf", width = 10, height = 10)
+print(plot_dend(drugs_fingerprint = drugs_RDkit_fingerprint, main = "Hclust of binary distance - RDKit fingerprint"))
+dev.off()
 ```
 
 ```{r}
 plot_dend(drugs_fingerprint = drugs_MACCS_fingerprint, main = "Hclust of binary distance - MACCS fingerprint")
+
+pdf("./plots/fingerprint_MACCS_hclust.pdf", width = 10, height = 10)
+print(plot_dend(drugs_fingerprint = drugs_MACCS_fingerprint, main = "Hclust of binary distance - MACCS fingerprint"))
+dev.off()
 ```
 
 ```{r}
 plot_dend(drugs_fingerprint = drugs_morgan_fingerprint, main = "Hclust of binary distance - Morgan fingerprint")
+
+pdf("./plots/fingerprint_morgan_hclust.pdf", width = 10, height = 10)
+print(plot_dend(drugs_fingerprint = drugs_morgan_fingerprint, main = "Hclust of binary distance - Morgan fingerprint"))
+dev.off()
 ```
 
 
@@ -118,12 +125,11 @@ MACCS fingerprint also shows similarity beetween Minocycline and Tetracycline
 
 # Analysis of chemogenomic similarities. 
 
-```{r}
-#### Leonard: please rerun using correlation as a distance
-#### then save the plot into ./plots like above
+Euclidian distance
 
+```{r}
 chemgen_mat = select(the_matrix_allDrugs, -process_broad, -drugname_typaslab)
-# CecropinB is an outlier strongly influencing to final plot
+# CecropinB is an outlier strongly influencing final plot
 rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
 chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
 
@@ -136,11 +142,39 @@ hclust_chemgen = hclust(dist_chemgen, method = "complete")
 dend_chemgen = as.dendrogram(hclust_chemgen, hang = 0.1)
     
 labels_colors(dend_chemgen) <- color_moa[the_matrix_allDrugs[order.dendrogram(dend_chemgen), "process_broad"]]
+pdf("./plots/chemgen_dist_hclust.pdf", width = 10, height = 10)
 par(mar = c(3,2,2,8)) 
 dend_chemgen %>%
     set("labels_cex", 0.7) %>%
     set("branches_lwd", 1.5) %>%
-    plot(horiz = T, cex = 0.5)
-
+    plot(horiz = T, cex = 0.5, main = "Hclust of euclidian distance - Chemogenomic profile")
+dev.off()
 ```
 
+
+Use (1 - correlation) as a distance
+
+```{r}
+chemgen_mat = select(the_matrix_allDrugs, -process_broad, -drugname_typaslab)
+rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
+chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
+
+corr_mat = cor(t(chemgen_mat))
+
+dist_chemgen = as.dist(1-corr_mat)
+
+color_moa = c(rainbow(4), rep("black", 3))
+names(color_moa) = c("dna", "cell_wall", "membrane_stress", "protein_synthesis", "protein_qc", "oxidative_stress", "pmf")
+
+hclust_chemgen = hclust(dist_chemgen, method = "complete")
+dend_chemgen = as.dendrogram(hclust_chemgen, hang = 0.1)
+    
+labels_colors(dend_chemgen) <- color_moa[the_matrix_allDrugs[order.dendrogram(dend_chemgen), "process_broad"]]
+pdf("./plots/chemgen_corr_hclust.pdf", width = 10, height = 10)
+par(mar = c(3,2,2,8)) 
+dend_chemgen %>%
+    set("labels_cex", 0.7) %>%
+    set("branches_lwd", 1.5) %>%
+    plot(horiz = T, cex = 0.5, main = "Hclust of (1-correlation) distance - Chemogenomic profile")
+dev.off()
+```
