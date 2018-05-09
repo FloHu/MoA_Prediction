@@ -267,9 +267,12 @@ plot_feat_4model= function(res , moa = "dna", noPlot = F){
         par(oma = c(0,2, 2,1))
         heatmap(aa, scale="column", col = colPal(100), main = paste0("Features importance : ", moa), sub = paste0("dataset", deparse(substitute(res))),
       cexRow = 0.3)
+      plot <- recordPlot()
+    } else {
+      plot <- NA
     }
     return(list(features = sort(apply(aa, 1, sum)),
-                plot = recordPlot()))
+                plot = plot))
 }
 
 # ==============================================================================
