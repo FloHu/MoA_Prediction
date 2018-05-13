@@ -73,30 +73,6 @@ save_baseplot(filename = "./plots/feature_importance_dna_rf.pdf", width = 10, he
               plot = feat_RF_dna$plot)
 
 # make data frame for alternative way of plotting:
-make_importance_dfr <- function(feat_4model_output, nfeats = 20, normalise = TRUE, cutoff = 0.05) {
-   # takes feature importances produced by plot_feat_4model() and turns them into a data frame 
-   # for easy plotting + labelling
-   # normalise: to normalise highest importance to 1
-   dfr <-  data.frame(importance = rev(feat_4model_output$features))
-   dfr$gene <- factor(names(rev(feat_4model_output$features)), 
-                      levels = names(rev(feat_4model_output$features)))
-   if (normalise) {
-      dfr$importance <- dfr$importance / max(dfr$importance)
-   }
-   dfr$label <- ifelse(dfr$importance > cutoff, as.character(dfr$gene), "")
-   return(dfr)
-}
-
-plot_importance <- function(dfr, moa) {
-   ggplot(dfr, aes(x = gene, y = importance)) + 
-      geom_point(shape = 1) + 
-      geom_text_repel(aes(label = label), size = 3) + 
-      #geom_text(aes(label = gene), size = 2, check_overlap = TRUE, nudge_x = 5) + 
-      theme_classic() + 
-      theme(axis.text.x = element_blank(), text = element_text(size = 16)) + 
-      labs(title = paste("Feature importances for MoA", moa), x = "Gene", y = "Importance (mean decrease in node impurity)")
-}
-
 feat_RF_dna_dfr <- make_importance_dfr(feat_RF_dna, cutoff = 0.07)
 plot_importance(feat_RF_dna_dfr, moa = "dna")
 ggsave("./plots/present_feat_imp_rf_dna.pdf", width = 7, height = 5)
@@ -185,13 +161,53 @@ sum_of_scales[sum_of_scales > 0]
 We end with a thirty-one-feature set. Plot distribution across MoA and names from the genes table of DBsetup.
 
 
-### Most important features - visualise feature distributios
+### Most important features - visualise feature distributions
 
 ```{r}
 for (f in names(sum_of_scales[sum_of_scales > 0])) {
     feature_distrib(m = the_matrix_allDrugs_top10pct, feature = f)
 }
 ```
+
+For presentation: save the feature distributions selected above (`important_rf_feats`).
+
+```{r}
+features_of_interest <- do.call(c, lapply(important_rf_feats, `[[`, "label"))
+plotlist <- lapply(features_of_interest, feature_distrib_ggplot, dfr = the_matrix_allDrugs_top10pct, save = FALSE)
+
+graphics.off()
+pdf("./plots/present_sscore_dists.pdf", width = 7, height = 6)
+stopifnot(dev.cur() != 1)
+invisible(lapply(plotlist, print))
+dev.off()
+
+```
+
+
+Plot heatmap to see how hierarchical clustering compares to our classification. 
+
+```{r}
+# trying to get a heatmap done using heatmap.2 function from package gplots 
+# see http://sebastianraschka.com/Articles/heatmaps_in_r.html - contains all you need to know
+library(gplots)
+library(RColorBrewer)
+# e.g.:
+# m <- as.matrix(mtcars)
+# mdist <- as.dist(1 - abs(cor(m)))
+# heatmap.2(m, trace = "none", 
+#           Colv = as.dendrogram(hclust(mdist)), # changes ordering of columns accordingly 
+#           ColSideColors = c(rep("black", 5), rep("blue", 6))) # order as in the original matrix
+
+plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = genes$gene_synonym, 
+             filename = "heatmap_cordist_all.pdf")
+# exclude SlogP:
+features_of_interest <- features_of_interest[features_of_interest != "SlogP"]
+# now with only the 'relevant' features:
+plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = features_of_interest, 
+             filename = "heatmap_cordist_most_imprtnt_rf.pdf")
+
+```
+
 
 
 
