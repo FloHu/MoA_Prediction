@@ -127,8 +127,6 @@ ultimate_plot = function(res, drugMat = the_matrix_allDrugs ){
 
 
 
-ultimate_plot(res =result_XGBT_10pc_allDrugs_tuneMMCE)
-
 # ==============================================================================
 
 distrib_drug_prob_small = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){

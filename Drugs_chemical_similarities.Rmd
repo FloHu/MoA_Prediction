@@ -136,9 +136,8 @@ Euclidian distance
 
 ```{r}
 chemgen_mat = select(the_matrix_allDrugs, -process_broad, -drugname_typaslab)
-# CecropinB is an outlier strongly influencing final plot
 rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
-chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
+#chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
 
 dist_chemgen = dist(chemgen_mat, method = "euclidian")
 
@@ -164,7 +163,7 @@ Use (1 - correlation) as a distance
 ```{r}
 chemgen_mat = select(the_matrix_allDrugs, -process_broad, -drugname_typaslab)
 rownames(chemgen_mat) = the_matrix_allDrugs$drugname_typaslab
-chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
+#chemgen_mat = chemgen_mat[-which(rownames(chemgen_mat) == "CECROPINB"), ]
 
 corr_mat = cor(t(chemgen_mat))
 
