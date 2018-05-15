@@ -22,6 +22,8 @@ source("./setup.R")
 ipak(randomForest)
 ipak(xgboost)
 ipak(kableExtra)
+ipak(ggrepel)
+ipak(gplots)
 
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)

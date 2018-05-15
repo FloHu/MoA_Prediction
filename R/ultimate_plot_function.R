@@ -11,9 +11,9 @@ draw_thres_seg = function(all_thres){
 }
 
 
-color_box_drug = function(all_thres, prob_allMoa, drugMoa){
+color_box_drug = function(all_thres, probMoa, drugMoa){
 
-    med = lapply(prob_allMoa, median)
+    med = lapply(probMoa, median)
     res = c()
     for (m in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
         res = c(res, med[[paste0("prob_",m)]] > all_thres[[paste0("thres_",m)]])
@@ -47,57 +47,16 @@ color_box_drug = function(all_thres, prob_allMoa, drugMoa){
             return("red")
         }
     }
-
-
-}
-
-distrib_drug_prob = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){
-
-    idDrug =  which(dt_matrix$drugname_typaslab == drug)
-    drugMoa = as.character(filter(the_matrix_allDrugs, drugname_typaslab == drug) %>% select(process_broad))
-
-    prob_allMoa = list()
-    all_thres = list()
-
-    for (m in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
-        allData = c()
-        for (r in 1:10){
-            all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = m)
-            allData = rbind(allData, all_test_set$data)
-        }
-        all_test_set$data = allData
-
-        mccCurve = generateThreshVsPerfData(all_test_set, measures = mcc)
-        #Best Threshold
-        bestThres = mccCurve$data[which.max(mccCurve$data$mcc),"threshold"]
-        all_thres[[paste0("thres_", m)]] = bestThres
-        prob_allMoa[[paste0("prob_", m)]] = filter(all_test_set$data, id == idDrug ) %>% select(paste0("prob.", m)) %>% t(.)
-    }
-
-
-    boxplot(prob_allMoa, lwd = 2, col = rainbow(length(prob_allMoa)), ylim = c(0,1), outline = F,
-            main = paste0(drug, " - ", drugMoa), cex.main = 3, cex.axis = 2, las = 1)
-
-    draw_thres_seg(all_thres)
-
-    box(col = color_box_drug(all_thres, prob_allMoa, drugMoa), lwd = 10)
-
-    stripchart(prob_allMoa, vertical = T, add = T, method = "jitter", pch = 21, bg = "grey", cex = 1.5)
-
 }
 
 
-
-
-
-
+# MAIN FUNCTION
 ultimate_plot = function(res, drugMat = the_matrix_allDrugs ){
 
     pdf(file = "~/Documents/ultimate_plot.pdf", height = 40, width = 200)
     #Defining layout
-    tb = table(drugMat$process_broad)
-
-    eff = sort(tb, decreasing = T)
+    
+    eff = sort(table(drugMat$process_broad), decreasing = T)
 
     layout(mat = matrix(c(seq(1, eff[1]),
                             seq(from = eff[1]+1, length.out = eff[2]), rep(0, times = eff[1] - eff[2]),
@@ -109,26 +68,49 @@ ultimate_plot = function(res, drugMat = the_matrix_allDrugs ){
                     )
     )
 
-    for(moa in c("dna", "cell_wall", "membrane_stress", "protein_synthesis")){
-        drug_names = drugMat[drugMat$process_broad ==moa, "drugname_typaslab"]
-        for (d in drug_names) {
-            distrib_drug_prob(res = res, drug = d)
+    prob_allMoa = list()
+    all_thres = list()
+    
+    # Generate Data to plot
+    for (m in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+        allData = c()
+        for (r in 1:10){
+            all_test_set = cat_outer_fold_pred(res = res, repetition = r, moa = m)
+            allData = rbind(allData, all_test_set$data)
         }
+        all_test_set$data = allData
+        
+        mccCurve = generateThreshVsPerfData(all_test_set, measures = mcc)
+        #Best Threshold
+        bestThres = mccCurve$data[which.max(mccCurve$data$mcc),"threshold"]
+        all_thres[[paste0("thres_", m)]] = bestThres
+        prob_allMoa[[paste0("prob_", m)]] = all_test_set
     }
-    drug_names = drugMat[! drugMat$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), "drugname_typaslab"]
-    for (d in drug_names) {
-        distrib_drug_prob(res = res, drug = d)
+    
+    drugMat$process_broad = factor(drugMat$process_broad, levels = names(eff))
+    
+    #Filter data to plot for each drug and plot it
+    for (d in drugMat[order(drugMat$process_broad), "drugname_typaslab"]) {
+        idDrug =  which(drugMat$drugname_typaslab == d)
+        drugMoa = as.character(drugMat[idDrug, "process_broad"])
+       
+        plotData_drug = list()
+        for (m in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+            plotData_drug[[paste0("prob_", m)]] = prob_allMoa[[paste0("prob_", m)]]$data %>% filter( id == idDrug ) %>% select(paste0("prob.", m)) %>% t(.)
+            
+        }
+        boxplot(plotData_drug, lwd = 2, col = rainbow(length(plotData_drug)), ylim = c(0,1), outline = F,
+                main = paste0(d, " - ", drugMoa), cex.main = 3, cex.axis = 2, las = 1)
+        
+        draw_thres_seg(all_thres)
+        box(col = color_box_drug(all_thres, probMoa = plotData_drug, drugMoa), lwd = 10)
+        stripchart(plotData_drug, vertical = T, add = T, method = "jitter", pch = 21, bg = "grey", cex = 1.5)
     }
-
-
-
-<<<<<<< HEAD
-=======
+    
     dev.off()
 }
 
 
->>>>>>> 4b245ff4522661f027612a9361668cbd6d8b6da5
 # ==============================================================================
 
 distrib_drug_prob_small = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){

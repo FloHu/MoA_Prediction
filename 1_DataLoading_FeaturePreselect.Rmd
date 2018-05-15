@@ -234,6 +234,16 @@ OR
 the_matrix_allDrugs_top10pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 10)
 the_matrix_allDrugs_top5pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 5)
 
+the_matrix_newDrugs_top10pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 10)
+the_matrix_newDrugs_top5pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 5)
+the_matrix_newDrugs_top15pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 15)
+the_matrix_newDrugs_top20pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 20)
+the_matrix_newDrugs_top25pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 25)
+the_matrix_newDrugs_top30pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 30)
+the_matrix_newDrugs_top40pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 40)
+the_matrix_newDrugs_top50pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 50)
+
+
 # exclude some of the chemical features that will have high variance but don't seem really 
 # important
 #### FIX later
@@ -246,9 +256,26 @@ chem_features_kept <- setdiff(chem_features, chem_features_to_exclude)
 
 the_matrix_allDrugs_top10pct <- the_matrix_allDrugs_top10pct[, ! (colnames(the_matrix_allDrugs_top10pct) %in% 
                                                    chem_features_to_exclude)]
-
 the_matrix_allDrugs_top5pct <- the_matrix_allDrugs_top5pct[, ! (colnames(the_matrix_allDrugs_top5pct) %in% 
                                                  chem_features_to_exclude)]
+
+the_matrix_newDrugs_top10pct <- the_matrix_newDrugs_top10pct[, ! (colnames(the_matrix_newDrugs_top10pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top5pct <- the_matrix_newDrugs_top5pct[, ! (colnames(the_matrix_newDrugs_top5pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top15pct <- the_matrix_newDrugs_top15pct[, ! (colnames(the_matrix_newDrugs_top15pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top20pct <- the_matrix_newDrugs_top20pct[, ! (colnames(the_matrix_newDrugs_top20pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top25pct <- the_matrix_newDrugs_top25pct[, ! (colnames(the_matrix_newDrugs_top25pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top30pct <- the_matrix_newDrugs_top30pct[, ! (colnames(the_matrix_newDrugs_top30pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top40pct <- the_matrix_newDrugs_top40pct[, ! (colnames(the_matrix_newDrugs_top40pct) %in% chem_features_to_exclude)]
+the_matrix_newDrugs_top50pct <- the_matrix_newDrugs_top50pct[, ! (colnames(the_matrix_newDrugs_top50pct) %in% chem_features_to_exclude)]
+
+save("the_matrix_newDrugs_top30pct", file = "data/the_matrix_newDrugs_top30pct.RData")
+save("the_matrix_newDrugs_top40pct", file = "data/the_matrix_newDrugs_top40pct.RData")
+save("the_matrix_newDrugs_top50pct", file = "data/the_matrix_newDrugs_top50pct.RData")
+save("the_matrix_newDrugs_top25pct", file = "data/the_matrix_newDrugs_top25pct.RData")
+save("the_matrix_newDrugs_top20pct", file = "data/the_matrix_newDrugs_top20pct.RData")
+save("the_matrix_newDrugs_top15pct", file = "data/the_matrix_newDrugs_top15pct.RData")
+save("the_matrix_newDrugs_top5pct", file = "data/the_matrix_newDrugs_top5pct.RData")
+save("the_matrix_newDrugs_top10pct", file = "data/the_matrix_newDrugs_top10pct.RData")
 
 save("the_matrix_allDrugs_top10pct", file = "data/the_matrix_allDrugs_top10pct.RData")
 save("the_matrix_allDrugs_top5pct", file = "data/the_matrix_allDrugs_top5pct.RData")

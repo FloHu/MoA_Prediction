@@ -29,7 +29,7 @@ cat_outer_fold_pred = function(res , repetition = 1, moa = "dna"){
 
 #AIM : Generate a boxplot of a performance measure across all repetition
 #       Can be used for 1 MoA or for comparing all of them
-#INPUT : Result object, amy measure from the MLR package and a MoA name or "all"
+#INPUT : Result object, any measure from the MLR package and a MoA name or "all"
 #OUTPUT : Some classic boxplot
 plot_mean_perf = function(res , meas = auc, moa = "dna", ...){
 
@@ -181,6 +181,46 @@ compare_ROC_2models = function(res1, res2, moa = "dna"){
 
         grid.arrange(plot1, plot2, nrow = 1)
     }
+}
+
+
+#Same thing as above with any amount of models
+#Work only for one MoA
+compare_ROC_models = function(moa = "dna", ...){
+
+    if(!moa %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+        print("Invalid Mode of action")
+        return(-1)
+    }
+    
+    res_objs = list(...)
+    names(res_objs) = sapply(substitute(list(...))[-1], deparse)
+
+    if(length(res_objs) == 0){
+        print("No models given in arguments")
+        return(-1)
+    }
+    
+    dataPlot = c()
+    for (i in 1:length(res_objs)) {
+        all_rep_res = cat_outer_fold_pred(res = res_objs[[i]], repetition = 1, moa = moa)
+        for (rep in 2:10) {
+            a = cat_outer_fold_pred(res = res_objs[[i]], repetition = rep, moa = moa)
+            all_rep_res$data = rbind(all_rep_res$data, a$data)
+        }
+        x1 = generateThreshVsPerfData(all_rep_res, measures = list( fpr, tpr))
+        x1 = x1$data
+        x1$Model = paste0(names(res_objs)[i], " AUC : ", round(performance(all_rep_res, auc), digits = 3))
+        dataPlot = rbind(dataPlot, x1)
+    }
+    dataPlot$Model = factor(x = dataPlot$Model, levels = unique(x = dataPlot$Model))
+
+    ggplot(dataPlot, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
+        geom_path(mapping = aes(color = Model), size = 2) +
+        labs(x = "False positive rate", y = "True positive rate", title = paste0(moa, " - Comparison across models")) +
+        geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
+        scale_color_manual(values = rainbow(length(res_objs))) +
+        theme_bw()
 }
 
 # ==============================================================================

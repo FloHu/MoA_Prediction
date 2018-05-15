@@ -5,7 +5,7 @@
 # Description: This script synchronises files from the directory /home/dubois/MoA_Prediction/run_results
 # to the local (Github) MoA_Prediction project into run_results_from_server/
 
-SOURCEFILES="/home/dubois/MoA_Prediction/run_results/*.RData"
+SOURCEFILES="/scratch/typas/cluster_run_results/*.RData"
 SOURCEHOST="login.cluster.embl.de"
 USER=$(whoami)
 TARGETDIR="./run_results_from_server/"
