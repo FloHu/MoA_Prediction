@@ -30,6 +30,17 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 
+```{r}
+install.packages("DALEX")
+install.packages("live") 
+install.packages("auditor")
+install.packages("lime") 
+install.packages("mlr") 
+devtools::install_github("redichh/shapleyr")y
+
+
+```
+
 # Analysis
 
 ## Loading results
