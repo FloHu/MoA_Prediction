@@ -23,9 +23,9 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 
-ipak(dendextend)
-ipak(tree)
-ipak(randomForest)
+# ipak(dendextend)
+# ipak(tree)
+# ipak(randomForest)
 
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
@@ -34,7 +34,13 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 # Loading and merging data
 
-## Read in tables, join them
+In all subsequent cases, the final goal is to have a matrix with the drugs in the rows and the 
+features in the columns. We will refer to such a matrix as a `drug_feature_matrix`. In the next 
+section we will generate different "versions" of this matrix, differing, for example, in the number 
+of drugs or features selected or whether features were transformed in some way.
+
+
+## Reading in and joining of tables, common preprocessing operations
 
 ```{r}
 nichols_2011 <- read.table("/Volumes/typas/Florian/dbsetup_tables/nichols_2011.csv", header = T, 
@@ -66,7 +72,8 @@ the_matrix <-
 the_matrix$significant <- the_matrix$qvalue <= 0.05
 ```
 
-Join drug tables with mode of action information. We keep all drugs except those with label 'unknown'. 
+Join drug tables with mode of action information. We keep all drugs except those with label 
+'unknown'. 
 
 ```{r}
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
@@ -74,6 +81,23 @@ drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad"
    filter(!process_broad %in% c("unknown"))
 
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
+```
+
+If a gene doesn't interact with any drug, exclude it.
+
+```{r}
+the_matrix <- the_matrix %>%
+   group_by(gene_synonym) %>% 
+   filter(any(significant)) %>%
+   ungroup()
+```
+
+This leaves us with `r length(unique(the_matrix$gene_synonym))` genes. Only a very small fraction 
+of gene drug combinations are missing (less than 0.1%):
+
+```{r}
+t <- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
+sum(t == 0) / (nrow(t) * ncol(t))
 ```
 
 For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
@@ -85,46 +109,24 @@ the_matrix <-
    do(select_mutant(.))
 
 tmp <- group_by(the_matrix, gene_synonym) %>% 
-   mutate(n = length(unique(strain)))
+   mutate(n = length(unique(strain))) %>%
+   ungroup() %>%
+   select(n)
 stopifnot(all(tmp$n == 1))
+rm(tmp)
 ```
 
-
-Select drug dosages: if one of the dosages is significant, keep that one, if none or all are, keep 
-the highest dosage. 
+Restructure the matrix to put drugs into rows, genes into columns. 
 
 ```{r}
-the_matrix <- the_matrix %>%
-   group_by(gene_synonym, drugname_typaslab) %>%
-   do(select_dosage(.)) %>%
-   ungroup()
-```
+# we need a matrix just indicating the significant s-scores for later on
+the_matrix_signifs <- the_matrix
 
-If a gene doesn't interact with any drug, exclude it.
-
-```{r}
-the_matrix <- the_matrix %>%
-   group_by(gene_synonym) %>% 
-   mutate(significant_any = any(significant)) %>%
-   ungroup()
-
-the_matrix <- the_matrix[the_matrix$significant_any, ]
-```
-
-This leaves us with `r length(unique(the_matrix$gene_synonym))` genes. Only a very small fraction 
-of gene drug combinations are missing (less than 0.1%):
-
-```{r}
-t <- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
-stopifnot(all(t < 2))
-sum(t == 0) / sum(t < 2)
-```
-
-Now we can start constructing the final matrix. 
-
-```{r}
-the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, sscore)
+the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
 the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
+
+the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, conc, significant)
+the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, value = significant, fill = FALSE)
 ```
 
 We replace all NA values with the median of all s-scores over all conditions for a particular 
@@ -133,7 +135,7 @@ mutant.
 ```{r}
 # check if all drug names are defined 
 stopifnot(!any(is.na(the_matrix$drugname_typaslab)))
-sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab")
+sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab|conc")
 
 the_matrix[, -sel] <- lapply(the_matrix[, -sel], function(x) {
    x[is.na(x)] <- median(x, na.rm = T)
@@ -145,8 +147,52 @@ if (any(sapply(the_matrix, is.na))) {
 }
 ```
 
+
+# Generating different 'versions' of our matrix
+
+## Drug selection and drug classification procedures
+
+### Dosage selection
+
+#### Approach 1: "`most_interactions`" 
+Selects for each drug the one dosages with the highest number of significant interactions. If none 
+or all are, keep the highest dosage. 
+
+```{r}
+the_matrix.bak <- the_matrix
+the_matrix_signifs.bak <- the_matrix_signifs
+
+
+selector <- 
+   the_matrix_signifs %>%
+   group_by(drugname_typaslab) %>%
+   arrange(conc, .by_group = TRUE) %>%
+   do(select_dosage_most_ias(.)) %>%
+   ungroup() %>%
+   pull(selector)
+
+the_matrix <- the_matrix %>%
+   group_by(drugname_typaslab) %>%
+   arrange(conc, .by_group = TRUE) %>%
+   ungroup()
+
+the_matrix <- the_matrix[selector, ]
+```
+
+
+
+
+
+## Drug selection and drug classification procedures
+
+## Feature selection and transformation procedures
+
+
+
+
+
 Merge `the_matrix` with drug features. Make table `labels` containing the correct MoA 
-classifications. 
+classifications. Table `drugs_full` was previously generated using KNIME. 
 
 ```{r}
 stopifnot(all(the_matrix$drugname_typaslab %in% drugs_full$drugname_typaslab))
@@ -165,7 +211,8 @@ labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 ```
 
 
-Correction of drug classification by Nassos on the 08/05/2018, we then create a new data matrix bbut keep the old one available 
+Correction of drug classification by Nassos on the 08/05/2018. We make a new data matrix but keep 
+the old one. 
 
 ```{r}
 new_labels <- labels
@@ -289,7 +336,7 @@ medoids. Try both complete and average linkage.
 
 We're not using this anymore, probably delete later on.
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 # # first need a matrix of all the genes
 # genes_only <- select(the_matrix, -drugname_typaslab, -process_broad, -(SlogP:data_effective_rotor_count))
 # high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
@@ -332,7 +379,7 @@ We're not using this anymore, probably delete later on.
 Save matrix including only the 200 genes based on hierarchical clustering with complete linkage as 
 well as the chemical features from above.
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 # the_matrix_hclust <- 
 #    the_matrix[, c("drugname_typaslab", "process_broad", 
 #                   c(feature_container$hclust_complete_200_medoids), 
