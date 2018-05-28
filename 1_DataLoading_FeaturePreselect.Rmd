@@ -51,7 +51,7 @@ strains_has_genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains_h
                                 header = T, sep = ";", stringsAsFactors = F)
 genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/genes.csv", header = T, sep = ";", 
                     stringsAsFactors = F)
-# KNIME table
+# generated in project dbsetup using KNIME
 drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", header = T, 
                          sep = ";", stringsAsFactors = F, dec = ".")
 drugs_full$X <- NULL
@@ -72,13 +72,11 @@ the_matrix <-
 the_matrix$significant <- the_matrix$qvalue <= 0.05
 ```
 
-Join drug tables with mode of action information. We keep all drugs except those with label 
-'unknown'. 
+Join drug tables with mode of action information.
 
 ```{r}
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
-   select(-moa_id) %>% 
-   filter(!process_broad %in% c("unknown"))
+   select(-moa_id)
 
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
 ```
@@ -130,7 +128,8 @@ the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, value = sig
 ```
 
 We replace all NA values with the median of all s-scores over all conditions for a particular 
-mutant. 
+mutant. `the_matrix` now contains all drug dosages and all mutants from nichols_2011 and forms the 
+basis for all other derived matrices. 
 
 ```{r}
 # check if all drug names are defined 
@@ -162,7 +161,6 @@ or all are, keep the highest dosage.
 the_matrix.bak <- the_matrix
 the_matrix_signifs.bak <- the_matrix_signifs
 
-
 selector <- 
    the_matrix_signifs %>%
    group_by(drugname_typaslab) %>%
@@ -176,157 +174,61 @@ the_matrix <- the_matrix %>%
    arrange(conc, .by_group = TRUE) %>%
    ungroup()
 
-the_matrix <- the_matrix[selector, ]
+the_matrix_mostias_nochemfeats <- the_matrix[selector, ]
 ```
 
 
-
-
-
-## Drug selection and drug classification procedures
-
 ## Feature selection and transformation procedures
 
+### Selecting features with the highest variance
 
+#### Top x per cent features
 
-
-
-Merge `the_matrix` with drug features. Make table `labels` containing the correct MoA 
-classifications. Table `drugs_full` was previously generated using KNIME. 
+Sort features (i.e. mutants = genes here) by variance and select top x %. 
 
 ```{r}
-stopifnot(all(the_matrix$drugname_typaslab %in% drugs_full$drugname_typaslab))
+# time to put all our data into a list
+variances_to_select <- c(5, 10, 15, 20, 25, 30, 40, 50)
+
+matrix_container <- 
+   map(variances_to_select, 
+       ~feature_selection_variance(percentTop = ., data = the_matrix_mostias_nochemfeats, featStart = 3))
+
+names(matrix_container) <- paste0("the_matrix_mostias_nochemfeats_top", variances_to_select, "pct")
+matrix_container <- prepend(matrix_container, 
+                            list(the_matrix_mostias_nochemfeats_allmuts = the_matrix_mostias_nochemfeats))
+```
+
+### Adding chemical features
+
+Don't use all chemical features from KNIME. Make tables with and without chemical features
+
+```{r}
+# check if all drugs in all tables are in our 'drugs_full' table
+stopifnot(flatten_chr(map(matrix_container, "drugname_typaslab")) %in% drugs_full$drugname_typaslab)
 
 drugs_full_selected_features <- drugs_full[, c("drugname_typaslab", "SlogP", "LabuteASA", "TPSA", 
                                                "ExactMW", "NumLipinskiHBA", "NumLipinskiHBD", 
-                                               "NumRotatableBonds", "NumAmideBonds", "NumHeteroAtoms", 
-                                               "NumHeavyAtoms", "NumAtoms", "NumStereocenters", 
-                                               "NumUnspecifiedStereocenters", "NumRings", 
-                                               "NumAromaticRings", "NumSaturatedRings", 
+                                               "NumRotatableBonds", "NumAmideBonds", 
+                                               "NumRings", "NumAromaticRings", "NumSaturatedRings", 
                                                "NumAliphaticRings", "data_effective_rotor_count")]
 
-the_matrix <- left_join(the_matrix, drugs_full_selected_features)
+tmp <- map(matrix_container, left_join, drugs_full_selected_features)
+tmp <- setNames(tmp, gsub(x = names(matrix_container), pattern = "nochemfeats", replacement = "withchemfeats"))
+matrix_container <- append(matrix_container, tmp)
+rm(tmp)
+```
 
+
+## Adding drug classification (i.e. mode of action information)
+
+```{r}
 labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 ```
 
 
-Correction of drug classification by Nassos on the 08/05/2018. We make a new data matrix but keep 
-the old one. 
-
-```{r}
-new_labels <- labels
-new_labels[match("BACITRACIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
-new_labels[match("VANCOMYCIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
-new_labels[match("INDOLICIDIN" , new_labels$drugname_typaslab), "process_broad"] = "membrane_stress"
-new_labels[match("BICYCLOMYCIN" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
-new_labels[match("CECROPINB" , new_labels$drugname_typaslab), "process_broad"] = "oxidative_stress"
-new_labels[match("ETHANOL" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
-new_labels[match("ISONIAZID" , new_labels$drugname_typaslab), "process_broad"] = "unknown"
-
-the_matrix_newDrugs <- merge(x = new_labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
-the_matrix_newDrugs = filter(the_matrix_newDrugs, process_broad  != "unknown")
-save(the_matrix_newDrugs, new_labels, file = "data/the_matrix_newDrugs.RData")
-
-```
 
 
-```{r, eval = F}
-the_matrix <- merge(x = labels, y = the_matrix, by = "drugname_typaslab", all.y = T)
-the_matrix_allDrugs <- the_matrix
-labels_allDrugs <- labels
-save(the_matrix_allDrugs, labels_allDrugs, file = "data/the_matrix_allDrugs.RData")
-
-# note: used to only select drugs with MoA falling into one of the categories of (i) protein_synthesis, 
-# (ii) dna, (iii) cell_wall, and (iv) membrane_stress - the object is still available under 
-# data/the_matrix.RData 
-```
-
-
-## Do further feature preselection
-
-### Taking features with the highest variance
-
-#### Top x per cent
-
-Top 10 % of features sorted by variance. 
-
-```{r eval = F}
-the_matrix_top10pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 10)
-the_matrix_top5pct <- feature_selection_variance(the_matrix, featStart = 3, percentTop = 5)
-
-# exclude some of the chemical features that will have high variance but don't seem really 
-# important
-#### FIX later
-# crude way of defining which columns represent chemical features:
-chem_features <- colnames(the_matrix_top10pct)[nchar(colnames(the_matrix_top10pct)) > 4]
-chem_features <- setdiff(chem_features, c("drugname_typaslab", "process_broad"))
-chem_features_to_exclude <- c("NumAtoms", "NumHeavyAtoms", "NumHeteroAtoms", "NumStereocenters", 
-                              "NumUnspecifiedStereocenters")
-chem_features_kept <- setdiff(chem_features, chem_features_to_exclude)
-
-the_matrix_top10pct <- the_matrix_top10pct[, ! (colnames(the_matrix_top10pct) %in% 
-                                                   chem_features_to_exclude)]
-
-the_matrix_top5pct <- the_matrix_top5pct[, ! (colnames(the_matrix_top5pct) %in% 
-                                                 chem_features_to_exclude)]
-
-save("the_matrix_top10pct", file = "data/the_matrix_top10pct.RData")
-save("the_matrix_top5pct", file = "data/the_matrix_top5pct.RData")
-```
-
-OR
-
-```{r eval = F}
-the_matrix_allDrugs_top10pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 10)
-the_matrix_allDrugs_top5pct <- feature_selection_variance(the_matrix_allDrugs, featStart = 3, percentTop = 5)
-
-the_matrix_newDrugs_top10pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 10)
-the_matrix_newDrugs_top5pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 5)
-the_matrix_newDrugs_top15pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 15)
-the_matrix_newDrugs_top20pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 20)
-the_matrix_newDrugs_top25pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 25)
-the_matrix_newDrugs_top30pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 30)
-the_matrix_newDrugs_top40pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 40)
-the_matrix_newDrugs_top50pct <- feature_selection_variance(the_matrix_newDrugs, featStart = 3, percentTop = 50)
-
-
-# exclude some of the chemical features that will have high variance but don't seem really 
-# important
-#### FIX later
-# crude way of defining which columns represent chemical features:
-chem_features <- colnames(the_matrix_allDrugs_top10pct)[nchar(colnames(the_matrix_allDrugs_top10pct)) > 4]
-chem_features <- setdiff(chem_features, c("drugname_typaslab", "process_broad"))
-chem_features_to_exclude <- c("NumAtoms", "NumHeavyAtoms", "NumHeteroAtoms", "NumStereocenters", 
-                              "NumUnspecifiedStereocenters")
-chem_features_kept <- setdiff(chem_features, chem_features_to_exclude)
-
-the_matrix_allDrugs_top10pct <- the_matrix_allDrugs_top10pct[, ! (colnames(the_matrix_allDrugs_top10pct) %in% 
-                                                   chem_features_to_exclude)]
-the_matrix_allDrugs_top5pct <- the_matrix_allDrugs_top5pct[, ! (colnames(the_matrix_allDrugs_top5pct) %in% 
-                                                 chem_features_to_exclude)]
-
-the_matrix_newDrugs_top10pct <- the_matrix_newDrugs_top10pct[, ! (colnames(the_matrix_newDrugs_top10pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top5pct <- the_matrix_newDrugs_top5pct[, ! (colnames(the_matrix_newDrugs_top5pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top15pct <- the_matrix_newDrugs_top15pct[, ! (colnames(the_matrix_newDrugs_top15pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top20pct <- the_matrix_newDrugs_top20pct[, ! (colnames(the_matrix_newDrugs_top20pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top25pct <- the_matrix_newDrugs_top25pct[, ! (colnames(the_matrix_newDrugs_top25pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top30pct <- the_matrix_newDrugs_top30pct[, ! (colnames(the_matrix_newDrugs_top30pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top40pct <- the_matrix_newDrugs_top40pct[, ! (colnames(the_matrix_newDrugs_top40pct) %in% chem_features_to_exclude)]
-the_matrix_newDrugs_top50pct <- the_matrix_newDrugs_top50pct[, ! (colnames(the_matrix_newDrugs_top50pct) %in% chem_features_to_exclude)]
-
-save("the_matrix_newDrugs_top30pct", file = "data/the_matrix_newDrugs_top30pct.RData")
-save("the_matrix_newDrugs_top40pct", file = "data/the_matrix_newDrugs_top40pct.RData")
-save("the_matrix_newDrugs_top50pct", file = "data/the_matrix_newDrugs_top50pct.RData")
-save("the_matrix_newDrugs_top25pct", file = "data/the_matrix_newDrugs_top25pct.RData")
-save("the_matrix_newDrugs_top20pct", file = "data/the_matrix_newDrugs_top20pct.RData")
-save("the_matrix_newDrugs_top15pct", file = "data/the_matrix_newDrugs_top15pct.RData")
-save("the_matrix_newDrugs_top5pct", file = "data/the_matrix_newDrugs_top5pct.RData")
-save("the_matrix_newDrugs_top10pct", file = "data/the_matrix_newDrugs_top10pct.RData")
-
-save("the_matrix_allDrugs_top10pct", file = "data/the_matrix_allDrugs_top10pct.RData")
-save("the_matrix_allDrugs_top5pct", file = "data/the_matrix_allDrugs_top5pct.RData")
-```
 
 #### Do hierarchical clustering on the genes
 

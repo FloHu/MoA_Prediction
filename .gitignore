@@ -3,6 +3,7 @@
 .RData
 .Ruserdata
 *.Rdata
+*.RData
 *.Rproj
 *.pdf
 .DS_Store
