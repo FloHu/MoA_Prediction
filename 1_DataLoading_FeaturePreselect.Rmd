@@ -220,73 +220,39 @@ rm(tmp)
 ```
 
 
-## Adding drug classification (i.e. mode of action information)
+## Adding drug classification (i.e. mode of action information) and metadata
 
 ```{r}
 labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
-```
 
+matrix_container <- lapply(matrix_container, function(x) {
+   x$conc <- NULL
+   x <- left_join(x, labels)
+   x <- select(x, drugname_typaslab, process_broad, everything())
+   return(x)
+})
 
+matrix_container <- annotate_list(matrix_container, add_metadata_dosage, "most_interactions")
+matrix_container[1:9] <- annotate_list(matrix_container[1:9], add_metadata_included_datasets, "nichols_2011")
+matrix_container[10:18] <- annotate_list(matrix_container[10:18], add_metadata_included_datasets, c("nichols_2011", "knime"))
 
+# construct list with arguments for add_metadata_featureselection
+my_args <- list(list(inds = c(1, 10), annot = "all"), 
+                list(inds = c(2, 11), annot = "top5pct"), 
+                list(inds = c(3, 12), annot = "top10pct"), 
+                list(inds = c(4, 13), annot = "top15pct"), 
+                list(inds = c(5, 14), annot = "top20pct"), 
+                list(inds = c(6, 15), annot = "top25pct"), 
+                list(inds = c(7, 16), annot = "top30pct"), 
+                list(inds = c(8, 17), annot = "top40pct"), 
+                list(inds = c(9, 18), annot = "top50pct"))
 
-
-#### Do hierarchical clustering on the genes
-
-This was part of the first few prediction attempts last year. Idea: do hierarchical clustering of 
-all genes based on the correlations of their s-scores, then make 50/200 clusters and select the 
-medoids. Try both complete and average linkage. 
-
-We're not using this anymore, probably delete later on.
-
-```{r, eval = FALSE, echo = FALSE}
-# # first need a matrix of all the genes
-# genes_only <- select(the_matrix, -drugname_typaslab, -process_broad, -(SlogP:data_effective_rotor_count))
-# high_to_lowvar <- sort(apply(genes_only, 2, var), decreasing = T)
-# 
-# feature_container <- list()
-# 
-# # these are the 200 most variable genes (i.e. sorted by variance)
-# feature_container$mostvar_200 <- names(high_to_lowvar[1:200])
-# feature_container$mostvar_50 <- names(high_to_lowvar[1:50])
-# 
-# gene_mat <- as.matrix(genes_only)
-# corm <- (1 - abs(cor(gene_mat, use = "complete.obs")))
-# dists <- as.dist(corm)
-# cluster_methods <- c('complete', 'average') # single and ward gave some C stack error
-# n_clusters <- c(50, 200)
-# 
-# # plot dendrograms and pull out genes: keep only one gene (the medoid of each cluster)
-# # btw: calculation of centroids if only distances given?
-# for (m in cluster_methods) {
-#    hc <- hclust(dists, method = m)
-#    hc_p <- as.dendrogram(hc)
-#    for (k in n_clusters){
-#       clusts <- cutree(hc, k = k)
-#       feature_container[[paste0("hclust_", m, "_", k, "_medoids")]] <- retrieve_medoids(clusts, corm)
-#       pdf(file = paste0("./plots/Dendrogram_", k, "_clusters", m, ".pdf"), width = 200, height = 1000)
-#       hc_p %>%
-#          set("branches_k_color", value = c(2, 3, 4), k = k) %>%
-#          highlight_branches_lwd() %>%
-#          hang.dendrogram() %>%
-#          rotate(rev(colnames(gene_mat))) %>%
-#          plot(horiz = T)
-#       abline(v = c(0.8, 0.9, 0.95, 1), col = 2, lty = 2)
-#       dev.off()
-#    }
-# }
-# 
-# save("feature_container", file = "feature_container.RData")
-```
-
-Save matrix including only the 200 genes based on hierarchical clustering with complete linkage as 
-well as the chemical features from above.
-
-```{r, eval = FALSE, echo = FALSE}
-# the_matrix_hclust <- 
-#    the_matrix[, c("drugname_typaslab", "process_broad", 
-#                   c(feature_container$hclust_complete_200_medoids), 
-#                   c(chem_features_kept))]
-# save("the_matrix_hclust", file = "the_matrix_hclust.RData")
+# now subset and annotate matrix_container using each of the above list elements
+matrix_container <- flatten(sapply(seq_along(my_args), function(argpos) {
+   where <- my_args[[argpos]][["inds"]]
+   what <- my_args[[argpos]][["annot"]]
+   return(annotate_list(matrix_container[where], add_metadata_featureselection, what))
+}, USE.NAMES = TRUE, simplify = FALSE))
 ```
 
 
@@ -296,4 +262,3 @@ well as the chemical features from above.
 R.version
 sessionInfo()
 ```
-
