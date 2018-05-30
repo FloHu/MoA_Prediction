@@ -13,9 +13,8 @@
 old_code.R
 R/old_ml_funcs.R
 *cache
-!the_matrix.RData
 !Rep_Nest_CV*.RData
-!*matrix*.RData
+!matrix_container.RData
 *.pdf
 *.jpg
 

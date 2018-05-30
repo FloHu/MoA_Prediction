@@ -174,7 +174,20 @@ the_matrix <- the_matrix %>%
    arrange(conc, .by_group = TRUE) %>%
    ungroup()
 
+the_matrix_alldosgs_nochemfeats <- the_matrix
 the_matrix_mostias_nochemfeats <- the_matrix[selector, ]
+```
+
+
+## Collecting data in a data frame with list columns
+
+```{r}
+matrix_container <- 
+   tibble(datasets_included = list("nichols_2011", "nichols_2011"), 
+          drug_dosages = c("all", "most_interactions"), 
+          feat_preselect = c("keepall", "keepall"), 
+          chemical_feats = c(FALSE, FALSE), 
+          drug_feature_matrices = list(the_matrix_alldosgs_nochemfeats, the_matrix_mostias_nochemfeats))
 ```
 
 
@@ -187,16 +200,32 @@ the_matrix_mostias_nochemfeats <- the_matrix[selector, ]
 Sort features (i.e. mutants = genes here) by variance and select top x %. 
 
 ```{r}
-# time to put all our data into a list
 variances_to_select <- c(5, 10, 15, 20, 25, 30, 40, 50)
 
-matrix_container <- 
-   map(variances_to_select, 
-       ~feature_selection_variance(percentTop = ., data = the_matrix_mostias_nochemfeats, featStart = 3))
+# add some datasets to our matrix_container: for the table using all dosages, we want to select 
+# the genes which have the highest variance (top x%)
+targetrow <- match("all", matrix_container$drug_dosages)
+for (v in variances_to_select) {
+   tmp_row <- matrix_container[targetrow, ] # = row containing matrix with all drug dosages => let's do feature preselection
+   tmp_mat <- tmp_row$drug_feature_matrices[[1]]
+   tmp_mat <- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
+   tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
+   tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
+   matrix_container <- bind_rows(matrix_container, tmp_row) # and update our data container
+}
 
-names(matrix_container) <- paste0("the_matrix_mostias_nochemfeats_top", variances_to_select, "pct")
-matrix_container <- prepend(matrix_container, 
-                            list(the_matrix_mostias_nochemfeats_allmuts = the_matrix_mostias_nochemfeats))
+# repeat the same thing with the table that doesn't have all dosages but only those dosages with 
+# most interactions in the chemical genomics data
+# I know, code repetition - shame! but I really want to be explicit here
+(targetrow <- match("most_interactions", matrix_container$drug_dosages))
+for (v in variances_to_select) {
+   tmp_row <- matrix_container[targetrow, ] # = row containing matrix with all drug dosages => let's do feature preselection
+   tmp_mat <- tmp_row$drug_feature_matrices[[1]]
+   tmp_mat <- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
+   tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
+   tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
+   matrix_container <- bind_rows(matrix_container, tmp_row) # and update our data container
+}
 ```
 
 ### Adding chemical features
@@ -205,7 +234,13 @@ Don't use all chemical features from KNIME. Make tables with and without chemica
 
 ```{r}
 # check if all drugs in all tables are in our 'drugs_full' table
-stopifnot(flatten_chr(map(matrix_container, "drugname_typaslab")) %in% drugs_full$drugname_typaslab)
+stopifnot(
+   all(
+      unique(flatten_chr(map(matrix_container$drug_feature_matrices, "drugname_typaslab")))
+      %in%
+      drugs_full$drugname_typaslab
+   )
+)
 
 drugs_full_selected_features <- drugs_full[, c("drugname_typaslab", "SlogP", "LabuteASA", "TPSA", 
                                                "ExactMW", "NumLipinskiHBA", "NumLipinskiHBD", 
@@ -213,46 +248,30 @@ drugs_full_selected_features <- drugs_full[, c("drugname_typaslab", "SlogP", "La
                                                "NumRings", "NumAromaticRings", "NumSaturatedRings", 
                                                "NumAliphaticRings", "data_effective_rotor_count")]
 
-tmp <- map(matrix_container, left_join, drugs_full_selected_features)
-tmp <- setNames(tmp, gsub(x = names(matrix_container), pattern = "nochemfeats", replacement = "withchemfeats"))
-matrix_container <- append(matrix_container, tmp)
-rm(tmp)
+# take whole matrix_container, add chemical features, update metadata and rbind to old container
+matrix_container <- 
+   matrix_container %>%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, drugs_full_selected_features), 
+          chemical_feats = TRUE, 
+          datasets_included = map(datasets_included, append, "knime")) %>%
+   bind_rows(matrix_container) %>%
+   arrange(drug_dosages, feat_preselect, chemical_feats)
 ```
 
 
-## Adding drug classification (i.e. mode of action information) and metadata
+## Adding drug classification = mode of action information, generate dfr with list columns.
 
 ```{r}
-labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
+my_labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 
-matrix_container <- lapply(matrix_container, function(x) {
-   x$conc <- NULL
-   x <- left_join(x, labels)
-   x <- select(x, drugname_typaslab, process_broad, everything())
-   return(x)
-})
+# add MoA
+matrix_container <- 
+   matrix_container %>%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, my_labels))
 
-matrix_container <- annotate_list(matrix_container, add_metadata_dosage, "most_interactions")
-matrix_container[1:9] <- annotate_list(matrix_container[1:9], add_metadata_included_datasets, "nichols_2011")
-matrix_container[10:18] <- annotate_list(matrix_container[10:18], add_metadata_included_datasets, c("nichols_2011", "knime"))
-
-# construct list with arguments for add_metadata_featureselection
-my_args <- list(list(inds = c(1, 10), annot = "all"), 
-                list(inds = c(2, 11), annot = "top5pct"), 
-                list(inds = c(3, 12), annot = "top10pct"), 
-                list(inds = c(4, 13), annot = "top15pct"), 
-                list(inds = c(5, 14), annot = "top20pct"), 
-                list(inds = c(6, 15), annot = "top25pct"), 
-                list(inds = c(7, 16), annot = "top30pct"), 
-                list(inds = c(8, 17), annot = "top40pct"), 
-                list(inds = c(9, 18), annot = "top50pct"))
-
-# now subset and annotate matrix_container using each of the above list elements
-matrix_container <- flatten(sapply(seq_along(my_args), function(argpos) {
-   where <- my_args[[argpos]][["inds"]]
-   what <- my_args[[argpos]][["annot"]]
-   return(annotate_list(matrix_container[where], add_metadata_featureselection, what))
-}, USE.NAMES = TRUE, simplify = FALSE))
+# arrange rows nicely
+matrix_container$drug_feature_matrices <- 
+   map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
 ```
 
 
