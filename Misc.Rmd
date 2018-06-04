@@ -1,0 +1,127 @@
+---
+title: "Miscellaneous analyses"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+# custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+load("./data/matrix_container.RData")
+```
+
+# Hierarchical clusterings of drugs
+
+## Chemical similarities
+
+Check if some drugs are chemically very similar so that they may need to be blocked during CV 
+instance creation. Use RDKit chemical fingerprints. Also compare hierarchical clusterings based 
+on Nichols data (Euclidean distance and 1-correlation as distance).
+
+Use InChI for KNIME workflow used during dbsetup construction, then calculate fingerprints. 
+
+```{r}
+the_matrix_allDrugs <- 
+   filter(matrix_container, feat_preselect == "keepall", drug_dosages == "most_interactions", 
+          chemical_feats == FALSE) %>%
+   select(drug_feature_matrices) %>%
+   unnest()
+
+drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", header = T, 
+                         sep = ";", stringsAsFactors = F, dec = ".")
+
+all_inchi <- 
+   filter(drugs_full, drugname_typaslab %in% the_matrix_allDrugs$drugname_typaslab) %>% 
+   select(drugname_typaslab, data_stdinchi)
+
+write_tsv(all_inchi, col_names = T, path = "data/all_inchi.tsv")
+```
+
+Read fingerprints. 
+
+```{r}
+drugs_RDkit_fingerprint = read_csv2(file = "data/RDkit_fingerprint.csv")
+drugs_RDkit_fingerprint = merge(all_inchi, drugs_RDkit_fingerprint, by = "data_stdinchi")
+colnames(drugs_RDkit_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RDkit_fingerprint")
+# could also get morgan and MACCS fingerprints, see ./data
+```
+
+Plot dendrogram of similarities. 
+
+```{r}
+library(gplots)
+library(RColorBrewer)
+
+cluster_matrix <- as.tibble(select(drugs_RDkit_fingerprint, -data_stdinchi))
+row.names(cluster_matrix) <- cluster_matrix$drugnames_typaslab
+cluster_matrix$drugnames_typaslab <- NULL
+process_lut <- the_matrix_allDrugs$process_broad[match(row.names(cluster_matrix), the_matrix_allDrugs$drugname_typaslab)]
+names(process_lut) <- row.names(cluster_matrix)
+
+cluster_matrix <- as.matrix(cluster_matrix)
+cluster_matrix_splitbits <- t(apply(cluster_matrix, 1, function(x) {
+   as.numeric(unlist(strsplit(x["RDkit_fingerprint"], split = "")))
+}))
+cluster_matrix_splitbits_dist <- dist(cluster_matrix_splitbits, method = "binary")
+
+moa_to_colour <- c(cell_wall = "#a6cee3",
+                   dna = "#1f78b4",
+                   protein_synthesis = "#b2df8a",
+                   membrane_stress = "#33a02c",
+                   pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa", 
+                   unknown = "#bababa")
+rowcols <- moa_to_colour[process_lut[rownames(cluster_matrix)]]
+
+pdf("./plots/drug_drug_similarities_RDKit.pdf", width = 14, height = 14)
+heatmap.2(cluster_matrix_splitbits, 
+          trace = "none", 
+          Rowv = as.dendrogram(hclust(cluster_matrix_dist)), 
+          RowSideColors = rowcols, 
+          margins = c(12, 9), 
+          dendrogram = "row", 
+          labCol = "", 
+          breaks = c(0, 0.5, 1), 
+          col = rev(heat.colors(n = 2)), 
+          main = "Binary distances of drugs (RDKit fingerprint)")
+legend("topright", 
+       legend = names(moa_to_colour), 
+       col = moa_to_colour, 
+       lty = 1, 
+       lwd = 5, 
+       cex = 0.8)
+dev.off()
+```
+
+
+## Nichols data: Euclidean distance
+
+<!--
+include later (see FeatureImp_... notebook) when we have our big results object
+-->
+
+
+
+## Nichols data: (1 - Pearson) distance
+
+
+
+
+
+
