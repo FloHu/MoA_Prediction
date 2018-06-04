@@ -111,7 +111,7 @@ plot_ROC_allRep = function(res, moa = "dna", plotAllRep = T){
                 allData = rbind(allData, all_test_set$data)
             }
             all_test_set$data = allData
-            l = paste0(m, " AUC : ", round(performance(all_test_set, auc), digits = 3))
+            l = paste0(m, " AUC : ", round(performance(pred = all_test_set, measures = auc), digits = 3))
             plotDataMoa[[l]] = all_test_set
         }
         plotDataMoa = generateThreshVsPerfData(plotDataMoa, measures = list(fpr, tpr))
@@ -351,15 +351,15 @@ plot_predProb_moa = function(res, rep = 1, moa = "dna", dt_matrix = the_matrix_a
 #       For the optimal threshold (highest MCC), display a confusion matrix on the ROC curve
 #INPUT :  A result object and a MoA
 #OUTPUT : Splitted double plot of the 2 curves and return a confusionMatrix object
-plot_ROC_optThres = function(res, moa = "dna"){
-
+plot_ROC_optThres = function(res, moa = "dna", customTitle = paste0(deparse(substitute(res)), " - ", moa )){
+    
     if(!require(ggrepel)){
         install.packages("ggrepel")
     }
     library(ggrepel)
     library(grid)
     library(gridExtra)
-
+    
     #Concatenate all Data from all repetition/outerFolds
     allData = c()
     for (r in 1:10){
@@ -367,11 +367,19 @@ plot_ROC_optThres = function(res, moa = "dna"){
         allData = rbind(allData, all_test_set$data)
     }
     all_test_set$data = allData
-
+    
+    defaultTPR = performance(all_test_set, measures = tpr)
+    defaultFPR = performance(all_test_set, measures = fpr)
+    defaultConfMat = calculateConfusionMatrix(all_test_set)
+    TP2 = defaultConfMat$result[1,1]
+    FP2 = defaultConfMat$result[2,1]
+    FN2 = defaultConfMat$result[1,2]
+    TN2 = defaultConfMat$result[2,2]
+    
     mccCurve = generateThreshVsPerfData(all_test_set, measures = mcc)
     #Best Threshold
     bestThres = mccCurve$data[which.max(mccCurve$data$mcc),"threshold"]
-
+    
     #Custom Threshold
     all_test_set = setThreshold(all_test_set, threshold = bestThres)
     confMat = calculateConfusionMatrix(all_test_set)
@@ -379,24 +387,28 @@ plot_ROC_optThres = function(res, moa = "dna"){
     FP = confMat$result[2,1]
     FN = confMat$result[1,2]
     TN = confMat$result[2,2]
-
+    
     plotData = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
     toPlot = ggplot() + geom_path(data = plotData$data, mapping = do.call(aes_string, list(x = "fpr", y = "tpr")), size = 2) +
         annotate("text", size = 10, x = 0.8, y = 0.1, label = paste0("AUC : ", round(performance(all_test_set, auc), digits = 3))) +
         theme(text = element_text(size = 16))
-
+    
     bestPoint = plotData$data[which(round(plotData$data$threshold, digits = 2) == round(bestThres, digits = 2)) , ]
-
+    
     toPlot = toPlot + annotate("point", x = bestPoint$fpr, y = bestPoint$tpr, colour = "red", cex = 5) +
-        geom_label(aes(label = paste0("Threshold = ", round(bestThres, digits = 2) ,"\nTP : ", TP, " FP : ", FP, "\nFN : ", FN, " TN : ", TN),
-                            size = 3.5, x = bestPoint$fpr+0.15, y = bestPoint$tpr - 0.05 ), show.legend = FALSE) +
+        annotate("point", x = defaultFPR, y = defaultTPR, colour = "blue", cex = 5) +
+        geom_label(aes(label = paste0("Threshold = 0.5 (blue)\nTP : ", TP2, " FP : ", FP2, "\nFN : ", FN2, " TN : ", TN2),
+                       size = 3.5, x = 0.85, y = 0.4 ), show.legend = FALSE) +
+        geom_label(aes(label = paste0("Threshold = ", round(bestThres, digits = 2) ," (red)\nTP : ", TP, " FP : ", FP, "\nFN : ", FN, " TN : ", TN),
+                       size = 3.5, x = 0.85, y = 0.2 ), show.legend = FALSE) +
         geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
-        labs(x = "False positive rate", y = "True positive rate", title = paste0(deparse(substitute(res)), " - ", moa )) +
+        labs(x = "False positive rate", y = "True positive rate", title = customTitle) +
         theme(text = element_text(size = 16))
-
-    toPlot <- grid.arrange(plotThreshVsPerf(mccCurve), toPlot , nrow = 1)
+    
+    toPlot <- grid.arrange(plotThreshVsPerf(mccCurve) + geom_vline(xintercept=bestThres, linetype = "dotted"), toPlot , nrow = 1)
     return(list(confMat = confMat, plot = toPlot))
 }
+
 
 # ==============================================================================
 
