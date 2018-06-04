@@ -272,6 +272,8 @@ matrix_container <-
 # arrange rows nicely
 matrix_container$drug_feature_matrices <- 
    map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
+
+save(matrix_container, file = "./data/matrix_container.RData")
 ```
 
 
