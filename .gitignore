@@ -10,11 +10,12 @@
 *.doc
 *.docx
 *.rds
-old_code.R
-R/old_ml_funcs.R
 *cache
 !Rep_Nest_CV*.RData
 !matrix_container.RData
 *.pdf
 *.jpg
+*.JPG
+*.jpeg
+*.JPEG
 
