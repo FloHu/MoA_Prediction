@@ -23,8 +23,8 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-load(file = "data/the_matrix_allDrugs.RData")
 load(file = "data/the_matrix_newDrugs.RData")
+load(file = "data/matrix_container.RData")
 ```
 
 
@@ -44,7 +44,7 @@ the best performances. To prevent such criticism, a repeated cross validation is
 10 times. 
 
 Thus, the exact strategy for assessing models' performances and comparing them could be called : 
-**Repeated nested cross-validation with instanced resampling**
+**Repeated nested cross-validation with instanced stratified resampling**
 
 
 ## Generating instances
@@ -106,34 +106,19 @@ instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInne
 
 ```
 
-## Creation of repeated CV instance
-
-```{r echo = F }
-
-the_matrix_allDrugs = mutate(the_matrix_allDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
-
-Rep_Nest_CV_instance_allDrugs = list()
-for(i in 1:10){
-    name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance_allDrugs[[name]] = instance_creation(dataset = the_matrix_allDrugs, printTest = T)
-}
-
-```
-
-
-
 ## Creation of repeated CV instance - NEW LABELS
 
-Creation of instances based on Nassos correstion from 05/08/2018
+Creation of instances based on Nassos correction from 05/08/2018
 
 ```{r echo = F }
 
 the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
 
 Rep_Nest_CV_instance_newDrugs = list()
+dataset_newDrugs = filter(matrix_container, drug_dosages != "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = the_matrix_newDrugs, printTest = F)
+    Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = dataset_newDrugs, printTest = F)
 }
 
 ```
@@ -166,7 +151,6 @@ for (i in 1:30){
 
 
 ```{r export data}
-save(Rep_Nest_CV_instance_allDrugs, file = "data/Rep_Nest_CV_instance_allDrugs.RData")
 save(Rep_Nest_CV_instance_newDrugs, file = "data/Rep_Nest_CV_instance_newDrugs.RData")
 
 ```
