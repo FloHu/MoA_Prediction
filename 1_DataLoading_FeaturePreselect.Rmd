@@ -275,6 +275,95 @@ matrix_container <-
 matrix_container$drug_feature_matrices <- 
    map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
 
+matrix_container.bak <- matrix_container
+
+matrix_container_tmp <- matrix_container
+# add fields fitted_model, tuning_measure, hyperparam_grid, resamp_instance
+
+#################################
+## ADDING MODEL SPECIFICATIONS ##
+#################################
+
+# RANDOM FORESTS:
+matrix_container_tmp$fitted_model <- "classif.randomForest"
+matrix_container_tmp$tuning_measure <- list("mmce" = list(mmce, ppv, auc))
+
+rf_hyp_param <- 
+   lapply(
+      map_dbl(matrix_container_tmp$drug_feature_matrices, ncol), 
+      function(x) {
+         x <- x - 3 # to account for drugname, process_broad, conc
+         makeParamSet(
+            makeDiscreteParam("ntree", values = c(200, 500)), 
+            makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
+         )
+      }
+   )
+names(rf_hyp_param) <- "rf_hyp_param"
+
+matrix_container_tmp$hyperparam_grid <- rf_hyp_param
+matrix_container_tmp$resamp_inst <- NA
+
+matrix_container <- bind_rows(matrix_container_tmp)
+
+
+# XGBOOST:
+matrix_container_tmp$fitted_model <- "classif.xgboost"
+
+# only hyperparameter grids change:
+# (1) 'standard' approach, tuning just most common parameters
+xgboost_hyp_param_std <- 
+   makeParamSet(
+    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)) 
+    )
+matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_std" = xgboost_hyp_param_std)
+# update
+matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+
+
+# (2) play around with regularisations
+xgboost_hyp_param_reg <- 
+   makeParamSet(
+    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
+    makeNumericParam("lambda", values = c(1, 10, 100, 1000)), 
+    makeNumericParam("alpha", values = c(0, 0.5, 1))
+    )
+matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_reg" = xgboost_hyp_param_reg)
+# update
+matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+
+
+# (3) play around with subsampling functions
+xgboost_hyp_param_subsmp <- 
+   makeParamSet(
+    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
+    makeNumericParam("subsample", values = c(0.5, 0.8, 1)), 
+    makeNumericParam("colsample_bytree", values = c(0.5, 0.8, 1))
+    )
+matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_subsmp" = xgboost_hyp_param_subsmp)
+# update
+matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+
+
+# LASSO:
+matrix_container_tmp$fitted_model <- "classif.glmnet"
+
+lasso_hyp_param <- 
+   makeParamSet(
+      makeNumericParam("alpha", 1), 
+      makeNumericParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
+   )
+matrix_container_tmp$hyperparam_grid <- list("lasso_hyp_param" = lasso_hyp_param)
+# update
+matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+
+
 save(matrix_container, file = "./data/matrix_container.RData")
 ```
 
