@@ -5,7 +5,7 @@
 #For a given instance of resampling
 
 rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_param, 
-                             run_tuning, saveFeatImportance = F, tuning_measure = ppv,
+                             run_tuning, tuning_measure = ppv,
                              predict_type = "prob", wilcoxSelection = 0){
     
     if(!require(iterators)){
@@ -85,12 +85,6 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
                 run_outer_fold[[fold_name]][[model_name]] = model_outerCV 
                 run_outer_fold[[fold_name]][[pred_name]] = pred_NCV
             }
-            
-            #if(saveFeatImportance){
-            #    featimp = generateFeatureImportanceData(task = predictMoa, method = "permutation.importance",
-            #                                            learner = run_learner)
-            #    run_outer_fold[[fold_name]][["featuresImportance"]] = featimp 
-            #}
             
         }
         

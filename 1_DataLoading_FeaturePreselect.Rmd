@@ -67,8 +67,8 @@ the_matrix <-
    left_join(strains[, c("strain"), drop = F]) %>%
    left_join(strains_has_genes[, c("strain", "ugi")]) %>%
    left_join(genes[, c("ugi", "gene_synonym")]) %>%
-   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain)
-
+   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain) 
+    
 the_matrix$significant <- the_matrix$qvalue <= 0.05
 ```
 
@@ -158,9 +158,6 @@ Selects for each drug the one dosages with the highest number of significant int
 or all are, keep the highest dosage. 
 
 ```{r}
-the_matrix.bak <- the_matrix
-the_matrix_signifs.bak <- the_matrix_signifs
-
 selector <- 
    the_matrix_signifs %>%
    group_by(drugname_typaslab) %>%
