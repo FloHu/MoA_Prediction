@@ -112,14 +112,56 @@ Creation of instances based on Nassos correction from 05/08/2018
 
 ```{r echo = F }
 
-the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+# the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
 
 Rep_Nest_CV_instance_newDrugs = list()
 dataset_newDrugs = filter(matrix_container, drug_dosages != "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
+dataset_newDrugs = mutate(dataset_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")
     Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = dataset_newDrugs, printTest = F)
 }
+
+```
+
+
+## Expanding resampling instance to all dosages
+
+```{r}
+# The idea here is to copy the resampling object and map individuals ids from the newDrug dataset to the drugs names 
+# and then remap the names to the individuals ids of the allDosage dataset
+
+dataset_allDosage = filter(matrix_container, drug_dosages == "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
+dataset_allDosage = mutate(dataset_allDosage, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+
+Rep_Nest_CV_instance_allDosage = Rep_Nest_CV_instance_newDrugs
+for(i in 1:length(Rep_Nest_CV_instance_allDosage)){
+    
+    # OUTER FOLD RESAMPLING MAPPING
+    #Training sets
+    drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$train.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+    allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+    Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds = allDosage_indexes     
+    #Testing sets
+    drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$test.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+    allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+    Rep_Nest_CV_instance_allDosage[[i]]$outer$test.inds = allDosage_indexes
+    
+    # INNER FOLDS RESAMPLING MAPPING
+    for(innerFold in 1:length(Rep_Nest_CV_instance_allDosage[[i]]$inner)) {
+        #Training sets
+        drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$inner[[innerFold]]$train.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+        allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+        Rep_Nest_CV_instance_allDosage[[i]]$inner[[innerFold]]$train.inds = allDosage_indexes  
+        #Testing sets
+        drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$inner[[innerFold]]$test.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+        allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+        Rep_Nest_CV_instance_allDosage[[i]]$inner[[innerFold]]$test.inds = allDosage_indexes  
+    }
+}
+
+
+
 
 ```
 
