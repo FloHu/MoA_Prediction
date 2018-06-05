@@ -260,10 +260,12 @@ matrix_container <-
 
 ```{r}
 my_labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
+my_labels_knowndrugs <- my_labels[my_labels$process_broad != "unknown", ]
 
-# add MoA
+# remove unknown drugs, then add MoA information
 matrix_container <- 
    matrix_container %>%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, semi_join, my_labels_knowndrugs)) %>%
    mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, my_labels))
 
 # arrange rows nicely
