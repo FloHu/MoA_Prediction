@@ -12,7 +12,6 @@
 *.rds
 *cache
 !Rep_Nest_CV*.RData
-!matrix_container.RData
 *.pdf
 *.jpg
 *.JPG

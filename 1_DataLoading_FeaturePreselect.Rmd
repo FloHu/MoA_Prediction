@@ -23,10 +23,6 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 
-# ipak(dendextend)
-# ipak(tree)
-# ipak(randomForest)
-
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
@@ -256,7 +252,7 @@ matrix_container <-
 ```
 
 
-## Adding drug classification = mode of action information, generate dfr with list columns.
+## Adding drug classification = mode of action information, generate dfr with list columns
 
 ```{r}
 my_labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
@@ -271,23 +267,52 @@ matrix_container <-
 # arrange rows nicely
 matrix_container$drug_feature_matrices <- 
    map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
+```
 
+
+## Adding model and hyperparameter specifications
+
+For all of the above drug-feature matrices we want to run the following:
+- random forests with a number of trees and mtry values
+- boosted trees in 3 flavours: (i) 'normal' parameters changed, (ii) testing regularisation, (iii) 
+  trying out subsample parameters
+- lasso regression
+
+```{r}
 matrix_container.bak <- matrix_container
-
 matrix_container_tmp <- matrix_container
-# add fields fitted_model, tuning_measure, hyperparam_grid, resamp_instance
 
-#################################
-## ADDING MODEL SPECIFICATIONS ##
-#################################
+# stuff common to all: tuning measures, CV instances
+load("./data/Rep_Nest_CV_instance_newDrugs.RData") # normal instanced repeated stratified CV
+load("./data/Rep_Nest_CV_instance_allDosage.RData ") # as above but with dosages blocked together
+
+matrix_container$tuning_measure <- list("mmce" = list(mmce, ppv, auc))
+matrix_container$resamp_instance <- 
+   ifelse(matrix_container$drug_dosages == "all", 
+          list(Rep_Nest_CV_instance_allDosage), 
+          list(Rep_Nest_CV_instance_newDrugs))
+
+names(matrix_container$resamp_instance) <- # as ifelse ignores names
+   ifelse(matrix_container$drug_dosages == "all", 
+          "Rep_Nest_CV_instance_allDosage", 
+          "Rep_Nest_CV_instance_newDrugs")
+
+
+#####################################
+## SPECIFYING HYPERPARAMETER GRIDS ##
+#####################################
+# specify hyperparameter grids, put them into lists with the fitted model as the names of the 
+# elements
+# lists should have same lengths as matrix_container since the whole matrix_container should be 
+# processed once for each hyperparameter grid
+# then apply some map magic to collect everything into a big data frame
+
+#### step (1): specifying the hyperparameter grids
 
 # RANDOM FORESTS:
-matrix_container_tmp$fitted_model <- "classif.randomForest"
-matrix_container_tmp$tuning_measure <- list("mmce" = list(mmce, ppv, auc))
-
 rf_hyp_param <- 
    lapply(
-      map_dbl(matrix_container_tmp$drug_feature_matrices, ncol), 
+      map_dbl(matrix_container$drug_feature_matrices, ncol), 
       function(x) {
          x <- x - 3 # to account for drugname, process_broad, conc
          makeParamSet(
@@ -296,70 +321,67 @@ rf_hyp_param <-
          )
       }
    )
-names(rf_hyp_param) <- "rf_hyp_param"
-
-matrix_container_tmp$hyperparam_grid <- rf_hyp_param
-matrix_container_tmp$resamp_inst <- NA
-
-matrix_container <- bind_rows(matrix_container_tmp)
-
+names(rf_hyp_param) <- rep_len("rf_hyp_param", length(rf_hyp_param))
 
 # XGBOOST:
-matrix_container_tmp$fitted_model <- "classif.xgboost"
-
-# only hyperparameter grids change:
-# (1) 'standard' approach, tuning just most common parameters
+# (a) 'standard' approach, tuning just most common parameters
 xgboost_hyp_param_std <- 
    makeParamSet(
     makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
     makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
     makeDiscreteParam("eta", values = c(0.01,0.1,0.3)) 
     )
-matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_std" = xgboost_hyp_param_std)
-# update
-matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+xgboost_hyp_param_std <- rep(list("xgboost_hyp_param_std" = xgboost_hyp_param_std), nrow(matrix_container))
 
-
-# (2) play around with regularisations
+# (b) play around with regularisations
 xgboost_hyp_param_reg <- 
    makeParamSet(
     makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
     makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
     makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
-    makeNumericParam("lambda", values = c(1, 10, 100, 1000)), 
-    makeNumericParam("alpha", values = c(0, 0.5, 1))
+    makeDiscreteParam("lambda", values = c(1, 10, 100, 1000)), 
+    makeDiscreteParam("alpha", values = c(0, 0.5, 1))
     )
-matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_reg" = xgboost_hyp_param_reg)
-# update
-matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+xgboost_hyp_param_reg <- rep(list("xgboost_hyp_param_reg" = xgboost_hyp_param_reg), nrow(matrix_container))
 
-
-# (3) play around with subsampling functions
+# (c) play around with subsampling functions
 xgboost_hyp_param_subsmp <- 
    makeParamSet(
     makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
     makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
     makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
-    makeNumericParam("subsample", values = c(0.5, 0.8, 1)), 
-    makeNumericParam("colsample_bytree", values = c(0.5, 0.8, 1))
+    makeDiscreteParam("subsample", values = c(0.5, 0.8, 1)), 
+    makeDiscreteParam("colsample_bytree", values = c(0.5, 0.8, 1))
     )
-matrix_container_tmp$hyperparam_grid <- list("xgboost_hyp_param_subsmp" = xgboost_hyp_param_subsmp)
-# update
-matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
-
+xgboost_hyp_param_subsmp <- rep(list("xgboost_hyp_param_subsmp" = xgboost_hyp_param_subsmp), nrow(matrix_container))
 
 # LASSO:
-matrix_container_tmp$fitted_model <- "classif.glmnet"
-
 lasso_hyp_param <- 
    makeParamSet(
-      makeNumericParam("alpha", 1), 
-      makeNumericParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
+      makeDiscreteParam("alpha", 1), 
+      makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
    )
-matrix_container_tmp$hyperparam_grid <- list("lasso_hyp_param" = lasso_hyp_param)
-# update
-matrix_container <- bind_rows(matrix_container, matrix_container_tmp)
+lasso_hyp_param <- rep(list("lasso_hyp_param" = lasso_hyp_param), nrow(matrix_container))
 
+
+#### step (2): merging hyperparameter grids + model information with matrix_container
+
+# add here the information about the model that is fitted
+hyperparam_container <- 
+   list("classif.randomForest" = rf_hyp_param, 
+        "classif.xgboost" = xgboost_hyp_param_std, 
+        "classif.xgboost" = xgboost_hyp_param_reg, 
+        "classif.xgboost" = xgboost_hyp_param_subsmp, 
+        "classif.glmnet" = lasso_hyp_param)
+
+# turn into list of data frames
+hyperparam_container <- 
+   map2(hyperparam_container, 
+        names(hyperparam_container), 
+        ~data_frame('hyperparam_grid' = .x, 'fitted_model' = .y))
+
+# dplyr functions remove names of list columns with map_dfr - so go back to good old do.call + rbind
+matrix_container <- do.call(rbind, map(hyperparam_container, ~bind_cols(matrix_container, .x)))
 
 save(matrix_container, file = "./data/matrix_container.RData")
 ```
