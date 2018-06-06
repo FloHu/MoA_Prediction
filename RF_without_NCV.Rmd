@@ -53,7 +53,7 @@ RF_without_NCV_run_4models = function(data_matrix, rep_instance){
     run_result = list()
     p = dim(data_matrix)[2]
     hyp_grid = makeParamSet(
-        makeDiscreteParam("ntree", values = c(200,500,1000)),
+        makeDiscreteParam("ntree", values = c(500)),
         makeDiscreteParam("mtry", values = floor(c(p,p/2, p/4, p*(3/4), sqrt(p))))
     )
 
@@ -68,7 +68,7 @@ RF_without_NCV_run_4models = function(data_matrix, rep_instance){
         predictMoa = makeClassifTask(data = custom_matrix, target = "process_broad")
                 
         #tuning hyperparameters based on the inner resampling
-        resTuning = tuneParams(learner = "classif.randomForest", task = predictMoa, resampling = rep_instance[[1]]$outer, measures = mcc,
+        resTuning = tuneParams(learner = "classif.randomForest", task = predictMoa, resampling = rep_instance[[1]]$outer, measures = ppv,
                                par.set = hyp_grid, control =  makeTuneControlGrid())
                 
         #use the best Hyperparams to create optimal learner
