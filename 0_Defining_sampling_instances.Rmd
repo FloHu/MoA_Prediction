@@ -80,6 +80,7 @@ instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInne
     sampling_method = makeResampleDesc(method = "CV", iters = nFoldsInner, stratify = TRUE)
     sample_instance_inner = list()
     for(i in 1:nFoldsOuter){
+        # New task using a subset of the whole dataset defined by outer training set ID
         inner_task = makeClassifTask(data = dataset[ sample_instance_outer$train.inds[[i]] , ], target = "process_broad")
         sample_instance_inner[[i]] = makeResampleInstance(sampling_method, inner_task)
     }
@@ -125,49 +126,109 @@ for(i in 1:10){
 ```
 
 
+A bunch of getters and test functions
+
+```{r}
+
+get_outer_train_ids = function(NCV_sampling, rep_nb){
+    NCV_sampling[[rep_nb]]$outer$train.inds
+}
+
+get_inner_train_ids = function(NCV_sampling, rep_nb, outer_nb){
+    NCV_sampling[[rep_nb]]$inner[[outer_nb]]$train.inds
+}
+
+```
+
 ## Expanding resampling instance to all dosages
 
 ```{r}
 # The idea here is to copy the resampling object and map individuals ids from the newDrug dataset to the drugs names 
 # and then remap the names to the individuals ids of the allDosage dataset
 
-# One should also make the new size fields in the lists match the length of vector of IDS
+# One should also make the size fields in the lists match the length of vector of IDS
 
 dataset_allDosage = filter(matrix_container, drug_dosages == "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
 dataset_allDosage = mutate(dataset_allDosage, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
 
 Rep_Nest_CV_instance_allDosage = Rep_Nest_CV_instance_newDrugs
+
+# For each repetition
 for(i in 1:length(Rep_Nest_CV_instance_allDosage)){
     
     # OUTER FOLD RESAMPLING MAPPING
-    #Training sets
-    drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$train.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-    allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
-    Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds = allDosage_indexes     
-    #Testing sets
-    drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$test.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-    allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
-    Rep_Nest_CV_instance_allDosage[[i]]$outer$test.inds = allDosage_indexes
+    # === Training sets ===
+    # drugNameSet = name of individuals/drugs in the training set
+    drugNameSet_outer_train = map(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i), function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+    # then get all ids linked to these name in the "raw" dataset
+    allDosage_indexes = map(drugNameSet_outer_train, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+    Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds = allDosage_indexes 
+    # === Testing sets ===
+    allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, nrow(dataset_allDosage)), x ) } )
+    Rep_Nest_CV_instance_allDosage[[i]]$outer$test.inds = allDosage_indexes_test
     #Size
     Rep_Nest_CV_instance_allDosage[[i]]$outer$size = nrow(dataset_allDosage)
     
+    # write TRUE to check in details
+    if(FALSE){
+        print(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds)
+        a = map(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds, function(x){ unique(dataset_allDosage[x , ]$drugname_typaslab) })
+        b = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$train.inds, function(x){ dataset_newDrugs[x , ]$drugname_typaslab })
+        print(map2(.x = a, .y = b, .f = function(x,y) {print(setdiff(y,x))}))
+    }
+
+    
+    # NEVER MAP INNER IDS DIRECTLY TO THE DATASET, ALWAYS MAP THEM FIRST TO OUTER ID  !!!
+    
     # INNER FOLDS RESAMPLING MAPPING
-    for(innerFold in 1:length(Rep_Nest_CV_instance_allDosage[[i]]$inner)) {
-        #Training sets
-        drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$inner[[innerFold]]$train.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-        allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
-        Rep_Nest_CV_instance_allDosage[[i]]$inner[[innerFold]]$train.inds = allDosage_indexes  
-        #Testing sets
-        drugNameSet = map(Rep_Nest_CV_instance_newDrugs[[i]]$inner[[innerFold]]$test.inds, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-        allDosage_indexes = map(drugNameSet, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
-        Rep_Nest_CV_instance_allDosage[[i]]$inner[[innerFold]]$test.inds = allDosage_indexes  
-        #Size
-        Rep_Nest_CV_instance_allDosage[[i]]$inner[[innerFold]]$size = length(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds[[innerFold]])
+    for(outer in 1:length(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i))) {
+        
+        # === Training sets ===
+        innerID = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i, outer_nb = outer)
+        outerID = get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i)[[outer]]
+        innerID_to_rawData = map(.x = innerID, .f = function(x){ outerID[x]})
+        
+        drugNameSet_inner_train = map(innerID_to_rawData, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
+        # Here we got names of the drugs that should be in the inner training sets
+        
+        
+        # Extract a subset of raw dataset based on outer training id and select names of this subset
+        dataset_outer_train = dataset_allDosage[get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]], ]$drugname_typaslab
+
+        allDosage_indexes = map(drugNameSet_inner_train, function(x){ 
+            which(dataset_outer_train %in% x$drugname_typaslab) 
+        } )
+
+        Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$train.inds = allDosage_indexes  
+
+        
+        if(FALSE){
+            print(Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$train.inds)
+            
+            allDosageName_inner = map(.x = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i, outer_nb = outer),
+                                      .f = function(x) {
+                                          unique(dataset_allDosage[(get_outer_train_ids(Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
+                                      })
+            newDrugsName_inner = map(.x = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i, outer_nb = outer),
+                                      .f = function(x) {
+                                          unique(dataset_newDrugs[(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
+                                      })
+            print(map2(.x = allDosageName_inner, .y = newDrugsName_inner, .f = function(x,y) {print(setdiff(y, x))}))
+        }
+        
+        # === Testing sets ===
+        allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, length(dataset_outer_train)), x ) } )
+        Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$test.inds = allDosage_indexes_test
+        Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$size = length(dataset_outer_train)
+      
     }
 }
 
 
-
+# === NOTA BENE ===
+# With this tricky resampling strategy, the same drugs are in the exact same sets in both cases (with or whithout all dosages)
+# Only difference is that using all dosage, drugs are in a way present multiple times
+# ================
 
 ```
 
@@ -200,8 +261,7 @@ for (i in 1:30){
 
 ```{r export data}
 save(Rep_Nest_CV_instance_newDrugs, file = "data/Rep_Nest_CV_instance_newDrugs.RData")
-save(Rep_Nest_CV_instance_allDosage, file = "data/Rep_Nest_CV_instance_allDosage.RData ")
-
+save(Rep_Nest_CV_instance_allDosage, file = "data/Rep_Nest_CV_instance_allDosage.RData")
 ```
 
 

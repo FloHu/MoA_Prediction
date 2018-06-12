@@ -6,14 +6,14 @@
 
 repeated_NCV_run_4models_container = function(data_container, line_number, predict_type = "prob"){
     
-    if(line_number > dim(matrix_container)[2]){
+    if(line_number > dim(matrix_container)[1]){
         return("Incorrect line number")
     }
 
     data_matrix = data_container$drug_feature_matrices[[line_number]]
     model = data_container$fitted_model[[line_number]]
     rep_instance = data_container$resamp_instance[[line_number]]
-    run_hyp_param = data_container$hyperparameter_grid[[line_number]]
+    run_hyp_param = data_container$hyperparam_grid[[line_number]]
     tuning_measure = data_container$tuning_measure[[line_number]]
 
     if(!require(iterators)){
@@ -27,6 +27,9 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
     
     if("drugname_typaslab" %in% colnames(data_matrix)){
         data_matrix = select(data_matrix, -drugname_typaslab)
+    }
+    if("conc" %in% colnames(data_matrix)){
+        data_matrix = select(data_matrix, -conc)
     }
     
     if(model == "classif.randomForest"){
@@ -47,44 +50,49 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
     
     foreach(repetition_index = icount(n_rep)) %do% {
         #initialize outer folds output data for the repetition
+        cat("REPETITION ", repetition_index, "\n")
         run_outer_fold = list()
         
         foreach(outerCV_ind = icount(n_outer)) %do% {
-            
+            cat("OUTER ", outerCV_ind, "\n")
             outerCV_training_set = (get_outerCV(repetition_index, data = rep_instance))$train.ind[[outerCV_ind]]
             
             #define inner CV in relation to the outer fold used
             inner = get_innerCV(repetition_index, data = rep_instance)[[outerCV_ind]]
             
             for (moa in c("dna", "cell_wall", "membrane_stress", "protein_synthesis")) {
-                
+                cat("MOA ", moa, "\n")
                 #create a new matrix of all data with different process annotation
                 custom_matrix = data_matrix %>% 
                                 mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
                 
                 custom_matrix$process_broad = factor(custom_matrix$process_broad, levels = c(moa, paste0("not_", moa)))
                 
+                custom_matrix = as.data.frame(custom_matrix)
+                
                 #Thus the task should change because only a subset of the whole data should be used
                 predictMoa = makeClassifTask(data = custom_matrix[ outerCV_training_set , ], target = "process_broad")
-
+                print(predictMoa)
+                
                 #Tuning is different if model is RF or not
                 if(model == "classif.randomForest"){
+                    
                     # Tune wrapper is using an holdout resampling with a 0.99 split (1 observation as test set, all others as training)
                     # It can be understood as "nearly no resampling"
                     # Measure evaluated is the OOB error extracted from the trained model object          
-                    tuned_lrn = makeTuneWrapper(learner = makeLearner(cl = "classif.randomForest", predict.type = predict_type), par.set = hyp_grid, 
+                    tuned_lrn = makeTuneWrapper(learner = makeLearner(cl = "classif.randomForest", predict.type = predict_type), par.set = run_hyp_param, 
                         control = makeTuneControlGrid(), measures = oobperf,
                         resampling = makeResampleDesc("Holdout", split = 0.99) ) 
 
                 }else{
+                    
                     #tuning hyperparameters based on the inner resampling
                     resTuning = tuneParams(learner = model, task = predictMoa, resampling = inner, measures = tuning_measure,
                                            par.set = run_hyp_param, control = makeTuneControlGrid())
                     #use the best Hyperparams to create optimal learner
                     tuned_lrn = setHyperPars(makeLearner(cl = model, predict.type = predict_type), par.vals = resTuning$x)
                 }
-  
-
+                
                 #We are now in the outer fold, all data should be used
                 predictMoa = makeClassifTask(data = custom_matrix, target = "process_broad")
                 

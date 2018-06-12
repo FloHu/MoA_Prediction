@@ -29,12 +29,13 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
     #Final output object containing everything needed, models - prediction of all outer fold of all repetitions
     run_result = list()
     
-    foreach(repetition_index = icount(n_rep)) %do% {
+    foreach(repetition_index = 1:n_rep) %do% {
+        cat("REPETITION ", repetition_index, "\n")
         #initialize outer folds output data for the repetition
         run_outer_fold = list()
         
-        foreach(outerCV_ind = icount(n_outer)) %do% {
-            
+        foreach(outerCV_ind = 1:n_outer) %do% {
+            cat("OUTER ", outerCV_ind, "\n")
             outerCV_training_set = (get_outerCV(repetition_index, data = rep_instance))$train.ind[[outerCV_ind]]
             
             #define inner CV in relation to the outer fold used
@@ -43,7 +44,7 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
             #For or foreach ?
             #Seems better to put moa list inside the function, if arg would be less obvious when reading
             for (moa in c("dna", "cell_wall", "membrane_stress", "protein_synthesis")) {
-                
+                cat("MOA ", moa, "\n")
                 #create a new matrix of all data with different process annotation
                 custom_matrix = data_matrix %>% 
                                 mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
@@ -94,3 +95,4 @@ rep_nested_CV_run_4models = function(data_matrix, model, rep_instance, run_hyp_p
     
     return(run_result)
 }
+
