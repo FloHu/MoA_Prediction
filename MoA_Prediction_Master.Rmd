@@ -32,55 +32,42 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```{r data_loading_feature_select, child = '1_DataLoading_FeaturePreselect.Rmd'}
 ```
 
-# Defining which drugs should be 'blocked'
 
-```{r drug_similarities, child = 'Drugs_chemical_similarities.Rmd'}
-```
-
-# Generating a cross-validation instance
+# Instantiation of nested CV
 
 ```{r cv_instantiation, child = '0_Defining_sampling_instances.Rmd'}
 ```
 
 
+# Miscellaneous
+
+Stuff that's generally interesting - e.g. drug chemical similarities. 
+
+```{r misc, child = 'Misc.Rmd'}
+```
+
+
 # Fitting models
-
-This was done on the cluster. See directory './clusterscripts' with corresponding .sh and .R files. 
-
-The following combinations were tested:
-* features: top 10% (by variance), top 5% (by variance), Wilcoxon test to distinguish groups (run within CV to avoid overfitting)
-* the_matrix vs. the_matrix_all_drugs: the former contains only drugs with moa dna, cell_wall, protein_synthesis, membrane_stress; the latter all moas. But note that in any case we only attempt to predict the mentioned four classes using 1-vs-all predictions. 
-* optimisation of hyperparameters either by (i) ppv or (ii) by mmce
-
 <!--
-not included in this notebook, just kept in case old code is needed for the time being:
-'2_Boosting_Tree_Model_RNCV.Rmd'
-'3_Random_Forest_Model.Rmd'
-'4_SVM_Model_RNCV.Rmd' (SVM doesn't seem to work for us, we don't have enough data points)
+description of model fitting procedure
 -->
 
-# Overview of results
-<!--
-compares roc, precision-recall curves, confusion matrices using different models/parameter sets
--->
 
-```{r results_overview, child = 'Boosting_tree_results_overview.Rmd'}
+# Comparing performances
+
+Generate ROC, precision-recall curves, influence of hyperparameters sets and other stuff for 
+comparing which model is the "best". 
+
+```{r comparing_performances, child = 'Comparing_performances.Rmd'}
 ```
 
-# Understanding feature importances
 
-```{r feature_importances, child = 'FeatureImp_RF_XGBT_results_overview.Rmd'}
+# Inspecting models
+
+To understand the different models such as which features are important etc. 
+
+```{r inspecting_models, child = 'Inspecting_models.Rmd'}
 ```
-
-<!--
-? - imbalanced_classes.Rmd
--->
-
-
-
-
-
-
 
 
 
