@@ -18,6 +18,7 @@ editor_options:
 # Setup, library loading
 
 ```{r}
+rm(list = ls())
 # function to check if a package is installed, if so, load it, else install and then load it
 source("./R/ipak.R")
 # set chunk options and load libraries
@@ -286,7 +287,7 @@ matrix_container_tmp <- matrix_container
 load("./data/Rep_Nest_CV_instance_newDrugs.RData") # normal instanced repeated stratified CV
 load("./data/Rep_Nest_CV_instance_allDosage.RData ") # as above but with dosages blocked together
 
-matrix_container$tuning_measure <- list("mmce" = list(mmce, ppv, auc))
+matrix_container$tuning_measure <- list("auc" = list(auc, mmce, ppv, auc))
 matrix_container$resamp_instance <- 
    ifelse(matrix_container$drug_dosages == "all", 
           list(Rep_Nest_CV_instance_allDosage), 
