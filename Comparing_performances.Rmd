@@ -25,3 +25,169 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
+
+
+Plotting using `matrix_container`. 
+
+```{r}
+#===============
+#
+#     TEST
+#
+#===============
+
+load("./data/matrix_container.RData")
+# compare 5 pc with 10 pc, compare RF with XGBT - load a few examples 
+load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_RF_5pc_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_XGBT_5pc_allDrugs_tuneMMCE.RData")
+
+resultslist <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
+                    result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
+
+library(pryr)
+# objects are quite big - ~ 700 MB
+sum(map_dbl(list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE), 
+        object_size) / 1000000)
+
+container_test <- matrix_container
+# there's an issue with dplyr removing the names of the list columns - outsource to a different column
+container_test$hyperparam_grid_name <- names(container_test$hyperparam_grid)
+
+container_test <- filter(container_test, feat_preselect %in% c("top10pct", "top15pct"), 
+                         chemical_feats, drug_dosages == "most_interactions", 
+                         fitted_model %in% c("classif.randomForest", "classif.xgboost"), 
+                         hyperparam_grid_name %in% c("rf_hyp_param", "xgboost_hyp_param_std"))
+# add the results object to a separate list column
+# 5 and 10 pct not correct here, doesn't matter
+container_test$result <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
+                              result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
+
+
+
+
+
+# currently used functions:
+plot_ROC_allRep(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
+compare_ROC_2models(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, moa = "all")
+compare_ROC_models(moa = "dna", result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
+                   result_XGBT_10pc_allDrugs_tuneMMCE)
+plot_prec_recall(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
+plot_feat_4model(result_RF_10pc_allDrugs_tuneMMCE) # improve/replace
+#plot_predProb_moa(result_RF_10pc_allDrugs_tuneMMCE, dt_matrix = container_test$drug_feature_matrices[[1]]) # doesn' work like that
+plot_ROC_optThres(result_RF_10pc_allDrugs_tuneMMCE) # make customisable
+#distrib_drug_prob(result_RF_10pc_allDrugs_tuneMMCE, drug = "A22", dt_matrix = container_test$drug_feature_matrices[[1]]) # also not working
+
+res <- result_RF_10pc_allDrugs_tuneMMCE
+View(res)
+
+
+######### TEST to make sure this extraction produces same plot as previously #############
+
+l2 <- 
+   map(res, function(.x) {
+      map2(.x, names(.x), function(.x, .y) {
+         dfr <- generateThreshVsPerfData(.x[["prediction_dna"]], measures = list(fpr, tpr, ppv))$data
+         dfr$fold <- .y
+         return(dfr)
+      }) %>%
+      bind_rows()
+   })
+
+masterframe <- imap_dfr(l2, function(.x, .y) {
+   .x[["rep"]] <- .y
+   return(.x)
+})
+
+plot_ROC_allRep(res)
+
+masterframe$threshold <- factor(masterframe$threshold)
+# so it is possible to just average instead of concatenating folds
+masterframe2 <- 
+   masterframe %>%
+   group_by(threshold) %>%
+   summarise(fpr = mean(fpr), tpr = mean(tpr))
+
+ggplot(masterframe2, aes(x = fpr, y = tpr)) + 
+   geom_line()
+
+############# END TEST ############
+
+
+# extractor functions get the predictions/ThreshVsPerfData from each test fold of each prediction 
+# object of each repat of the cross-validation 
+# the actual extraction is performed in prediction_merger()
+
+perf_extractor <- function(x, moa) {
+   # x = a prediction object
+   perfs <- generateThreshVsPerfData(x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
+   return(perfs)
+}
+
+pred_extractor <- function(x, moa) {
+   # x = a prediction object
+   # moa = mode of action
+   x <- as.data.frame(x[[paste0("prediction_", moa)]])
+   return(x)
+}
+
+prediction_merger <- function(resultsobj, moa, extractorfunc) {
+   # resultsobj = run from a repeated nested CV
+   # moa = one of our moas - check
+   # extractorfunc = function that pulls out the stuff from the prediction object
+   dfr_list <- 
+   map(resultsobj, function(.x) { # apply to each repeat of the nested CV
+      map2(.x, names(.x), function(.x, .y) { # apply to each fold, record the name
+         #dfr <- generateThreshVsPerfData(.x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
+         dfr <- extractorfunc(.x, moa)
+         dfr$fold <- .y
+         return(dfr)
+      }) %>%
+      bind_rows() # to rbind all the test folds
+   })
+   
+   # collapse into a 
+   dfr <- imap_dfr(dfr_list, function(.x, .y) {
+      .x[["cvrep"]] <- .y
+      return(.x)
+   })
+   
+   # add moa information
+   dfr[["moa_modelled"]] <- moa
+   return(dfr)
+}
+
+
+# later on do the same with file paths or something:
+# functionalise maybe, or put into script
+
+# need variables container_test and resultslist
+container_test$perf_dfrs <- vector(mode = "list", length = nrow(container_test))
+
+# test for loop: resultslist contains one results object per slot, within the loop extract all the 
+# useful information for each moa using the above routines - data frames will also be large but 
+# still manageable (tmp below has pryr::object_size() of 1.8 mb)
+for (res in resultslist[1]) {
+   # load res
+   # tmp <- extract_perfmetrics(res, moa = "dna")
+   moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+   # tmp <- map_dfr(moas, extract_perfmetrics, res = res)
+   tmp <- map_dfr(moas, prediction_merger, res = res, extractorfunc = perf_extractor)
+   tmp2 <- map_dfr(moas, prediction_merger, res = res, extractorfunc = pred_extractor)
+   # put tmp into the matrix_container#
+   # !the performance metrics are per repetition, per testfold - average accordingly!
+}
+object_size(tmp) # so with 200 models we would have around 400 mb
+object_size(tmp2) # even smaller
+
+# now go on to extracting prediction metrics, also add drug labels for ultimate plots
+# then in plotting functions can unnest at will and construct plots with arbitrary comparisons
+# what to do with model information? - decide later, can also write extractors
+
+
+
+
+```
+
+
