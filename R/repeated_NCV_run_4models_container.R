@@ -72,8 +72,6 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
                 
                 #Thus the task should change because only a subset of the whole data should be used
                 predictMoa = makeClassifTask(data = custom_matrix[ outerCV_training_set , ], target = "process_broad")
-                print(predictMoa)
-                
                 #Tuning is different if model is RF or not
                 if(model == "classif.randomForest"){
                     
@@ -85,10 +83,10 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
                         resampling = makeResampleDesc("Holdout", split = 0.99) ) 
 
                 }else{
-                    
                     #tuning hyperparameters based on the inner resampling
-                    resTuning = tuneParams(learner = model, task = predictMoa, resampling = inner, measures = tuning_measure,
+                    resTuning = tuneParams(learner = makeLearner(cl = model, predict.type = predict_type), task = predictMoa, resampling = inner, measures = tuning_measure,
                                            par.set = run_hyp_param, control = makeTuneControlGrid())
+
                     #use the best Hyperparams to create optimal learner
                     tuned_lrn = setHyperPars(makeLearner(cl = model, predict.type = predict_type), par.vals = resTuning$x)
                 }
