@@ -46,7 +46,7 @@ load("./run_results_from_server/result_XGBT_5pc_allDrugs_tuneMMCE.RData")
 resultslist <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
                     result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
 
-library(pryr)
+ipak(pryr)
 # objects are quite big - ~ 700 MB
 sum(map_dbl(list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE), 
         object_size) / 1000000)
@@ -55,7 +55,7 @@ container_test <- matrix_container
 # there's an issue with dplyr removing the names of the list columns - outsource to a different column
 container_test$hyperparam_grid_name <- names(container_test$hyperparam_grid)
 
-container_test <- filter(container_test, feat_preselect %in% c("top10pct", "top15pct"), 
+container_test <- filter(container_test, feat_preselect %in% c("top10pct", "top5pct"), 
                          chemical_feats, drug_dosages == "most_interactions", 
                          fitted_model %in% c("classif.randomForest", "classif.xgboost"), 
                          hyperparam_grid_name %in% c("rf_hyp_param", "xgboost_hyp_param_std"))
@@ -109,7 +109,7 @@ masterframe2 <-
    group_by(threshold) %>%
    summarise(fpr = mean(fpr), tpr = mean(tpr))
 
-ggplot(masterframe2, aes(x = fpr, y = tpr)) + 
+ggplot(masterframe2, aes(x = fpr, y = tpr)) +
    geom_line()
 
 ############# END TEST ############
@@ -119,9 +119,12 @@ ggplot(masterframe2, aes(x = fpr, y = tpr)) +
 # object of each repat of the cross-validation 
 # the actual extraction is performed in prediction_merger()
 
+
+# Measures as an argument with default values ? Thus same function for ROC or prec racal or mcc, etc VS threshold curves
 perf_extractor <- function(x, moa) {
    # x = a prediction object
    perfs <- generateThreshVsPerfData(x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
+   
    return(perfs)
 }
 
@@ -186,7 +189,10 @@ object_size(tmp2) # even smaller
 # what to do with model information? - decide later, can also write extractors
 
 
-
+# This give all information for ultimate plot for a given drug. Just have to compute the desc threshold
+# tmp2 %>% filter(id ==1)
+# GEnerate thresholdPerf value not by concatenating thresholdPerf values but by appling thresholdPerf function to a concatenation of prediction
+# tmp2 %>% filter(moa_modelled == "dna") %>% `[`(1:5) %>% head()
 
 ```
 
