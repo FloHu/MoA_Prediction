@@ -116,7 +116,7 @@ ultimate_plot = function(res, drugMat = the_matrix_allDrugs ){
 distrib_drug_prob_small = function(res, drug = "A22", dt_matrix = the_matrix_allDrugs){
 
     idDrug =  which(dt_matrix$drugname_typaslab == drug)
-    drugMoa = as.character(filter(the_matrix_allDrugs, drugname_typaslab == drug) %>% select(process_broad))
+    drugMoa = as.character(filter(dt_matrix, drugname_typaslab == drug) %>% select(process_broad))
 
     prob_allMoa = list()
     all_thres = list()

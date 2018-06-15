@@ -351,7 +351,7 @@ plot_predProb_moa = function(res, rep = 1, moa = "dna", dt_matrix = the_matrix_a
 #       For the optimal threshold (highest MCC), display a confusion matrix on the ROC curve
 #INPUT :  A result object and a MoA
 #OUTPUT : Splitted double plot of the 2 curves and return a confusionMatrix object
-plot_ROC_optThres = function(res, moa = "dna", customTitle = paste0(deparse(substitute(res)), " - ", moa )){
+plot_ROC_optThres = function(res, moa = "dna", customTitle = paste0(deparse(substitute(res)), " - ", moa), meas = mcc ){
     
     if(!require(ggrepel)){
         install.packages("ggrepel")
@@ -376,7 +376,7 @@ plot_ROC_optThres = function(res, moa = "dna", customTitle = paste0(deparse(subs
     FN2 = defaultConfMat$result[1,2]
     TN2 = defaultConfMat$result[2,2]
     
-    mccCurve = generateThreshVsPerfData(all_test_set, measures = mcc)
+    mccCurve = generateThreshVsPerfData(all_test_set, measures = meas)
     #Best Threshold
     bestThres = mccCurve$data[which.max(mccCurve$data$mcc),"threshold"]
     
