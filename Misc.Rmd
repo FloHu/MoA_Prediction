@@ -25,6 +25,8 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 load("./data/matrix_container.RData")
+
+library(gridExtra)
 ```
 
 # Hierarchical clusterings of drugs
@@ -108,6 +110,50 @@ legend("topright",
        cex = 0.8)
 dev.off()
 ```
+
+
+PCA plot: most interactions, top 10% variance, no chemical features.
+
+```{r}
+m <- filter(matrix_container, feat_preselect == "top10pct", drug_dosages == "most_interactions", 
+            chemical_feats == FALSE)$drug_feature_matrices[[1]]
+
+m_matrix <- as.data.frame(m[, c(4:ncol(m))])
+rownames(m_matrix) <- m$drugname_typaslab
+pr.out <- prcomp(m_matrix, scale = TRUE)
+prcomps <- as.data.frame(pr.out$x)
+prcomps$drugname_typaslab <- row.names(prcomps)
+prcomps <- left_join(prcomps, m[, c("drugname_typaslab", "process_broad")])
+prcomps <- select(prcomps, drugname_typaslab, process_broad, everything())
+
+prcomps$process_broad[!(prcomps$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
+p1 <- ggplot(prcomps, aes(x = PC1, y = PC2)) + 
+   geom_point(aes(colour = process_broad)) + 
+#   geom_label_repel(aes(label = drugname_typaslab)) + 
+   theme_bw() + 
+   ggtitle("PCA (Nichols, top 10% var)")
+
+p2 <- ggplot(prcomps, aes(x = PC1, y = PC3)) + 
+   geom_point(aes(colour = process_broad)) + 
+#   geom_label_repel(aes(label = drugname_typaslab)) + 
+   theme_bw()
+
+p3 <- ggplot(prcomps, aes(x = PC2, y = PC3)) + 
+   geom_point(aes(colour = process_broad)) + 
+#   geom_label_repel(aes(label = drugname_typaslab)) + 
+   theme_bw()
+
+p4 <- ggplot(prcomps, aes(x = PC3, y = PC4)) + 
+   geom_point(aes(colour = process_broad)) + 
+#   geom_label_repel(aes(label = drugname_typaslab)) + 
+   theme_bw()
+
+p <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+ggsave(p, file = "./plots/PCA_plots.pdf")
+
+```
+
+
 
 
 ## Nichols data: Euclidean distance
