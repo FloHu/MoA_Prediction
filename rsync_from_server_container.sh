@@ -17,4 +17,4 @@ TARGETDIR="./run_results_from_server/matrix_container_result"
 # -z = use compression
 # --progress: show progress during transfer
 
-rsync -vz --progress ${USER}@${SOURCEHOST}:${SOURCEFILES} ${TARGETDIR}
+rsync -vuz --progress ${USER}@${SOURCEHOST}:${SOURCEFILES} ${TARGETDIR}

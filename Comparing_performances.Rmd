@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup, library loading
@@ -24,6 +26,8 @@ source("./R/ipak.R")
 source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
+library(cowplot)
+library(pryr)
 ```
 
 
@@ -46,7 +50,6 @@ load("./run_results_from_server/result_XGBT_5pc_allDrugs_tuneMMCE.RData")
 resultslist <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
                     result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
 
-library(pryr)
 # objects are quite big - ~ 700 MB
 sum(map_dbl(list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE), 
         object_size) / 1000000)
@@ -129,6 +132,9 @@ pred_extractor <- function(x, moa) {
    # x = a prediction object
    # moa = mode of action
    x <- as.data.frame(x[[paste0("prediction_", moa)]])
+   toreplace <- c(paste0("prob.", moa), paste0("prob.not_", moa))
+   indstoreplace <- match(toreplace, names(x))
+   names(x)[indstoreplace] <- c("prob.moa", "prob.not_moa")
    return(x)
 }
 
@@ -186,8 +192,194 @@ object_size(tmp2) # even smaller
 # what to do with model information? - decide later, can also write extractors
 
 
+# still works with new run results? 
+
+res2 <- readRDS("./run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_FALSE.rds")
+resultslist <- c(resultslist, list(res2))
+
+tmp3 <- map_dfr(moas, prediction_merger, res = res2, extractorfunc = perf_extractor)
+# seems fine
 
 
+##### ROUTINE TO READ IN ALL RESULTS OBJECTS #####
+
+matrix_container <- matrix_container.bak
+matrix_container.bak <- matrix_container
+matrix_container <- matrix_container
+
+matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
+matrix_container$ThreshVsPerfData <- list(NA)
+matrix_container$PredData <- list(NA)
+
+available_files <- list.files("./run_results_from_server/matrix_container_result/")
+nmatches <- 0
+moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+
+
+for (rownum in seq_len(nrow(matrix_container))) {
+   matrix_container_row <- matrix_container[rownum, ]
+   targetfile <- paste(unlist(matrix_container_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_")
+   targetfile <- paste0(targetfile, ".rds")
+   my_match <- available_files[available_files == targetfile]
+   
+   # check if values are not defined, if they are, continue, otherwise check if matching file exists or continue
+   if ( any(is.na(unlist(matrix_container_row[, c("ThreshVsPerfData", "PredData")]))) ) {
+      if (length(my_match) > 0) {
+         cat("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
+         nmatches <- nmatches + 1
+      } else {
+         cat("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
+         # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
+         next
+      }
+   } else {
+      cat("Row ", rownum, " already populated, continuing to next line.\n")
+      next
+   }
+   
+   resultsobj <- readRDS(paste0("./run_results_from_server/matrix_container_result/", my_match))
+   
+   # extract ThreshVsPerfData
+   matrix_container$ThreshVsPerfData[[rownum]] <- map_dfr(moas, prediction_merger, res = resultsobj, extractorfunc = perf_extractor)
+   
+   # get prediction data, add drug name information and concentration
+   pred_data <- map_dfr(moas, prediction_merger, res = resultsobj, extractorfunc = pred_extractor)
+   pred_data$drugname_typaslab <- (matrix_container_row$drug_feature_matrices[[1]])$drugname_typaslab[pred_data$id]
+   pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
+   matrix_container$PredData[[rownum]] <- pred_data
+}
+saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
+
+matrix_container_tmp <- matrix_container
 ```
+
+Ultimate plot function, recode in ggplot because I'm a base plot noob :)
+
+```{r}
+for (r in seq_len(nrow(matrix_container_tmp))[1]) {
+   tmp <- matrix_container_tmp$PredData[[r]]
+   #tmp$drugname_typaslab <- (matrix_container_tmp$drug_feature_matrices[[r]])$drugname_typaslab[tmp$id]
+   #tmp$conc <- (matrix_container_tmp$drug_feature_matrices[[r]])$conc[tmp$id]
+   tmp$process_broad <- (matrix_container_tmp$drug_feature_matrices[[r]])$process_broad[tmp$id]
+   matrix_container_tmp$PredData[[r]] <- tmp
+}
+
+# record which dosage has "most interactions"
+most_ias <- matrix_container[[180, "drug_feature_matrices"]]
+most_ias <- most_ias[, c("drugname_typaslab", "conc")]
+
+test <- matrix_container_tmp$PredData[[1]]
+
+# record which dosage has most interactions
+test$conc_mostias <- 
+   test %>%
+   select(drugname_typaslab, conc) %>%
+   left_join(most_ias, by = c("drugname_typaslab" = "drugname_typaslab"), suffix = c(".origin", ".mostias")) %>%
+   mutate(conc.origin.is.mostias = (conc.origin == conc.mostias)) %>%
+   pull(conc.origin.is.mostias)
+
+(length(unique(test[test$conc_mostias, "drugname_typaslab"])))
+
+#test1 <- test[test$drugname_typaslab %in% c("AZIDOTHYMIDINE"), ]
+#test2 <- test[test$drugname_typaslab %in% c("NITROFURANTOIN"), ]
+test$process_broad <- ifelse(test$process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), 
+                             test$process_broad, 
+                             "other")
+
+plotlist <- map(unique(test$process_broad), ~list())
+names(plotlist) <- unique(test$process_broad)
+
+get_rect_positions <- function(ndosages, shift) {
+   # we want to highlight the dosage with most interactions on the plot
+   # Formula: 4 modes of action - the midpoints for the categories on the plot are 1, 2, 3, 4
+   # The distance between groups of boxplots is 1/4
+   # So the width of one boxplot is = (1-0.25) / (ndosages)
+   # shift indicates how much the rectangle has to be shifted to indicate the desired dosage
+   boxwidth <- 0.75/ndosages
+   
+   xmins <- rep(c(1 - boxwidth/2), 4) - ((ndosages %/% 2) * boxwidth)
+   if ((ndosages %% 2) == 0) xmins <- xmins + boxwidth * 0.5 # with even number of dosages we have to nudge the rectangle to the right
+   xmins <- xmins + shift * boxwidth
+   xmins <- xmins + c(0, 1, 2, 3)
+   
+   xmaxs <- rep(c(1 + boxwidth/2), 4) - ((ndosages %/% 2) * boxwidth)
+   if ((ndosages %% 2) == 0) xmaxs <- xmaxs + boxwidth * 0.5
+   xmaxs <- xmaxs + shift * boxwidth
+   xmaxs <- xmaxs + c(0, 1, 2, 3)
+   
+   ymins <- rep(-0.05, 4)
+   ymaxs <- rep(1.05, 4)
+   datafr <- data.frame(xmin = xmins, xmax = xmaxs, 
+                        ymin = ymins, ymax = ymaxs)
+   return(datafr)
+}
+
+# datafr <- data.frame(xmin = c(1 - 0.75/2, 1 - 0.75/2 + 1), 
+#                      xmax = c(1 + 0.75/2, 1 + 0.75/2 + 1), 
+#                      ymin = c(-0.05, -0.05), 
+#                      ymax = c(1.05, 1.05), 
+#                      stringsAsFactors = FALSE)
+
+l <- list()
+for (drug in unique(test$drugname_typaslab)) {
+   subfr <- test[test$drugname_typaslab == drug, ]
+   my_moa <- unique(subfr$process_broad)
+   stopifnot(length(my_moa) == 1)
+   my_colours <- c("#ffffcc", "#c7e9b4", "#7fcdbb", "#41b6c4", "#2c7fb8", "#253494")
+   my_colours_sel <- my_colours
+   #my_colours_sel <- my_colours[seq_along(unique(subfr$conc))]
+   
+   # get data frame for rectangle positions
+   ndosages <- length(unique(subfr$conc))
+   shift <- which(subfr$conc_mostias[seq_len(ndosages)]) - 1
+   
+   p <- ggplot(subfr, aes(x = moa_modelled, y = prob.moa, fill = factor(conc))) + 
+      # geom_rect(data = datafr, aes(xmin = x1, xmax = x2, ymin = y1, ymax = y2), fill = "grey50", alpha = 0.5, inherit.aes = FALSE) + # Error: Discrete value supplied to continuous scale - ????
+      geom_boxplot(outlier.shape = NA) + 
+      geom_point(position = position_jitterdodge(jitter.width = 0.2), shape = 1, size = 0.5) + 
+      geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+      theme_bw() + 
+      theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+            panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+      coord_cartesian(ylim = c(0, 1)) + 
+      scale_fill_manual(name = "Drug\nconc", values = my_colours_sel) + # my_colours[seq_along(unique(subfr$conc))]) +
+      labs(x = "MoA modelled", y = "Probability", title = paste0(drug, ": ", my_moa)) + 
+      geom_rect(data = get_rect_positions(ndosages = ndosages, shift = shift), 
+                aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = "grey50", alpha = 0.3, inherit.aes = FALSE)
+   p
+   
+   #l <- append(l, list(p))
+   plotlist[[my_moa]] <- append(plotlist[[my_moa]], list(p))
+}
+
+# placeholder
+pblank <- ggplot(test2, aes(x = moa_modelled, y = prob.moa, fill = factor(conc))) + 
+   geom_blank() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# fill up with empty plots for easier arrangement, hackhack
+for (elname in names(plotlist)) {
+   el <- plotlist[[elname]]
+   while(length(el) < max(lengths(plotlist))) {
+      el <- append(el, list(pblank))
+   }
+   plotlist[[elname]] <- el
+}
+
+plotlist_flattened <- flatten(plotlist)
+ultimate_plot_new <- plot_grid(plotlist = plotlist_flattened, ncol = max(lengths(plotlist)))
+
+save_plot("./plots/test2.pdf", ultimate_plot_new, base_width = 100, base_height = 20, limitsize = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
 
 
