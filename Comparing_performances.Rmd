@@ -31,205 +31,74 @@ library(pryr)
 ```
 
 
-Plotting using `matrix_container`. 
+# Data preparation
+
+On the cluster, each of the rows of `matrix_container` was run; each row was a different combination 
+of models, feature preselections etc and was saved in a separate results object 
+(`./run_results_from_server/matrix_container_result`). Since the results objects are too big for 
+putting them into `matrix_container` we will add new columns just containing the parts we are 
+interested in. 
 
 ```{r}
-#===============
-#
-#     TEST
-#
-#===============
-
+# old matrix_container object
 load("./data/matrix_container.RData")
-# compare 5 pc with 10 pc, compare RF with XGBT - load a few examples 
+matrix_container_old <- matrix_container
+
+# just an example of a results object
 load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
-load("./run_results_from_server/result_RF_5pc_allDrugs_tuneMMCE.RData")
-load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
-load("./run_results_from_server/result_XGBT_5pc_allDrugs_tuneMMCE.RData")
-
-resultslist <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
-                    result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
-
-# objects are quite big - ~ 700 MB
-sum(map_dbl(list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE), 
-        object_size) / 1000000)
-
-container_test <- matrix_container
-# there's an issue with dplyr removing the names of the list columns - outsource to a different column
-container_test$hyperparam_grid_name <- names(container_test$hyperparam_grid)
-
-container_test <- filter(container_test, feat_preselect %in% c("top10pct", "top5pct"), 
-                         chemical_feats, drug_dosages == "most_interactions", 
-                         fitted_model %in% c("classif.randomForest", "classif.xgboost"), 
-                         hyperparam_grid_name %in% c("rf_hyp_param", "xgboost_hyp_param_std"))
-# add the results object to a separate list column
-# 5 and 10 pct not correct here, doesn't matter
-container_test$result <- list(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
-                              result_XGBT_10pc_allDrugs_tuneMMCE, result_XGBT_5pc_allDrugs_tuneMMCE)
+example_res <- result_RF_10pc_allDrugs_tuneMMCE
+rm(result_RF_10pc_allDrugs_tuneMMCE)
 
 
+# ## currently used functions for plotting - there are some problems
+# plot_ROC_allRep(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
+# compare_ROC_2models(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, moa = "all")
+# compare_ROC_models(moa = "dna", result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
+#                    result_XGBT_10pc_allDrugs_tuneMMCE)
+# plot_prec_recall(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
+# plot_feat_4model(result_RF_10pc_allDrugs_tuneMMCE) # improve/replace
+# #plot_predProb_moa(result_RF_10pc_allDrugs_tuneMMCE, dt_matrix = container_test$drug_feature_matrices[[1]]) # doesn' work like that
+# plot_ROC_optThres(result_RF_10pc_allDrugs_tuneMMCE) # make customisable
+# #distrib_drug_prob(result_RF_10pc_allDrugs_tuneMMCE, drug = "A22", dt_matrix = container_test$drug_feature_matrices[[1]]) # also not working
 
 
-
-# currently used functions:
-plot_ROC_allRep(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
-compare_ROC_2models(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, moa = "all")
-compare_ROC_models(moa = "dna", result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
-                   result_XGBT_10pc_allDrugs_tuneMMCE)
-plot_prec_recall(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
-plot_feat_4model(result_RF_10pc_allDrugs_tuneMMCE) # improve/replace
-#plot_predProb_moa(result_RF_10pc_allDrugs_tuneMMCE, dt_matrix = container_test$drug_feature_matrices[[1]]) # doesn' work like that
-plot_ROC_optThres(result_RF_10pc_allDrugs_tuneMMCE) # make customisable
-#distrib_drug_prob(result_RF_10pc_allDrugs_tuneMMCE, drug = "A22", dt_matrix = container_test$drug_feature_matrices[[1]]) # also not working
-
-res <- result_RF_10pc_allDrugs_tuneMMCE
-View(res)
-
-
-######### TEST to make sure this extraction produces same plot as previously #############
-
-l2 <- 
-   map(res, function(.x) {
-      map2(.x, names(.x), function(.x, .y) {
-         dfr <- generateThreshVsPerfData(.x[["prediction_dna"]], measures = list(fpr, tpr, ppv))$data
-         dfr$fold <- .y
-         return(dfr)
-      }) %>%
-      bind_rows()
-   })
-
-masterframe <- imap_dfr(l2, function(.x, .y) {
-   .x[["rep"]] <- .y
-   return(.x)
-})
-
-plot_ROC_allRep(res)
-
-masterframe$threshold <- factor(masterframe$threshold)
-# so it is possible to just average instead of concatenating folds
-masterframe2 <- 
-   masterframe %>%
-   group_by(threshold) %>%
-   summarise(fpr = mean(fpr), tpr = mean(tpr))
-
-ggplot(masterframe2, aes(x = fpr, y = tpr)) +
-   geom_line()
-
-############# END TEST ############
-
-
-# extractor functions get the predictions/ThreshVsPerfData from each test fold of each prediction 
-# object of each repat of the cross-validation 
-# the actual extraction is performed in prediction_merger()
-
-
-# Measures as an argument with default values ? Thus same function for ROC or prec racal or mcc, etc VS threshold curves
-perf_extractor <- function(x, moa) {
-   # x = a prediction object
-   perfs <- generateThreshVsPerfData(x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
-   
-   return(perfs)
-}
-
-pred_extractor <- function(x, moa) {
-   # x = a prediction object
-   # moa = mode of action
-   x <- as.data.frame(x[[paste0("prediction_", moa)]])
-   toreplace <- c(paste0("prob.", moa), paste0("prob.not_", moa))
-   indstoreplace <- match(toreplace, names(x))
-   names(x)[indstoreplace] <- c("prob.moa", "prob.not_moa")
-   return(x)
-}
-
-prediction_merger <- function(resultsobj, moa, extractorfunc) {
-   # resultsobj = run from a repeated nested CV
-   # moa = one of our moas - check
-   # extractorfunc = function that pulls out the stuff from the prediction object
-   dfr_list <- 
-   map(resultsobj, function(.x) { # apply to each repeat of the nested CV
-      map2(.x, names(.x), function(.x, .y) { # apply to each fold, record the name
-         #dfr <- generateThreshVsPerfData(.x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
-         dfr <- extractorfunc(.x, moa)
-         dfr$fold <- .y
-         return(dfr)
-      }) %>%
-      bind_rows() # to rbind all the test folds
-   })
-   
-   # collapse into a 
-   dfr <- imap_dfr(dfr_list, function(.x, .y) {
-      .x[["cvrep"]] <- .y
-      return(.x)
-   })
-   
-   # add moa information
-   dfr[["moa_modelled"]] <- moa
-   return(dfr)
-}
-
-
-# later on do the same with file paths or something:
-# functionalise maybe, or put into script
-
-# need variables container_test and resultslist
-container_test$perf_dfrs <- vector(mode = "list", length = nrow(container_test))
-
-# test for loop: resultslist contains one results object per slot, within the loop extract all the 
-# useful information for each moa using the above routines - data frames will also be large but 
-# still manageable (tmp below has pryr::object_size() of 1.8 mb)
-for (res in resultslist[1]) {
-   # load res
-   # tmp <- extract_perfmetrics(res, moa = "dna")
-   moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
-   # tmp <- map_dfr(moas, extract_perfmetrics, res = res)
-   tmp <- map_dfr(moas, prediction_merger, res = res, extractorfunc = perf_extractor)
-   tmp2 <- map_dfr(moas, prediction_merger, res = res, extractorfunc = pred_extractor)
-   # put tmp into the matrix_container#
-   # !the performance metrics are per repetition, per testfold - average accordingly!
-}
-object_size(tmp) # so with 200 models we would have around 400 mb
-object_size(tmp2) # even smaller
-
-# now go on to extracting prediction metrics, also add drug labels for ultimate plots
-# then in plotting functions can unnest at will and construct plots with arbitrary comparisons
-# what to do with model information? - decide later, can also write extractors
-
-
-# still works with new run results? 
-
-res2 <- readRDS("./run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_FALSE.rds")
-resultslist <- c(resultslist, list(res2))
-
-tmp3 <- map_dfr(moas, prediction_merger, res = res2, extractorfunc = perf_extractor)
-# seems fine
-
-
+##################################################
 ##### ROUTINE TO READ IN ALL RESULTS OBJECTS #####
+##################################################
 
-matrix_container <- matrix_container.bak
-matrix_container.bak <- matrix_container
-matrix_container <- matrix_container
+# What follows is a loop to extract information from our results objects and adding this into 
+# new columns. Since this takes some time, it's written in a way that the matrix_container can be 
+# updated. 
 
-matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
-matrix_container$ThreshVsPerfData <- list(NA)
-matrix_container$PredData <- list(NA)
+# results we already have
+if (file.exists("./data/matrix_container_withextractions.rds")) {
+   matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
+   matrix_container.bak <- matrix_container
+   matrix_container <- matrix_container.bak
+} else {
+   matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
+   matrix_container$ThreshVsPerfData <- list(NA)
+   matrix_container$PredData <- list(NA)
+}
 
+# available results files
 available_files <- list.files("./run_results_from_server/matrix_container_result/")
-nmatches <- 0
 moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
 
-
+# loop to read in results files
 for (rownum in seq_len(nrow(matrix_container))) {
    matrix_container_row <- matrix_container[rownum, ]
+   # look for a file corresponding to a row
    targetfile <- paste(unlist(matrix_container_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_")
    targetfile <- paste0(targetfile, ".rds")
    my_match <- available_files[available_files == targetfile]
    
-   # check if values are not defined, if they are, continue, otherwise check if matching file exists or continue
+   # check if values are not defined: if yes: check if matching file exists or continue
+   # if values are already defined means we parsed a corresponding results object previously so we 
+   # can continue
    if ( any(is.na(unlist(matrix_container_row[, c("ThreshVsPerfData", "PredData")]))) ) {
       if (length(my_match) > 0) {
          cat("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
-         nmatches <- nmatches + 1
       } else {
          cat("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
          # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
@@ -242,7 +111,7 @@ for (rownum in seq_len(nrow(matrix_container))) {
    
    resultsobj <- readRDS(paste0("./run_results_from_server/matrix_container_result/", my_match))
    
-   # extract ThreshVsPerfData
+   # extract ThreshVsPerfData and prediction object data using some custom functions
    matrix_container$ThreshVsPerfData[[rownum]] <- map_dfr(moas, prediction_merger, res = resultsobj, extractorfunc = perf_extractor)
    
    # get prediction data, add drug name information and concentration
@@ -251,136 +120,226 @@ for (rownum in seq_len(nrow(matrix_container))) {
    pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
    matrix_container$PredData[[rownum]] <- pred_data
 }
-saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
 
-matrix_container_tmp <- matrix_container
+#  update
+saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
 ```
 
-Ultimate plot function, recode in ggplot because I'm a base plot noob :)
+
+# Data analyses
+
+The aim here is to get a general idea of which models perform well, how stable they are etc. 
+
+
+## Distribution of probabilities, aka 'ultimate plot' 
+
+Ultimate plot function, recode in ggplot because I'm a base plot noob :). First need to add some 
+more things though.
 
 ```{r}
-for (r in seq_len(nrow(matrix_container_tmp))[1]) {
-   tmp <- matrix_container_tmp$PredData[[r]]
-   #tmp$drugname_typaslab <- (matrix_container_tmp$drug_feature_matrices[[r]])$drugname_typaslab[tmp$id]
-   #tmp$conc <- (matrix_container_tmp$drug_feature_matrices[[r]])$conc[tmp$id]
-   tmp$process_broad <- (matrix_container_tmp$drug_feature_matrices[[r]])$process_broad[tmp$id]
-   matrix_container_tmp$PredData[[r]] <- tmp
-}
+## !!! matrix_container_ext = matrix_container with more information
+matrix_container_ext <- matrix_container[!is.na(matrix_container$PredData), ]
 
-# record which dosage has "most interactions"
-most_ias <- matrix_container[[180, "drug_feature_matrices"]]
-most_ias <- most_ias[, c("drugname_typaslab", "conc")]
+# we need a drug feature matrix for some of our annotations
+drug_feature_matrix <- 
+   filter(matrix_container, drug_dosages == "most_interactions", feat_preselect == "keepall", 
+          chemical_feats == FALSE, fitted_model == "classif.randomForest") %>%
+   pull(drug_feature_matrices) %>%
+   map_dfr(identity)
 
-test <- matrix_container_tmp$PredData[[1]]
+stopifnot(nrow(drug_feature_matrix) < 100)
 
-# record which dosage has most interactions
-test$conc_mostias <- 
-   test %>%
-   select(drugname_typaslab, conc) %>%
-   left_join(most_ias, by = c("drugname_typaslab" = "drugname_typaslab"), suffix = c(".origin", ".mostias")) %>%
-   mutate(conc.origin.is.mostias = (conc.origin == conc.mostias)) %>%
-   pull(conc.origin.is.mostias)
+# add process_broad to each prediction data frame
+matrix_container_ext$PredData <- 
+   map2(matrix_container_ext$PredData, matrix_container_ext$drug_feature_matrices, function(.x, .y) {
+      # get process_broad (moa) for each drug
+      .x$process_broad <- .y$process_broad[.x$id] 
+      return(.x)
+   })
 
-(length(unique(test[test$conc_mostias, "drugname_typaslab"])))
+# beware! dosage with "most interactions" refers to the "keepall" features, as we can see here:
+nrow(
+   filter(matrix_container, drug_dosages == "most_interactions") %>%
+   pull(drug_feature_matrices) %>%
+   map_dfr(~ .x[, c("drugname_typaslab", "conc")]) %>%
+   distinct()
+)
 
-#test1 <- test[test$drugname_typaslab %in% c("AZIDOTHYMIDINE"), ]
-#test2 <- test[test$drugname_typaslab %in% c("NITROFURANTOIN"), ]
-test$process_broad <- ifelse(test$process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), 
-                             test$process_broad, 
-                             "other")
+# reference data frame from which we get the information which dosage has most interactions
+most_interactions <- drug_feature_matrix[, c("drugname_typaslab", "conc")]
 
-plotlist <- map(unique(test$process_broad), ~list())
-names(plotlist) <- unique(test$process_broad)
+# add a column indicating which dosage is the one with most interactions
+# also, replace moas not being "dna", "cell_wall", "membrane_stress", or "protein_synthesis" with "other"
+matrix_container_ext$PredData <- 
+   map(matrix_container_ext$PredData, function(.x) {
+      # make vector indicating if the current concentration is the one with most interactions by temporary joining with our reference data frame
+      conc_mostias <- 
+         select(.x, drugname_typaslab, conc) %>%
+         left_join(most_interactions, by = c("drugname_typaslab" = "drugname_typaslab"), suffix = c(".origin", ".mostias")) %>%
+         mutate(conc.origin.is.mostias = (conc.origin == conc.mostias)) %>%
+         pull(conc.origin.is.mostias)
+      .x$conc_mostias <- conc_mostias
+      .x$process_broad <- ifelse(.x$process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), 
+                                 .x$process_broad, 
+                                 "other")
+      return(.x)
+   })
 
-get_rect_positions <- function(ndosages, shift) {
-   # we want to highlight the dosage with most interactions on the plot
-   # Formula: 4 modes of action - the midpoints for the categories on the plot are 1, 2, 3, 4
-   # The distance between groups of boxplots is 1/4
-   # So the width of one boxplot is = (1-0.25) / (ndosages)
-   # shift indicates how much the rectangle has to be shifted to indicate the desired dosage
-   boxwidth <- 0.75/ndosages
-   
-   xmins <- rep(c(1 - boxwidth/2), 4) - ((ndosages %/% 2) * boxwidth)
-   if ((ndosages %% 2) == 0) xmins <- xmins + boxwidth * 0.5 # with even number of dosages we have to nudge the rectangle to the right
-   xmins <- xmins + shift * boxwidth
-   xmins <- xmins + c(0, 1, 2, 3)
-   
-   xmaxs <- rep(c(1 + boxwidth/2), 4) - ((ndosages %/% 2) * boxwidth)
-   if ((ndosages %% 2) == 0) xmaxs <- xmaxs + boxwidth * 0.5
-   xmaxs <- xmaxs + shift * boxwidth
-   xmaxs <- xmaxs + c(0, 1, 2, 3)
-   
-   ymins <- rep(-0.05, 4)
-   ymaxs <- rep(1.05, 4)
-   datafr <- data.frame(xmin = xmins, xmax = xmaxs, 
-                        ymin = ymins, ymax = ymaxs)
-   return(datafr)
-}
+# sanity check
+stopifnot(length(unique(matrix_container_ext$PredData[[1]]$drugname_typaslab)) == sum(matrix_container_ext$PredData[[1]]$conc_mostias)/40)
+```
 
-# datafr <- data.frame(xmin = c(1 - 0.75/2, 1 - 0.75/2 + 1), 
-#                      xmax = c(1 + 0.75/2, 1 + 0.75/2 + 1), 
-#                      ymin = c(-0.05, -0.05), 
-#                      ymax = c(1.05, 1.05), 
-#                      stringsAsFactors = FALSE)
+Ultimate plot with ggplot. Don't do this for all the models, it would become too big. Rather, feed 
+the row you want to have the ulimate plot for into the function. 
 
-l <- list()
-for (drug in unique(test$drugname_typaslab)) {
-   subfr <- test[test$drugname_typaslab == drug, ]
-   my_moa <- unique(subfr$process_broad)
-   stopifnot(length(my_moa) == 1)
-   my_colours <- c("#ffffcc", "#c7e9b4", "#7fcdbb", "#41b6c4", "#2c7fb8", "#253494")
-   my_colours_sel <- my_colours
-   #my_colours_sel <- my_colours[seq_along(unique(subfr$conc))]
-   
-   # get data frame for rectangle positions
-   ndosages <- length(unique(subfr$conc))
-   shift <- which(subfr$conc_mostias[seq_len(ndosages)]) - 1
-   
-   p <- ggplot(subfr, aes(x = moa_modelled, y = prob.moa, fill = factor(conc))) + 
-      # geom_rect(data = datafr, aes(xmin = x1, xmax = x2, ymin = y1, ymax = y2), fill = "grey50", alpha = 0.5, inherit.aes = FALSE) + # Error: Discrete value supplied to continuous scale - ????
-      geom_boxplot(outlier.shape = NA) + 
-      geom_point(position = position_jitterdodge(jitter.width = 0.2), shape = 1, size = 0.5) + 
-      geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
-      theme_bw() + 
-      theme(axis.text.x = element_text(angle = 45, hjust = 1), 
-            panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
-      coord_cartesian(ylim = c(0, 1)) + 
-      scale_fill_manual(name = "Drug\nconc", values = my_colours_sel) + # my_colours[seq_along(unique(subfr$conc))]) +
-      labs(x = "MoA modelled", y = "Probability", title = paste0(drug, ": ", my_moa)) + 
-      geom_rect(data = get_rect_positions(ndosages = ndosages, shift = shift), 
-                aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = "grey50", alpha = 0.3, inherit.aes = FALSE)
-   p
-   
-   #l <- append(l, list(p))
-   plotlist[[my_moa]] <- append(plotlist[[my_moa]], list(p))
-}
+```{r}
+# Let's start with 2 ultimate plots for now: random forests, keepall, no chemical features, all dosages
+# (what we discussed with Nassos)
+# other stuff to come later
+tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats == FALSE, 
+              fitted_model == "classif.randomForest", drug_dosages == "all")
 
-# placeholder
-pblank <- ggplot(test2, aes(x = moa_modelled, y = prob.moa, fill = factor(conc))) + 
-   geom_blank() + 
-   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# fill up with empty plots for easier arrangement, hackhack
-for (elname in names(plotlist)) {
-   el <- plotlist[[elname]]
-   while(length(el) < max(lengths(plotlist))) {
-      el <- append(el, list(pblank))
-   }
-   plotlist[[elname]] <- el
-}
-
-plotlist_flattened <- flatten(plotlist)
-ultimate_plot_new <- plot_grid(plotlist = plotlist_flattened, ncol = max(lengths(plotlist)))
-
+ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages.pdf")
 
 ## Leonard:
 # This give all information for ultimate plot for a given drug. Just have to compute the desc threshold
 # tmp2 %>% filter(id ==1)
 # GEnerate thresholdPerf value not by concatenating thresholdPerf values but by appling thresholdPerf function to a concatenation of prediction
 # tmp2 %>% filter(moa_modelled == "dna") %>% `[`(1:5) %>% head()
-
-save_plot("./plots/test2.pdf", ultimate_plot_new, base_width = 100, base_height = 20, limitsize = FALSE)
 ```
+
+
+
+
+
+What to do with the different prediction folds? 
+
+```{r}
+# plan:
+# 1.: to get a global overview we want to plot: ROC curves for each repeat of the nested CV
+# 2.: similarly: we want the individual AUCs (for each repeat) and the overall AUC (apparently it's not the average - ?)
+# 3.: we might want to select partial ROC curves: again, only discriminate by repetition, not by fold
+# 4.: therefore, we'll work by concatenating the prediction objects and calculating the performances (--> ROCR) as well as plotting our functions
+# 5.: from 1-4 we can plot the same distribution like for the 'model stabilities' (combine code perhaps) - extension perhaps later
+
+
+## Option 1: get all the aucs from each outer fold and average
+## let's take first repetition of first line of matrix_container as an example 
+example_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_keepall_FALSE.rds")
+pred_data_tmp <- matrix_container_ext$PredData[[1]]
+threshvsperf_data_tmp <- matrix_container_ext$ThreshVsPerfData[[1]]
+
+aucs <- map_dbl(example_res$`Nested CV 1`, function(.x) {
+   performance(.x[["prediction_dna"]], measures = auc)
+})
+
+aucs
+mean(aucs)
+
+# how does this compare with a concatenated prediction fold? 
+predobj <- example_res$`Nested CV 1`$`Outer fold 1`$prediction_dna
+predobj$data <- map_dfr(example_res$`Nested CV 1`, function(.x) {
+   .x[["prediction_dna"]][["data"]]
+})
+mlr::performance(predobj, measures = auc)
+
+# ROCR package:
+predobj_rocr <- mlr::asROCRPrediction(predobj)
+ROCR::performance(predobj_rocr, "auc")@y.values
+# can also 
+
+measureAUC(probabilities = predobj$data$prob.dna, truth = predobj$data$truth, 
+           negative = "not_dna", positive = "dna")
+
+pred_data_tmp_dna <- pred_data_tmp[pred_data_tmp$moa_modelled == "dna", ]
+measureAUC(probabilities = pred_data_tmp_dna$prob.moa, truth = pred_data_tmp_dna$truth, 
+           negative = "not_dna", positive = "dna")
+
+computeAUC(threshvsperf_data_tmp[threshvsperf_data_tmp$moa_modelled == "dna", ])
+
+# plan: extract these measures into a separate column to get a better overview
+# at the same time, can use this to annotate ggplots of ROC curves
+
+```
+
+
+Assess average variability ('stability') of predictions. 
+
+```{r}
+# we'll focus on models with just one dosage and no chemical features, take an example: 
+stability_tst <- 
+   filter(matrix_container, drug_dosages == "most_interactions", feat_preselect == "keepall", 
+          chemical_feats == FALSE, fitted_model == "classif.randomForest") %>%
+   select(PredData)
+stability_tst <- stability_tst$PredData[[1]]
+
+# the following will compute the average standard deviation
+# 3120 rows = 78 drugs, modelled 4 times, 10 repeats
+# function for getting average sd - focus only on case where moa_modelled = moa_actual
+stability_tst %>%
+   filter(truth == moa_modelled) %>% # only focus on these cases
+   group_by(drugname_typaslab) %>% # get a variance for each drug
+   summarise(moa = unique(truth), prob.moa_var = var(prob.moa)) %>%
+   ungroup() %>%
+   group_by(moa) %>%
+   summarise(prob.moa_overall_sd = sqrt(mean(prob.moa_var)))
+
+# turn into a function:
+get_avg_sds <- function(predDataObj) {
+   # take prediction data and compute the average standard deviation of the prediction probabilities 
+   # across a whole mode of action
+   avg_sd_by_moa <- 
+      predDataObj %>%
+      filter(truth == moa_modelled) %>% # only focus on these cases
+      group_by(drugname_typaslab) %>% # get a variance for each drug
+      summarise(moa = unique(truth), prob.moa_sd = sd(prob.moa)) %>%
+      ungroup() %>%
+      group_by(moa) %>%
+      summarise(prob.moa_avg_sd = mean(prob.moa_sd))
+   return(avg_sd_by_moa)
+}
+
+
+
+# STEP 1: we'll focus only on models with one dosage and no chemical features; then we'll 
+# take feat_preselect, fitted_model and hyperparam_grid as factors across which to compare 
+foo <- 
+   matrix_container %>%
+   filter(drug_dosages == "most_interactions", chemical_feats == FALSE, !is.na(PredData)) %>%
+   select(drug_dosages, feat_preselect, chemical_feats, fitted_model, hyperparam_grid_name, PredData) %>%
+   mutate(avg_sds = map(PredData, get_avg_sds)) %>%
+   select(-PredData) %>%
+   unnest()
+# stuff that doesn't work, no idea why
+   # #group_by(fitted_model, hyperparam_grid_name, feat_preselect) %>%
+   # rowwise() %>%
+   # mutate(bla = get_avg_sds(PredData))
+   # do(get_avg_sds(.[["PredData"]]))# 
+   # mutate(avg_sds = (get_avg_sds(.data[["PredData"]])))
+
+# get ordering right of feat_preselect
+foo$feat_preselect <- factor(foo$feat_preselect, levels = c("top5pct", "top10pct", "top15pct", 
+                                                            "top20pct", "top25pct", "top30pct", 
+                                                            "top40pct", "top50pct", "keepall"))
+
+p <- 
+   ggplot(foo, aes(x = moa, y = prob.moa_avg_sd)) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.0), aes(colour = feat_preselect), cex = 2) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ .) + 
+   labs(x = "Mode of action modelled", y = "Average standard deviation per model", 
+        title = "Stabilities of MoA predictions") + 
+   scale_colour_manual("Feature\npreselection", values = c("#8c510a", "#bf812d", "#dfc27d", "#f6e8c3", 
+                                                           "#a6dba0", "#c7eae5", "#80cdc1", "#35978f", 
+                                                           "#01665e"))
+p
+
+ggsave(filename = "./plots/Model_Stabilities.pdf", plot = p)
+```
+
+
+
+
 
 
 

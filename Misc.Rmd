@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup, library loading
@@ -153,6 +155,32 @@ ggsave(p, file = "./plots/PCA_plots.pdf")
 
 ```
 
+
+## Nice ROC curve for presentation purposes
+
+Not nice in the sense of perfect but of colour scheme etc.
+
+```{r}
+tmp <- readRDS("./data/matrix_container_withextractions.rds")
+tmp <- tmp$ThreshVsPerfData[[1]]
+tmp <- tmp %>%
+   group_by(threshold, moa_modelled) %>%
+   summarise(fpr_mean = mean(fpr), tpr_mean = mean(tpr)) %>%
+   ungroup()
+
+ggplot(tmp, aes(x = fpr_mean, y = tpr_mean)) + 
+   geom_line(aes(colour = moa_modelled), size = 1.5) + 
+   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+         panel.background = element_rect(fill = "white", colour = "black"), 
+         axis.text = element_text(size = 9), axis.title = element_text(size = 12), 
+         legend.position = c(0.95, 0.05), legend.justification = c("right", "bottom")) + 
+   scale_colour_manual("Mode of action", labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
+                       values = c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c")) + 
+   labs(title = "ROC curve for random forests", x = "False positive rate", y = "True positive rate") + 
+   geom_abline(intercept = 0, slope = 1, linetype = "dotted")
+ggsave("./plots/ROC_curve_flashtalk.pdf", width = 3.8, height = 3.8)
+
+```
 
 
 
