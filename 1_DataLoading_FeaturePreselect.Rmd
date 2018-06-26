@@ -103,6 +103,8 @@ the_matrix <-
    group_by(the_matrix, gene_synonym) %>%
    do(select_mutant(.))
 
+saveRDS(the_matrix, file = "./data/the_matrix_after_select_mutant.rds")
+
 tmp <- group_by(the_matrix, gene_synonym) %>% 
    mutate(n = length(unique(strain))) %>%
    ungroup() %>%

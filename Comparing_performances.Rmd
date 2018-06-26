@@ -33,13 +33,15 @@ library(pryr)
 
 # Data preparation
 
+## Reading in `run_results_from_server`
+
 On the cluster, each of the rows of `matrix_container` was run; each row was a different combination 
 of models, feature preselections etc and was saved in a separate results object 
 (`./run_results_from_server/matrix_container_result`). Since the results objects are too big for 
 putting them into `matrix_container` we will add new columns just containing the parts we are 
 interested in. 
 
-```{r}
+```{r reading_in}
 # old matrix_container object
 load("./data/matrix_container.RData")
 matrix_container_old <- matrix_container
@@ -48,18 +50,6 @@ matrix_container_old <- matrix_container
 load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
 example_res <- result_RF_10pc_allDrugs_tuneMMCE
 rm(result_RF_10pc_allDrugs_tuneMMCE)
-
-
-# ## currently used functions for plotting - there are some problems
-# plot_ROC_allRep(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
-# compare_ROC_2models(result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, moa = "all")
-# compare_ROC_models(moa = "dna", result_RF_10pc_allDrugs_tuneMMCE, result_RF_5pc_allDrugs_tuneMMCE, 
-#                    result_XGBT_10pc_allDrugs_tuneMMCE)
-# plot_prec_recall(result_RF_10pc_allDrugs_tuneMMCE, moa = "all")
-# plot_feat_4model(result_RF_10pc_allDrugs_tuneMMCE) # improve/replace
-# #plot_predProb_moa(result_RF_10pc_allDrugs_tuneMMCE, dt_matrix = container_test$drug_feature_matrices[[1]]) # doesn' work like that
-# plot_ROC_optThres(result_RF_10pc_allDrugs_tuneMMCE) # make customisable
-# #distrib_drug_prob(result_RF_10pc_allDrugs_tuneMMCE, drug = "A22", dt_matrix = container_test$drug_feature_matrices[[1]]) # also not working
 
 
 ##################################################
@@ -126,18 +116,14 @@ saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
 ```
 
 
-# Data analyses
+## Adding more information - `matrix_container_ext`
 
-The aim here is to get a general idea of which models perform well, how stable they are etc. 
+Add information about MoA for each drug and which dosage is the dosage with most interactions. 
+Replace all MoAs not being one of dna, membrane_stress, protein_synthesis, and cell_wall with 
+"other". Results in object `matrix_container_ext`. 
 
-
-## Distribution of probabilities, aka 'ultimate plot' 
-
-Ultimate plot function, recode in ggplot because I'm a base plot noob :). First need to add some 
-more things though.
-
-```{r}
-## !!! matrix_container_ext = matrix_container with more information
+```{r matrix_container_ext}
+# remove NA rows
 matrix_container_ext <- matrix_container[!is.na(matrix_container$PredData), ]
 
 # we need a drug feature matrix for some of our annotations
@@ -185,162 +171,493 @@ matrix_container_ext$PredData <-
       return(.x)
    })
 
-# sanity check
+# sanity check: is there just one concentration with most interactions per drug? 
+# 40: because of 10 repeats and each drug being part of 4 models (one for each MoA)
 stopifnot(length(unique(matrix_container_ext$PredData[[1]]$drugname_typaslab)) == sum(matrix_container_ext$PredData[[1]]$conc_mostias)/40)
 ```
 
-Ultimate plot with ggplot. Don't do this for all the models, it would become too big. Rather, feed 
-the row you want to have the ulimate plot for into the function. 
+For each model, each drug is predicted to have a certain probability to belong to each MoA. Since 
+we did repeated nested CV, we can ask how stable these probabilities are. The same we can ask for 
+auc measurements. To ask these questions, we make a table `stability_assessment`. We need a separate 
+table to combine information for each repeat of the nested CV with unnesting to easily plot grouping 
+variables. This table will also indicate whether `moa_modelled == moa_truth` or not as we want to 
+compare stabilities of parameters depending on whether the drug actually belongs to the MoA we are 
+trying to predict. We exclude all drugs with "other". 
 
-```{r}
+```{r stability_assessment_table_I}
+# write into a new table stability_assessment 
+# here comes just an example of what this table will look like 
+# these are the input data for *one* model
+input_dat_exmpl <- matrix_container_ext$PredData[[1]]
+head(input_dat_exmpl)
+
+get_prob.moa_sds <- function(predDataTbl) {
+   # take prediction data ("predDataTbl") and get for each drug the sd of the probabilities for which it is predicted 
+   # to be a particular moa, once if moa_modelled == moa_actual and once moa_modelled != moa_actual 
+   avg_sd_by_moa <- 
+      predDataTbl %>%
+      mutate(moa_modelled_is_truth = (moa_modelled == process_broad)) %>% # to distinguish the two cases 
+      group_by(drugname_typaslab, moa_modelled_is_truth) %>% # we want to see stability for each drug depending on whether moa_modelled_is_truth 
+      summarise(process_broad = unique(process_broad), prob.moa_sd = sd(prob.moa)) %>%
+      filter(process_broad != "other") # let's not consider these cases for now
+   return(avg_sd_by_moa)
+}
+```
+
+Here an example of what this looks like:
+
+```{r stability_assessment_table_II}
+get_prob.moa_sds(input_dat_exmpl)
+
+# just to make sure it is correct (! we average over all dosages here)
+get_prob.moa_sds(input_dat_exmpl)[2, "prob.moa_sd"]
+# ... which should be equivalent to:
+filter(input_dat_exmpl, drugname_typaslab == "A22", moa_modelled == process_broad) %>%
+   pull(prob.moa) %>%
+   sd()
+
+## and now apply this to each model:
+stability_assessment <- 
+   matrix_container_ext %>% 
+   select(drug_dosages, feat_preselect, chemical_feats, fitted_model, hyperparam_grid_name, PredData) %>%
+   mutate(prob.moa_stabilities = map(PredData, get_prob.moa_sds))
+
+
+## do the same thing now for aucs
+# again, here is an example:
+get_aucs_per_repeat <- function(predDataTbl) {
+   #### TO DO: extract concatenated results objects already at the beginning, then they can be coerced to ROCR objects to get partial AUCs
+   # take threshVsPerfData and calculate auc for each repeat and each moa
+   aucs <- 
+      predDataTbl %>%
+      mutate(negative = paste0("not_", moa_modelled)) %>%
+      group_by(cvrep, moa_modelled) %>%
+      summarise(auc = measureAUC(probabilities = prob.moa, truth = truth, negative = negative, positive = moa_modelled)) %>% 
+      ungroup()
+   return(aucs)
+}
+
+# example output
+get_aucs_per_repeat(input_dat_exmpl)
+
+# and apply again to each model
+stability_assessment$auc_stabilities <- map(stability_assessment$PredData, get_aucs_per_repeat)
+
+# for ordering in plots
+stability_assessment$feat_preselect <- 
+   factor(stability_assessment$feat_preselect, 
+          levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", "top30pct", 
+                      "top40pct", "top50pct", "keepall"))
+```
+
+
+# Data analyses
+
+## Model stabilities 
+
+### Distribution of probabilities, aka 'ultimate plot' 
+
+Shows the distribution of probabilities for each drug across repeats of the nested CV. Can plot 
+only one model at a time. Grey rectangles indicate the dosage with the most interactions. 
+
+```{r ultimate_plots}
 # Let's start with 2 ultimate plots for now: random forests, keepall, no chemical features, all dosages
 # (what we discussed with Nassos)
 # other stuff to come later
 tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats == FALSE, 
               fitted_model == "classif.randomForest", drug_dosages == "all")
 
-ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages.pdf")
+ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages_nochemfeats.pdf")
 
-## Leonard:
-# This give all information for ultimate plot for a given drug. Just have to compute the desc threshold
-# tmp2 %>% filter(id ==1)
-# GEnerate thresholdPerf value not by concatenating thresholdPerf values but by appling thresholdPerf function to a concatenation of prediction
-# tmp2 %>% filter(moa_modelled == "dna") %>% `[`(1:5) %>% head()
+# let's try also for one of the lasso models
+tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats == FALSE, 
+              fitted_model == "classif.glmnet", drug_dosages == "all")
+
+ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_alldosages_nochemfeats.pdf")
 ```
 
 
+### Stabilities of probabilities 
+
+The plot above is good for understanding the behaviour within a model but bad for getting an overall 
+idea of how stable predictions are. For this, calculate the standard deviation of the probabilities 
+assigned to each drug for each mode of action. Different dosages will be lumped together. 
 
 
+#### Stabilities of probabilities: impact of feat_preselect
 
-What to do with the different prediction folds? 
-
-```{r}
-# plan:
-# 1.: to get a global overview we want to plot: ROC curves for each repeat of the nested CV
-# 2.: similarly: we want the individual AUCs (for each repeat) and the overall AUC (apparently it's not the average - ?)
-# 3.: we might want to select partial ROC curves: again, only discriminate by repetition, not by fold
-# 4.: therefore, we'll work by concatenating the prediction objects and calculating the performances (--> ROCR) as well as plotting our functions
-# 5.: from 1-4 we can plot the same distribution like for the 'model stabilities' (combine code perhaps) - extension perhaps later
-
-
-## Option 1: get all the aucs from each outer fold and average
-## let's take first repetition of first line of matrix_container as an example 
-example_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_keepall_FALSE.rds")
-pred_data_tmp <- matrix_container_ext$PredData[[1]]
-threshvsperf_data_tmp <- matrix_container_ext$ThreshVsPerfData[[1]]
-
-aucs <- map_dbl(example_res$`Nested CV 1`, function(.x) {
-   performance(.x[["prediction_dna"]], measures = auc)
-})
-
-aucs
-mean(aucs)
-
-# how does this compare with a concatenated prediction fold? 
-predobj <- example_res$`Nested CV 1`$`Outer fold 1`$prediction_dna
-predobj$data <- map_dfr(example_res$`Nested CV 1`, function(.x) {
-   .x[["prediction_dna"]][["data"]]
-})
-mlr::performance(predobj, measures = auc)
-
-# ROCR package:
-predobj_rocr <- mlr::asROCRPrediction(predobj)
-ROCR::performance(predobj_rocr, "auc")@y.values
-# can also 
-
-measureAUC(probabilities = predobj$data$prob.dna, truth = predobj$data$truth, 
-           negative = "not_dna", positive = "dna")
-
-pred_data_tmp_dna <- pred_data_tmp[pred_data_tmp$moa_modelled == "dna", ]
-measureAUC(probabilities = pred_data_tmp_dna$prob.moa, truth = pred_data_tmp_dna$truth, 
-           negative = "not_dna", positive = "dna")
-
-computeAUC(threshvsperf_data_tmp[threshvsperf_data_tmp$moa_modelled == "dna", ])
-
-# plan: extract these measures into a separate column to get a better overview
-# at the same time, can use this to annotate ggplots of ROC curves
-
-```
-
-
-Assess average variability ('stability') of predictions. 
+When fixing the following:
+* chemical_feats == FALSE
+* drug_dosages == "most_interactions"
+* moa_modelled == truth
+--> What is the impact of feat_preselect on model stability, depending on the model type and the 
+hyperparameter grid?
 
 ```{r}
-# we'll focus on models with just one dosage and no chemical features, take an example: 
-stability_tst <- 
-   filter(matrix_container, drug_dosages == "most_interactions", feat_preselect == "keepall", 
-          chemical_feats == FALSE, fitted_model == "classif.randomForest") %>%
-   select(PredData)
-stability_tst <- stability_tst$PredData[[1]]
-
-# the following will compute the average standard deviation
-# 3120 rows = 78 drugs, modelled 4 times, 10 repeats
-# function for getting average sd - focus only on case where moa_modelled = moa_actual
-stability_tst %>%
-   filter(truth == moa_modelled) %>% # only focus on these cases
-   group_by(drugname_typaslab) %>% # get a variance for each drug
-   summarise(moa = unique(truth), prob.moa_var = var(prob.moa)) %>%
-   ungroup() %>%
-   group_by(moa) %>%
-   summarise(prob.moa_overall_sd = sqrt(mean(prob.moa_var)))
-
-# turn into a function:
-get_avg_sds <- function(predDataObj) {
-   # take prediction data and compute the average standard deviation of the prediction probabilities 
-   # across a whole mode of action
-   avg_sd_by_moa <- 
-      predDataObj %>%
-      filter(truth == moa_modelled) %>% # only focus on these cases
-      group_by(drugname_typaslab) %>% # get a variance for each drug
-      summarise(moa = unique(truth), prob.moa_sd = sd(prob.moa)) %>%
-      ungroup() %>%
-      group_by(moa) %>%
-      summarise(prob.moa_avg_sd = mean(prob.moa_sd))
-   return(avg_sd_by_moa)
-}
-
-
-
-# STEP 1: we'll focus only on models with one dosage and no chemical features; then we'll 
-# take feat_preselect, fitted_model and hyperparam_grid as factors across which to compare 
 foo <- 
-   matrix_container %>%
-   filter(drug_dosages == "most_interactions", chemical_feats == FALSE, !is.na(PredData)) %>%
-   select(drug_dosages, feat_preselect, chemical_feats, fitted_model, hyperparam_grid_name, PredData) %>%
-   mutate(avg_sds = map(PredData, get_avg_sds)) %>%
-   select(-PredData) %>%
-   unnest()
-# stuff that doesn't work, no idea why
-   # #group_by(fitted_model, hyperparam_grid_name, feat_preselect) %>%
-   # rowwise() %>%
-   # mutate(bla = get_avg_sds(PredData))
-   # do(get_avg_sds(.[["PredData"]]))# 
-   # mutate(avg_sds = (get_avg_sds(.data[["PredData"]])))
-
-# get ordering right of feat_preselect
-foo$feat_preselect <- factor(foo$feat_preselect, levels = c("top5pct", "top10pct", "top15pct", 
-                                                            "top20pct", "top25pct", "top30pct", 
-                                                            "top40pct", "top50pct", "keepall"))
+   stability_assessment %>%
+   filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
+   select(-one_of("PredData", "auc_stabilities")) %>%
+   unnest() %>%
+   filter(moa_modelled_is_truth)
+head(foo)
 
 p <- 
-   ggplot(foo, aes(x = moa, y = prob.moa_avg_sd)) + 
-   geom_point(position = position_jitterdodge(jitter.width = 0.0), aes(colour = feat_preselect), cex = 2) + 
+   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = feat_preselect), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = feat_preselect), size = 1, alpha = 0.5) + 
+   # geom_beeswarm(aes(colour = feat_preselect), size = 1, alpha = 0.75) + # doesn't work :(
    geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
    facet_grid(fitted_model ~ .) + 
-   labs(x = "Mode of action modelled", y = "Average standard deviation per model", 
-        title = "Stabilities of MoA predictions") + 
-   scale_colour_manual("Feature\npreselection", values = c("#8c510a", "#bf812d", "#dfc27d", "#f6e8c3", 
-                                                           "#a6dba0", "#c7eae5", "#80cdc1", "#35978f", 
-                                                           "#01665e"))
-p
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions, each drug = one point\n(no chem. feats, most_interactions, MoA modelled = MoA truth)") + 
+   theme_bw()
+ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect.pdf")
 
-ggsave(filename = "./plots/Model_Stabilities.pdf", plot = p)
+
+# What about 'classif.xgboost'? - Possible that stabilities depend on hyperparameter grid?
+p <- 
+   ggplot(foo[foo$fitted_model == "classif.xgboost", ], aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = feat_preselect), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = feat_preselect), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(hyperparam_grid_name ~ .) + 
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions: classif.xgboost only\n(no chem. feats, most_interactions, MoA modelled = MoA truth)") + 
+   theme_bw()
+ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
 ```
 
+Conclusion: Random forests is the most stable model, lasso the least stable one although the latter 
+has a big difference between individual drugs. For boosted trees, stabilities don't seem to differ 
+between different hyperparameter grids. 
+
+
+#### Stabilities of probabilities: impact of all dosages vs. most_interactions
+
+Just like above, except that we now want to see whether models become more or less stable if all 
+dosages are used or only one dosage with most interactions. 
+
+```{r}
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE) %>%
+   select(-one_of("PredData", "auc_stabilities")) %>%
+   unnest() %>%
+   filter(moa_modelled_is_truth)
+head(foo)
+
+p <- 
+   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = drug_dosages), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = drug_dosages), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions: all dosages vs. most_interactions\n(no chem. feats, MoA modelled = MoA truth)") + 
+   theme_bw()
+p
+
+ggsave(plot = p, filename = "./plots/Prob_stabilities_all_vs_mostinteractions.pdf", width = 16)
+
+# focus again only on classif.xgboost
+p <- 
+   ggplot(foo[foo$fitted_model == "classif.xgboost", ], aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = drug_dosages), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = drug_dosages), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(hyperparam_grid_name ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions: all dosages vs. most_interactions\n(no chem. feats, MoA modelled = MoA truth,\nXGBoost only)") + 
+   theme_bw()
+p
+
+ggsave(plot = p, filename = "./plots/Prob_stabilities_all_vs_mostinteractions_onlyxgboost.pdf", width = 16)
+```
+
+Conclusion: most interactions is a lot more stable for random forests and less so for boosted trees. 
+The difference is probably not significant for lasso. Again, there is no influence of the 
+hyperparameter grid used for boosted trees. 
+
+
+#### Stabilities of probabilities: impact of whether MoA modelled = truth
+
+Like above but this time we do not focus on the probabilities where the MoA that was being modelled 
+is the same as the MoA of the drug. So we ask whether drugs are more stably predicted to be their 
+MoA or whether they are more stably predicted to be not their MoA. Check once for all dosages and 
+once for most_interactions. 
+
+```{r}
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
+   select(-one_of("PredData", "auc_stabilities")) %>%
+   unnest()
+
+p <- 
+   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = moa_modelled_is_truth), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = moa_modelled_is_truth), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions: MoA modelled = truth or not\n(no chem. feats, most_interactions)") + 
+   theme_bw()
+
+ggsave(plot = p, filename = "./plots/Prob_stabilities_moa_modelled_is_truth_mostinteractions.pdf", width = 16)
+
+
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE, drug_dosages == "all") %>%
+   select(-one_of("PredData", "auc_stabilities")) %>%
+   unnest()
+
+p <- 
+   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = moa_modelled_is_truth), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = moa_modelled_is_truth), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+        title = "Stabilities of MoA predictions: MoA modelled = truth or not\n(no chem. feats, all dosages)") + 
+   theme_bw()
+
+ggsave(plot = p, filename = "./plots/Prob_stabilities_moa_modelled_is_truth_alldosages.pdf", width = 16)
+```
+
+Conclusion: if most interactions are kept: predictions where drug MoA = MoA modelled are more stable 
+except for lasso where it's vice versa. Interestingly, with all dosages, predictions are always more 
+stable if MoA != MoA modelled. 
+
+
+
+### Comparing AUCs across all models
+
+Which models have the best AUCs and how does it change between models, feature_preselections and so 
+on. Also allows assessing how stable AUCs are across repetitions of nested CV. 
+
+#### AUCs and AUC stabilities by model, feat_preselect and hyperparameter grid. 
+
+Without chemical features, using most_interactions. 
+
+```{r}
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
+   select(-one_of("PredData", "prob.moa_stabilities")) %>%
+   unnest()
+
+p <- 
+   ggplot(foo, aes(x = feat_preselect, y = auc)) + 
+   geom_boxplot(aes(colour = moa_modelled), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.1), aes(colour = moa_modelled), size = 1, alpha = 0.5) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ .) + 
+   labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
+        title = "AUCs of MoA predictions\n(no chem. feats, most_interactions)") + 
+   theme_bw()
+
+ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages.pdf", width = 16)
+```
+
+Conclusion: it depends on the MoA:
+* `cell_wall` performs best overall and is relatively stable. top15pct seems to be better for RF 
+whereas top5pct is best for lasso. For lasso performance seems to drop with the higher number of 
+features that are kept. 
+* `dna` also has a decent performance which is again quite stable. For lasso again the performance 
+seems to drop with the increasing number of features. But perhaps it also just reflects the 
+instability of the lasso model as performance goes up again later on. 
+* `protein_synthesis` performs poorly for RF and lasso with top5 and top10pct but performance goes 
+up with top15pct (RF) and top20pct (lasso), respectively. 
+* `membrane_stress` has overall the worst performance and is also the least stable. 
+
+#### AUCs: all dosages vs. most_interactions
+
+```{r}
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE) %>%
+   select(-one_of("PredData", "prob.moa_stabilities")) %>%
+   unnest()
+head(foo)
+
+p <- 
+   ggplot(foo, aes(x = moa_modelled, y = auc, colour = drug_dosages)) + 
+   geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1) + 
+   #stat_summary(fun.y = "median", geom = "point", colour = "red", size = 2) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
+        title = "AUCs of MoA predictions\n(no chem. feats)") + 
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
+ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", width = 16)
+```
+
+Conclusions: 
+* RF: 
+   + cell_wall and dna: aucs are very similar between all dosages and most_interactions. 
+   + For membrane_stress, most_interactions always performs worse. 
+   + For protein_synthesis most_interactions performs worse up to top15pct and for higher feature numbers it's very similar. 
+* Lasso: 
+   + cell_wall: aucs are very similar up to top20pct, after that, most_interactions gets worse. 
+   + dna: up top 20pct, most_interactions performs better, later on similar. 
+   + membrane_stress: most_interactions sometimes worse, sometimes equal - it depends.
+   + protein_synthesis: most_interactions almost always performs worse. 
+
+
+#### AUCs: with and without chemical features (only looking at most_interactions)
+
+```{r}
+foo <- 
+   stability_assessment %>%
+   filter(drug_dosages == "most_interactions") %>%
+   select(-one_of("PredData", "prob.moa_stabilities")) %>%
+   unnest()
+
+p <- 
+   ggplot(foo, aes(x = moa_modelled, y = auc, colour = chemical_feats)) + 
+   geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1) + 
+   #stat_summary(fun.y = "median", geom = "point", colour = "red", size = 2) + 
+   geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5), linetype = "dotted") + 
+   facet_grid(fitted_model ~ feat_preselect) + 
+   labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
+        title = "AUCs of MoA predictions\n(most_interactions)") + 
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
+ggsave(plot = p, filename = "./plots/AUC_stabilities_plusminus_chemical_feats.pdf", width = 16)
+```
+
+Conclusions: chemical features bring big improvement in performance for protein_synthesis and, 
+for occasional repeats, for membrane_stress. However, this is only true for low numbers of features. 
+
+
+
+### Correlating the number of significant interactions per drug with prediction probabilities
+
+From the ultimate plot it seems like the dosages with the most interactions are also often the ones 
+that are best at predicting a particular MoA. However, this is not always the case. Moreover, we 
+don't know how many interactions this actually corresponds to. In addition, one may wonder whether 
+some poorly predicted drugs are poorly predicted because they show only very few interactions even 
+with "most_interactions". 
+
+
+#### Preparing the data
+
+This is a bit tricky because we need to get `the_matrix` from the first notebook ("1_DataLoading...") 
+after the `do(select_mutant(.))` step. In addition, the number of significant interactions will 
+depend on the number of features that have been preselected. 
+
+```{r}
+the_matrix <- readRDS("./data/the_matrix_after_select_mutant.rds")
+
+get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
+   # drugfeatmat: from matrix_container_ext: the drug_feature matrix
+   # predDataTbl: from matrix_container_ext: the prediction table
+   # the_matrix: from first notebook: the_matrix after the do(select_mutant(.)) step
+   drugfeatmat_long <- select(drugfeatmat, -process_broad) %>% gather(3:ncol(.), key = "gene_synonym", value = "sscore")
+   
+   # by doing a join we can do a lookup which drug-concentration-gene combination is significant
+   tab_nsignif <- left_join(drugfeatmat_long, the_matrix) %>%
+      group_by(drugname_typaslab, conc) %>%
+      summarise(n_signif = sum(significant, na.rm = TRUE))
+   
+   # and now join this back into the predDataTbl object - which is what we need for plotting
+   tab_nsignif <- left_join(predDataTbl, tab_nsignif)
+   tab_nsignif$moa_modelled_is_truth <- tab_nsignif$moa_modelled == tab_nsignif$process_broad
+   
+   # in this case we're not interested in the probabilities for each repeat of the nested CV, only 
+   # in the median
+   tab_nsignif <- tab_nsignif %>%
+      group_by(drugname_typaslab, conc, moa_modelled, moa_modelled_is_truth, n_signif) %>%
+      summarise(median_prob.moa = median(prob.moa))
+   
+   return(tab_nsignif)
+}
+
+# add a new list column to matrix_container_ext: similar to PredData but with median of prob.moa 
+# and indicating how many significant interactions there are per drug and concentration using the 
+# drug_feature_matrix that was used for that particular model 
+matrix_container_ext$PredDataWithNSignif <- 
+   map2(matrix_container_ext$drug_feature_matrices, matrix_container_ext$PredData, get_nsignif, the_matrix = the_matrix)
 
 
 
 
+
+
+testrow <- 
+   filter(matrix_container_ext, fitted_model == "classif.randomForest", feat_preselect == "keepall", 
+          chemical_feats == FALSE, drug_dosages == "all")
+testrow_pred <- testrow$PredData[[1]]
+testrow_drugfeatmat <- testrow$drug_feature_matrices[[1]]
+head(testrow_pred)
+#subfr <- testrow_pred[testrow_pred$drugname_typaslab == "AMPICILLIN", ]
+
+# to get this one to work: need to get `the_matrix` from first notebook after the do(select_mutant(.)) step
+group_by(the_matrix, drugname_typaslab, conc) %>%
+   summarise(ngenes = n(), nsignif = sum(significant))
+
+# to get a correlation of the number of significant interactions and the prediction probabilities
+# need to do a lookup from drug_feature_matrices in matrix_containter to the_matrix
+head(the_matrix) # contains for each gene - drug - dosage combination whether it's significant or not - so we can count
+head(testrow_drugfeatmat) # the matrix that was actually used for the model
+
+# (1) gather the actually used drug-feature matrix
+a <- testrow_drugfeatmat %>%
+   select(-process_broad) %>%
+   gather(3:ncol(.), key = "gene_synonym", value = "sscore")
+
+# (2) join with the_matrix, group by drugname_typaslab and concentration to count number of significant interactions
+b <- left_join(a, the_matrix) %>%
+   group_by(drugname_typaslab, conc) %>%
+   summarise(n_signif = sum(significant, na.rm = TRUE)) # because some drug-feature-conc combinations will be NA
+
+# (3) feed information of b back into our prediction object 
+c <- left_join(testrow_pred, b)
+head(c)
+c$moa_modelled_is_truth <- c$moa_modelled == c$process_broad
+
+# we want to see medians, not everything
+subfr2 <- group_by(c, drugname_typaslab, conc, moa_modelled, moa_modelled_is_truth, n_signif) %>% # will generate only the smallest groups
+   summarise(median_prob.moa = median(prob.moa))
+
+subfr2_amp <- subfr2[subfr2$drugname_typaslab == "AMPICILLIN", ]
+
+# ! conc needs to be a factor for boxplot dodging to work
+ggplot(subfr2_amp, aes(x = factor(conc), y = median_prob.moa, colour = moa_modelled)) + 
+   geom_boxplot() + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.2)) #+ 
+   #scale_x_discrete(labels = paste0(subfr2$conc, ":", subfr2$n_signif)) # not working
+
+# global level:
+ggplot(subfr2, aes(x = n_signif, y = median_prob.moa)) + 
+   geom_point(shape = 1) + 
+#   geom_line(aes(group = drugname_typaslab)) + 
+   facet_grid(moa_modelled ~ moa_modelled_is_truth) + 
+   theme_bw()
+
+# to get an idea of the individual drugs
+ggplot(subfr2[subfr2$moa_modelled == "cell_wall" & subfr2$moa_modelled_is_truth, ], 
+       aes(x = n_signif, y = median_prob.moa, colour = drugname_typaslab)) + 
+   geom_point(shape = 1) + 
+   geom_line(aes(group = drugname_typaslab)) + 
+   facet_grid(moa_modelled ~ moa_modelled_is_truth) + 
+   theme_bw()
+
+ggplot(subfr2[subfr2$moa_modelled == "dna" & subfr2$moa_modelled_is_truth, ], 
+       aes(x = n_signif, y = median_prob.moa, colour = drugname_typaslab)) + 
+   geom_point(shape = 1) + 
+   geom_line(aes(group = drugname_typaslab)) + 
+   facet_grid(moa_modelled ~ moa_modelled_is_truth) + 
+   theme_bw()
+
+```
 
 
 
