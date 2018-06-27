@@ -86,11 +86,9 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
                     #tuning hyperparameters based on the inner resampling
                     resTuning = tuneParams(learner = makeLearner(cl = model, predict.type = predict_type), task = predictMoa, resampling = inner, measures = tuning_measure,
                                            par.set = run_hyp_param, control = makeTuneControlGrid())
-
                     #use the best Hyperparams to create optimal learner
                     tuned_lrn = setHyperPars(makeLearner(cl = model, predict.type = predict_type), par.vals = resTuning$x)
                 }
-                
                 #We are now in the outer fold, all data should be used
                 predictMoa = makeClassifTask(data = custom_matrix, target = "process_broad")
                 

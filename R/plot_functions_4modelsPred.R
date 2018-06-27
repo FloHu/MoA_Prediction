@@ -98,7 +98,7 @@ plot_ROC_allRep = function(res, moa = "dna", plotAllRep = T){
         plotData = generateThreshVsPerfData(all_test_set, measures = list(fpr, tpr))
 
         toPlot = toPlot + geom_path(data = plotData$data, mapping = do.call(aes_string, list(x = "fpr", y = "tpr")), size = 2) +
-                annotate("text", size = 8, x = 0.8, y = 0.1, label = paste0("AUC : ", round(performance(all_test_set, auc), digits = 3)))
+                annotate("text", size = 8, x = 0.8, y = 0.1, label = paste0("AUC : ", round(performance(all_test_set, measures = list(auc)), digits = 3)))
     }else{
         colMoa = rainbow(length(set_MoA))
         plotDataMoa = list()
@@ -111,7 +111,7 @@ plot_ROC_allRep = function(res, moa = "dna", plotAllRep = T){
                 allData = rbind(allData, all_test_set$data)
             }
             all_test_set$data = allData
-            l = paste0(m, " AUC : ", round(performance(pred = all_test_set, measures = auc), digits = 3))
+            l = paste0(m, " AUC : ", round(performance(pred = all_test_set, measures = list(auc)), digits = 3))
             plotDataMoa[[l]] = all_test_set
         }
         plotDataMoa = generateThreshVsPerfData(plotDataMoa, measures = list(fpr, tpr))

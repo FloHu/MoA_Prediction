@@ -24,4 +24,525 @@ source("./R/ipak.R")
 source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+ipak(plotmo)
+ipak(reshape2)
+ipak(gplots)
+ipak("gridExtra")
+ipak("plotly")
+```
+
+
+Aim of this notebook is to have a deeper look at all the different results from the matrix container and understand which features are used, for what, which of them help us defining groups based on MoA.
+
+
+# Lasso model regularization paths
+
+First, we have a look at the regularization path of a LASSO model, which is the evolution of the coefficient for one feature depending on the value of the regularization parameter lambda. Regularization path are contained in a matrix in lasso model objects build with glmnet.
+
+Main problem here is that it exist 80 slightly different regularization path in one run : one for each outer fold times the number of repetitions
+
+It would be great to find a way to average all of this...
+
+```{r}
+# Result object to test
+resObj = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
+
+#   par(mfrow = c(4,2))
+#   for(i in 1:8){plot_glmnet(resObj$`Nested CV 1`[[paste0("Outer fold ", i)]]$model_dna$learner.model)}
+
+
+# For a given model, example with NCV 1, Outer fold 1 DNA MoA
+modelInstance = resObj$`Nested CV 1`$`Outer fold 1`$model_dna
+
+# I write my own function for the plot_glmnet one form the plotmo package is not that great.
+
+plot_reg_path = function(modelInstance){
+    lambda_for_pred = modelInstance$learner$par.vals$s
+    # Get the index of the lambda used in model building which is the closest to s, the lambda used for testing
+    closest_lambda_index = which.min(abs(lambda_for_pred - modelInstance$learner.model$lambda))
+    
+    coeffs = as.matrix(modelInstance$learner.model$beta[, 1:closest_lambda_index])
+    coeffs = coeffs[ rowSums(coeffs)!=0, ] 
+    coeffs = as.data.frame(coeffs)
+    colnames(coeffs) = seq(1:ncol(coeffs))
+    coeffs$feat = rownames(coeffs)
+    
+    coeffs_plotable = melt(coeffs, id.vars = "feat")
+    coeffs_plotable$variable = as.numeric(coeffs_plotable$variable)
+    ggplot() + geom_path(data = coeffs_plotable, mapping = aes(x = variable, y = value, group = feat)) +
+            geom_hline(yintercept = 0, linetype="dashed") +
+            annotate("text", x = ncol(coeffs), y = coeffs[, ncol(coeffs)-1], label = coeffs$feat) +
+            theme_bw() + xlim(0,ncol(coeffs)+5)
+}
+
+dna11 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 1`$model_dna)
+dna12 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 2`$model_dna)
+dna13 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 3`$model_dna)
+dna14 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 4`$model_dna)
+
+grid.arrange(dna11, dna12, dna13, dna14, nrow = 2)
+
+```
+
+
+# Averaging Lasso coefficients
+
+Idea : boxplot of the values of the coefficient aassociated with one feature across rep/fold.
+On top of that, we use a color code depending on in how many models does a feature appear
+
+```{r}
+
+plot_cat_lasso_coeffs = function(resObj, moa = "dna", thres = 0, return_obj = FALSE, ...){
+    
+    match.arg(arg = moa, choices = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
+    
+    nrep = length(resObj)
+    nfold = length(resObj[[1]])
+    #List of coefficient values across all models
+    coeff_cat = list()
+    
+    for(rep in 1:nrep){
+        for(fold in 1:nfold){
+            model = resObj[[rep]][[nfold]][[paste0("model_", moa)]]
+            
+            lambda_for_pred = model$learner$par.vals$s
+            # Get the index of the lambda used in model building that is the closest to s, the lambda used for testing
+            closest_lambda_index = which.min(abs(lambda_for_pred - model$learner.model$lambda))
+            
+            coeffs = as.matrix(model$learner.model$beta[, closest_lambda_index])
+            coeffs = coeffs[coeffs !=0,  ]
+            for(n in names(coeffs)){
+                coeff_cat[[n]] = c(coeff_cat[[n]], coeffs[n])
+            }
+        }
+    }
+
+    #eff contains how many times features appear in a model
+    eff = sort(unlist(lapply(coeff_cat, length)))
+    coeff_cat = coeff_cat[names(eff)]
+
+    # filter
+    coeff_cat = coeff_cat[(eff/80) >= thres]
+    eff = eff[(eff/80) >= thres]
+    
+    colMap = rainbow(length(unique(eff)))
+    names(colMap) = unique(eff)
+    
+    par(mar = c(5,10,4,2))
+    boxplot(coeff_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], ...)
+    legend("bottomleft", legend = paste0(as.numeric(names(colMap))/80 * 100, " %"), 
+           fill = colMap, title = "Present in % models", cex = 0.8)
+    abline(v = 0)
+    if(return_obj){
+        return(coeff_cat)
+    }
+}
+
+# Simple test to see how the function behave
+
+lasso_5pc = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
+
+par(mfrow = c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "dna", main= "Lasso 5pc dna", thres = 0.6)
+plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "cell_wall", main= "Lasso 5pc cell_wall", thres = 0.6)
+plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "membrane_stress", main= "Lasso 5pc membrane_stress", thres = 0.6)
+plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "protein_synthesis", main= "Lasso 5pc protein_synthesis", thres = 0.6)
+
+```
+
+
+# Similar function for tree based models 
+
+It averages the feature importance score for tree based models, which is the Decrease in Gini impurity
+
+```{r}
+
+plot_cat_xgb_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj = FALSE, ...){
+    
+    match.arg(arg = moa, choices = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
+    
+    nrep = length(resObj)
+    nfold = length(resObj[[1]])
+    #List of coefficient values across all models
+    feat_cat = list()
+    
+    for(rep in 1:nrep){
+        for(fold in 1:nfold){
+        
+            coeffs = getFeatureImportance(resObj[[rep]][[fold]][[paste0("model_", moa)]])$res
+            coeffs = coeffs[which(coeffs !=0)]
+            for(n in names(coeffs)){
+                feat_cat[[n]] = unlist(c(feat_cat[[n]], coeffs[n]))
+            }
+        }
+    }
+
+    #eff contains how many times features appear in a model
+    eff = sort(unlist(lapply(feat_cat, length)))
+    feat_cat = feat_cat[names(eff)]
+
+    # filter
+    feat_cat = feat_cat[(eff/80) >= thres]
+    eff = eff[(eff/80) >= thres]
+    
+    colMap = rainbow(length(unique(eff)))
+    names(colMap) = unique(eff)
+    
+    par(mar = c(5,10,4,2))
+    boxplot(feat_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], ...)
+    legend("bottomright", legend = paste0(as.numeric(names(colMap))/80 * 100, " %"), 
+           fill = colMap, title = "Present in % models", cex = 0.8)
+    abline(v = 0)
+    if(return_obj){
+        return(feat_cat)
+    }
+}
+
+
+xgb_10pc = readRDS("run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_TRUE.rds")
+lasso_10pc = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top10pct_TRUE.rds")
+
+# Simple comparison
+par(mfrow = c(1,2))
+plot_cat_xgb_feat_importance(resObj = xgb_10pc, moa = "dna", thres = 0.7)
+plot_cat_lasso_coeffs(resObj = lasso_10pc, moa = "dna", main= "Lasso 10pc dna", thres = 0.7)
+
+```
+
+
+
+# Model exploration of features importance
+
+Overview of the analysis :
+
+- For each MoA, take a "good" model, here, the one displaying the highest AUC for the MoA chosen.
+- Display features importance distribution as well as in how many models they appear
+- For the best features, have a look at the distribution of the s-score across MoA
+- Also look at what happen if we try to clusterize drugs based on these features only : Heatmap function
+
+## Heatmap function
+
+```{r}
+plot_heatmap <- function(m  , plotFile = F ) {
+    # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
+    cluster_matrix <- m
+    moa_to_colour <- c(cell_wall = "#FF0000FF",
+                       dna = "#80FF00FF",
+                       protein_synthesis = "#8000FFFF",
+                       membrane_stress = "#00FFFFFF",
+                       pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
+    )
+    
+    process_lut <- cluster_matrix$process_broad
+
+    rowcols <- moa_to_colour[process_lut]
+    cluster_matrix$drugname_typaslab <- NULL
+   
+    cluster_matrix$process_broad <- NULL
+    cluster_matrix <- as.matrix(cluster_matrix)
+
+    if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
+    
+    heatmap.2(cluster_matrix,
+              trace = "none",
+              breaks = c(seq(-10,10,length=50)), # use this i/o zlim
+              RowSideColors = rowcols,
+              col = colorRampPalette(c("red", "white", "blue")),
+              margins = c(12, 9),
+              dendrogram = "row") # only draw row dendrogram
+    legend("top",
+           legend = names(moa_to_colour),
+           col = moa_to_colour,
+           lty = 1,
+           lwd = 10)
+    
+    if(plotFile){ dev.off() }
+}
+
+```
+
+For keeping the same color code for MoA
+
+```{r}
+colMap = rainbow(4)
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+```
+
+
+## CELL WALL 
+
+```{r}
+# Best model based on AUC :
+lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
+
+pdf(file = "model_explanation_cell_wall.pdf", width = 14, height = 14 )
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+
+par(mfrow= c(1,1))
+plot_ROC_allRep(lasso_30pc_all, moa = "cell_wall", plotAllRep = T)
+
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.7)
+stripchart(MIOC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(YDAN ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(ISO ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.7)
+stripchart(ASMA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(RFAC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(SLT ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(1,1))
+plot(SLT ~ ASMA, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+plot(RFAC ~ MIOC, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+
+a = plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.6, return_obj = T)
+# Load matrix correpsonding to the model : with All dosage
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat)
+
+dev.off()
+```
+
+We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and MRCB
+
+
+## PROTEIN SYNTHESIS
+
+```{r}
+# Best model based on AUC :
+lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
+
+pdf(file = "model_explanation_prot_synthesis.pdf", width = 14, height = 14 )
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+
+par(mfrow= c(1,1))
+plot_ROC_allRep(lasso_5pc_most, moa = "protein_synthesis", plotAllRep = T)
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.5)
+stripchart(TOLB ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(SPR~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+plot(SPR ~ TOLB, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.2, las = 2)
+
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.5)
+stripchart(VISC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(ASMA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(ACRA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(1,1))
+plot(SlogP ~ TOLB, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+plot(SlogP ~ SPR, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+
+a = plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.6, return_obj = T)
+# Load matrix correpsonding to the model : dosage with most interaction
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat)
+
+dev.off()
+```
+
+Here it is not really clear which features are driving the clusterization
+
+Potentialy TOLB, SPR, SlogP, ACRB and ACRA but also GLMS, ASMA, RFAE
+
+The result also depends on the threshold used (% of models with a given feature)
+
+
+## MEMBRANE STRESS
+
+```{r}
+# Best model based on AUC :
+lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
+
+pdf(file = "model_explanation_membrane_stress.pdf", width = 14, height = 14 )
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+
+par(mfrow= c(1,1))
+plot_ROC_allRep(lasso_25pc_all, moa = "membrane_stress", plotAllRep = T)
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.6)
+stripchart(YBIM ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(MALK~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(YFIO~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.6)
+stripchart(MALS ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(ISCR ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(ACEF ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(1,1))
+plot(SlogP ~ YBIM, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+plot(MALK ~ YFIO, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+
+a = plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.3, return_obj = T)
+# Load matrix correpsonding to the model : with All dosage
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat)
+
+dev.off()
+```
+
+Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe with SlogP and IMP (medium values, look at the boxplot repartition, it's funny)
+
+
+## DNA
+
+```{r}
+# Best model based on AUC :
+lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
+
+pdf(file = "model_explanation_dna.pdf", width = 14, height = 14 )
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+
+par(mfrow= c(1,1))
+plot_ROC_allRep(lasso_10pc_most, moa = "dna", plotAllRep = T)
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6)
+stripchart(RECC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(RECA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(NAGA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(2,2))
+plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6)
+stripchart(TOLQ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(YCHJ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+stripchart(PROQ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
+
+par(mfrow= c(1,1))
+plot(RECC ~ NAGA, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+plot(RECA ~ TOLQ, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
+
+a = plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.5, return_obj = T)
+# Load matrix correpsonding to the model : dosage with most interaction
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat)
+
+dev.off()
+```
+
+DNA drugs cluster easily with RECC and RECA values
+
+Somehow NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (subclasses ?) or help seperating it from other MoA
+
+
+# FOCUS on best features driving the MoA
+
+Quick look : does it make sense to use only features mentioned above ?
+
+In each MoA there are two or three features that allow a very nice isolation of at least half of the MoA drugs
+
+Try to clusterize using these only for all dosage and most interaction
+
+```{r}
+best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP", "NumAromaticRings")
+best_feat_extended = c("SLT", "MRCB", "TOLB", "SPR", "SlogP", "ACRB", "GLMS", "ASMA", "RFAE", "SURA", "PAL", "RFAF", "IMP", "NAGA", "RECC", "RECA", "YCHJ", "TOLQ", "GUAB", "CYSB", "NUDB")
+
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, best_feat)
+plot_heatmap(m = mat)
+
+# DO PCA
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+m = mat %>% select(best_feat)
+pca_data <- prcomp(m, scale = TRUE)
+
+barplot(pca_data$sdev / sum(pca_data$sdev))
+var_3pca = sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
+
+plotData <- as.data.frame(pca_data$x)
+plotData = cbind(plotData, process_broad = mat$process_broad)
+
+plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
+
+p1 <- ggplot(plotData, aes(x = PC1, y = PC2)) +
+geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") +
+theme_bw() + scale_fill_manual(values=rainbow(4)) +
+ggtitle(" PC 1 and 2")
+
+p2 <- ggplot(plotData, aes(x = PC3, y = PC2)) +
+geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") +
+theme_bw() + scale_fill_manual(values=rainbow(4)) +
+ggtitle(" PC 2 and 3 ")
+
+p3 <- ggplot(plotData, aes(x = PC3, y = PC4)) +
+geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") +
+theme_bw() + scale_fill_manual(values=rainbow(4)) +
+ggtitle(" PC 3 and 4 ")
+
+p4 <- ggplot(plotData, aes(x = PC5, y = PC4)) +
+geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") +
+theme_bw() + scale_fill_manual(values=rainbow(4)) +
+ggtitle(" PC 4 and 5 ")
+
+grid.arrange(p1, p2, p4, p3, nrow = 2)
+
+
+p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF","white", "white", "white", "#8000FFFF") ) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'PC1'),
+                     yaxis = list(title = 'PC2'),
+                     zaxis = list(title = 'PC3')))
+
+```
+
+
+## MultiDimensional Scaling
+
+Since PCA try to represent variability across individuals, it may not be the perfect tool if one want to seperate groups
+
+Try MDS to see if there's some difference. MDS is based on the distance between individual and the algorithm try to keep the same distances when going from a N-dim space to a n-dim space (N > n)
+
+```{r}
+best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP")
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+labels_save = mat %>% select(drugname_typaslab, process_broad)
+mat = mat %>% select(best_feat)
+
+dist_mat = dist(mat, method = "euclidian")
+mat_MDS_res = cmdscale(dist_mat, k = 3)
+mat_MDS_res = cbind(mat_MDS_res, labels_save)
+colnames(mat_MDS_res)[1:3] = c("MDS1", "MDS2", "MDS3")
+
+p <- plot_ly(mat_MDS_res, x = ~MDS1, y = ~MDS2, z = ~MDS3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF","grey", "grey", "grey", "#8000FFFF") ) %>%
+    add_markers() %>%
+    layout(scene = list(xaxis = list(title = 'MDS axis 1'),
+                     yaxis = list(title = 'MDS axis 2'),
+                     zaxis = list(title = 'MDS axis 3')))
+
+
+```
+
+
+
+# Features selection based on T test pvalue
+
+
+```{r}
+
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select( -conc,  -drugname_typaslab)
+allRes = c()
+
+matTmp = as.data.frame(mat)
+
+for( moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+    res = list()
+    
+    for (i in colnames(matTmp)) {
+        if(i != "process_broad"){
+            res[[i]] = t.test(matTmp[matTmp$process_broad == moa, i], matTmp[matTmp$process_broad != moa, i])$p.value
+        }
+    }
+    allRes = c(allRes, names(res[1:5]))
+}
+
 ```

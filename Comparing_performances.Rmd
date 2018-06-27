@@ -386,10 +386,22 @@ save_plot("./plots/test2.pdf", ultimate_plot_new, base_width = 100, base_height 
 
 
 
+# Exploring matrix container - ROC curves 
 
 
+```{r}
+
+resMatrix = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+
+plot_ROC_from_container(containerObj = resMatrix[1:18, ], moa = "all", by = c("feat_preselect", "chemical_feats"))
+plot_ROC_from_container(containerObj = resMatrix[19:36, ], moa = "all", by = c("feat_preselect", "chemical_feats"))
+plot_ROC_from_container(containerObj = resMatrix[37:54, ], moa = "all", by = c("feat_preselect", "chemical_feats"))
+plot_ROC_from_container(containerObj = resMatrix[55:72, ], moa = "all", by = c("feat_preselect", "chemical_feats"))
+plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "lasso_hyp_param"), moa = "all", by = c("feat_preselect", "drug_dosages"))
+plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "lasso_hyp_param"), moa = "all", by = c("feat_preselect", "drug_dosages"))
+plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "rf_hyp_param"), moa = "all", by = c("feat_preselect", "drug_dosages"))
+plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "xgboost_hyp_param_std"), moa = "all", by = c("feat_preselect", "drug_dosages"))
 
 
-
-
+```
 
