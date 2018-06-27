@@ -195,7 +195,199 @@ include later (see FeatureImp_... notebook) when we have our big results object
 ## Nichols data: (1 - Pearson) distance
 
 
+# PCA of chemical features
+
+```{r}
+
+#matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+
+# Preparing data
+dt_matrix <- filter(matrix_container, drug_dosages == "most_interactions", chemical_feats == TRUE)$drug_feature_matrices[[1]]
+
+dt_chem_mostInteraction <- cbind(dt_matrix[ , !grepl(x = colnames(dt_matrix), pattern = "^[A-Z]{3,4}")], TPSA = dt_matrix$TPSA)
+#Or only the one used for protein synhesis prediction
+#   dt_chem_mostInteraction <- dt_matrix %>% select(ExactMW, SlogP, TPSA)
+#Make optional
+#   dt_chem_mostInteraction = dt_chem_mostInteraction %>% filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
+
+dt_chem_mostInteraction = dt_chem_mostInteraction %>% select(-process_broad, -conc)
+rownames(dt_chem_mostInteraction) <- dt_chem_mostInteraction$drugname_typaslab
+dt_chem_mostInteraction <- dt_chem_mostInteraction[, -1]
+
+# PCA
+pca_data <- prcomp(dt_chem_mostInteraction, scale = TRUE)
+
+# Importance of PC in sdev, the two firsts make 45 %
+barplot(pca_data$sdev / sum(pca_data$sdev))
+
+plotData <- as.data.frame(pca_data$x)
+
+#plotData = cbind(plotData, process_broad = dt_matrix[ dt_matrix$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), "process_broad"])
+plotData = cbind(plotData, process_broad = dt_matrix$process_broad)
+
+plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
+
+p1 <- ggplot(plotData, aes(x = PC1, y = PC2)) + 
+    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
+    theme_bw() + scale_fill_manual(values=rainbow(4)) + 
+    ggtitle("PCA Chemical Feat, PC 1 and 2")
+
+p2 <- ggplot(plotData, aes(x = PC3, y = PC2)) + 
+    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
+    theme_bw() + scale_fill_manual(values=rainbow(4)) + 
+    ggtitle("PCA Chemical Feat, PC 2 and 3 ")
+
+p3 <- ggplot(plotData, aes(x = PC3, y = PC4)) + 
+    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
+    theme_bw() + scale_fill_manual(values=rainbow(4)) + 
+    ggtitle("PCA Chemical Feat, PC 3 and 4 ")
+
+p4 <- ggplot(plotData, aes(x = PC5, y = PC4)) + 
+    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
+    theme_bw() + scale_fill_manual(values=rainbow(4)) + 
+    ggtitle("PCA Chemical Feat, PC 4 and 5 ")
+
+grid.arrange(p1, p2, p4, p3, nrow = 2)
+
+
+# ====================== TEST MDS =====================
+
+mds_data = data.frame(cmdscale(dist(dt_chem_mostInteraction), k=2))
+
+mds_data = cbind(mds_data, process_broad = dt_matrix$process_broad)
+#mds_data = cbind(mds_data, process_broad = dt_matrix[ dt_matrix$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), "process_broad"])
+
+mds_data$process_broad[!(mds_data$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
+
+
+mdsPlot <- ggplot(data = mds_data) + 
+        geom_point(mapping = aes(x = X1, y = X2, fill = process_broad ), colour = "black", size = 3, shape = 21 ) +
+        scale_fill_manual(values = rainbow(4)) + theme_bw()
+
+```
+
+
+
+```{r}
+
+# =========== TEST Model with only chem feat =====================
+
+dt_matrix <- filter(matrix_container, drug_dosages == "most_interactions", chemical_feats == TRUE)$drug_feature_matrices[[1]]
+
+dt_chem_mostInteraction <- cbind(dt_matrix[ , !grepl(x = colnames(dt_matrix), pattern = "^[A-Z]{3,4}")], TPSA = dt_matrix$TPSA)
+rownames(dt_chem_mostInteraction) <- dt_chem_mostInteraction$drugname_typaslab
+dt_chem_mostInteraction <- dt_chem_mostInteraction %>% select(-conc, -drugname_typaslab)
+
+mat = matrix_container[56, ]
+mat$drug_feature_matrices[[1]] = dt_chem_mostInteraction
+
+    
+testChemFeat_only_BT = repeated_NCV_run_4models_container(data_container = mat, line_number = 1)
+
+```
 
 
 
 
+
+# Super Random control
+
+Just to be sure, RF model with random features (same sd and mean but random values). test on the chemogenomic matrix with 10% top variance features
+
+```{r}
+
+mat = matrix_container[21, ]
+randomMat = mat$drug_feature_matrices[[1]] %>% select(-conc)
+randomMat = apply(randomMat[ , grepl(x = colnames(randomMat), pattern = "^[A-Z]{3,4}")], 2, function(x){assign("x", value = rnorm(78, mean = mean(x), sd = sd(x)))})
+randomMat = as.data.frame(randomMat)
+randomMat$drugname_typaslab =  mat$drug_feature_matrices[[1]]$drugname_typaslab
+randomMat$process_broad =  mat$drug_feature_matrices[[1]]$process_broad
+
+mat$drug_feature_matrices[[1]] = as.tbl(randomMat)
+
+testTotal_random = repeated_NCV_run_4models_container(data_container = mat, line_number = 1)
+plot_ROC_allRep(res = testTotal_random, moa = "all")
+```
+
+Everything fine, random features leads to diagonal ROC curves
+
+
+
+
+
+# Correlation between dosages and betwen drugs
+
+Compare repartition of the correlation (Pearson and Spearman) of drugs dosages, all drugs together and drugs within mode of action 
+Data might be list of 6 unequal vectors
+
+```{r}
+
+# I know the code here is really awful but I was so eager to see the result I couldn't wait to figure out a good solution to compute it
+
+corData = list()
+
+matDrugs_mostInteraction = matrix_container[19, ]$drug_feature_matrices[[1]] %>% select(-conc, -drugname_typaslab)
+matDrugs_allDosages = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(-conc, -process_broad) 
+
+
+# Correlation between Dosages
+resP = c()
+resS = c()
+for(moa in unique(matDrugs_mostInteraction$process_broad)){
+    subData = matDrugs_mostInteraction %>% filter(process_broad == moa) %>% select(-process_broad) %>% t()
+    if(ncol(subData) > 1){
+        for(i in 1:(ncol(subData)-1)){
+            for(j in (i+1):ncol(subData)){
+                resP = c(resP, cor(subData[,i], subData[,j]))
+                resS = c(resS, cor(subData[,i], subData[,j], method = "spearman"))
+            }
+        }
+    }
+}
+corData[["betweenMoA\nPearson"]] = resP
+corData[["betweenMoa\nSpearman"]] = resS
+
+
+matDrugs_mostInteraction = matDrugs_mostInteraction %>% select(-process_broad) %>% t()
+# Correlation between Drugs
+resP = c()
+resS = c()
+for(i in 1:(ncol(matDrugs_mostInteraction)-1)){
+    for(j in (i+1):ncol(matDrugs_mostInteraction)){
+        resP = c(resP, cor(matDrugs_mostInteraction[,i], matDrugs_mostInteraction[,j]))
+        resS = c(resS, cor(matDrugs_mostInteraction[,i], matDrugs_mostInteraction[,j], method = "spearman"))
+    }
+}
+corData[["betweenDrugs\nPearson"]] = resP
+corData[["betweenDrugs\nSpearman"]] = resS
+
+
+
+# Correlation between Dosages
+resP = c()
+resS = c()
+for(d in unique(matDrugs_allDosages$drugname_typaslab)){
+    subData = matDrugs_allDosages %>% filter(drugname_typaslab == d) %>% select(-drugname_typaslab) %>% t()
+    if(ncol(subData) > 1){
+        for(i in 1:(ncol(subData)-1)){
+            for(j in (i+1):ncol(subData)){
+                resP = c(resP, cor(subData[,i], subData[,j]))
+                resS = c(resS, cor(subData[,i], subData[,j], method = "spearman"))
+            }
+        }
+    }
+}
+corData[["betweenDosages\nPearson"]] = resP
+corData[["betweenDosages\nSpearman"]] = resS
+
+
+# ggplot can easily handle boxplot of list of vector of differents length, so let's do it the traditionnal way
+par(mgp = c(3,2,0))    
+boxplot(corData,
+        at=c(1,2,4,5,7,8),
+        col = rep(rainbow(2), times = 2), lwd = 1.5, outline = T, pch = 21
+)
+abline(h = 0, lty = "dotted")
+
+
+```

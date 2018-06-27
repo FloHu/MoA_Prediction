@@ -72,10 +72,10 @@ plot_heatmap <- function(m = the_matrix_allDrugs_top10pct, feats_to_keep = "all"
    gene_gene_dist <- as.dist(1 - abs(cor(cluster_matrix)))
 
    # define colors for the mode of action
-   moa_to_colour <- c(cell_wall = "#a6cee3",
-                      dna = "#1f78b4",
-                      protein_synthesis = "#b2df8a",
-                      membrane_stress = "#33a02c",
+   moa_to_colour <- c(cell_wall = "#FF0000FF",
+                      dna = "#80FF00FF",
+                      protein_synthesis = "#8000FFFF",
+                      membrane_stress = "#00FFFFFF",
                       pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
                       )
    rowcols <- moa_to_colour[process_lut[rownames(cluster_matrix)]]
@@ -87,6 +87,7 @@ plot_heatmap <- function(m = the_matrix_allDrugs_top10pct, feats_to_keep = "all"
              Rowv = as.dendrogram(hclust(drug_drug_dist)), # change order of rows
              Colv = as.dendrogram(hclust(gene_gene_dist)),
              RowSideColors = rowcols,
+             col = colorRampPalette(c("red", "white", "blue")),
              margins = c(12, 9),
              dendrogram = "row") # only draw row dendrogram
    legend("top",
@@ -96,3 +97,4 @@ plot_heatmap <- function(m = the_matrix_allDrugs_top10pct, feats_to_keep = "all"
           lwd = 10)
    dev.off()
 }
+
