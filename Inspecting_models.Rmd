@@ -225,7 +225,7 @@ Overview of the analysis :
 ## Heatmap function
 
 ```{r}
-plot_heatmap <- function(m  , plotFile = F ) {
+plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 ) {
     # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
     cluster_matrix <- m
     moa_to_colour <- c(cell_wall = "#FF0000FF",
@@ -238,6 +238,7 @@ plot_heatmap <- function(m  , plotFile = F ) {
     process_lut <- cluster_matrix$process_broad
 
     rowcols <- moa_to_colour[process_lut]
+    drugs_names = cluster_matrix$drugname_typaslab
     cluster_matrix$drugname_typaslab <- NULL
    
     cluster_matrix$process_broad <- NULL
@@ -249,6 +250,8 @@ plot_heatmap <- function(m  , plotFile = F ) {
               trace = "none",
               breaks = c(seq(-10,10,length=50)), # use this i/o zlim
               RowSideColors = rowcols,
+              cexRow = name_size,
+              labRow = drugs_names,
               col = colorRampPalette(c("red", "white", "blue")),
               margins = c(12, 9),
               dendrogram = "row") # only draw row dendrogram
@@ -274,7 +277,7 @@ names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 ## CELL WALL 
 
 ```{r}
-# Best model based on AUC :
+# Best model based on AUC : line 155
 lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
 
 pdf(file = "model_explanation_cell_wall.pdf", width = 14, height = 14 )
@@ -305,6 +308,8 @@ mat = matrix_container[2, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
 plot_heatmap(m = mat)
 
+drugs_pred_prob_from_container(pred_data = matrix_container[155, ]$PredData[[1]], moa="cell_wall" )
+
 dev.off()
 ```
 
@@ -314,7 +319,7 @@ We can see on the Heatmap that a robust and pure cluster of cell wall drug is "d
 ## PROTEIN SYNTHESIS
 
 ```{r}
-# Best model based on AUC :
+# Best model based on AUC : line 180
 lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
 
 pdf(file = "model_explanation_prot_synthesis.pdf", width = 14, height = 14 )
@@ -342,7 +347,9 @@ a = plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", ma
 # Load matrix correpsonding to the model : dosage with most interaction
 mat = matrix_container[20, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat)
+plot_heatmap(m = mat, name_size = 1)
+
+drugs_pred_prob_from_container(pred_data = matrix_container[180, ]$PredData[[1]], moa="protein_synthesis" )
 
 dev.off()
 ```
@@ -357,7 +364,7 @@ The result also depends on the threshold used (% of models with a given feature)
 ## MEMBRANE STRESS
 
 ```{r}
-# Best model based on AUC :
+# Best model based on AUC : line 172
 lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
 
 pdf(file = "model_explanation_membrane_stress.pdf", width = 14, height = 14 )
@@ -387,6 +394,8 @@ mat = matrix_container[2, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
 plot_heatmap(m = mat)
 
+drugs_pred_prob_from_container(pred_data = matrix_container[172, ]$PredData[[1]], moa="membrane_stress" )
+
 dev.off()
 ```
 
@@ -396,7 +405,7 @@ Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe 
 ## DNA
 
 ```{r}
-# Best model based on AUC :
+# Best model based on AUC : line 165
 lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
 
 pdf(file = "model_explanation_dna.pdf", width = 14, height = 14 )
@@ -420,11 +429,13 @@ par(mfrow= c(1,1))
 plot(RECC ~ NAGA, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
 plot(RECA ~ TOLQ, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
 
-a = plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.5, return_obj = T)
-# Load matrix correpsonding to the model : dosage with most interaction
+a = plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6, return_obj = T)
+# Load matrix correpsonding to the model : with All dosage
 mat = matrix_container[20, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat)
+plot_heatmap(m = mat, name_size = 1)
+
+drugs_pred_prob_from_container(pred_data = matrix_container[165, ]$PredData[[1]], moa="dna" )
 
 dev.off()
 ```
@@ -522,13 +533,42 @@ p <- plot_ly(mat_MDS_res, x = ~MDS1, y = ~MDS2, z = ~MDS3, color = ~process_broa
 ```
 
 
+## Kmeans or KNN based on a subspace of features
+
+```{r}
+best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP", "NumAromaticRings")
+best_feat_extended = c("SLT", "MRCB", "TOLB", "SPR", "SlogP", "ACRB", "GLMS", "ASMA", "RFAE", "SURA", "PAL", "RFAF", "IMP", "NAGA", "RECC", "RECA", "YCHJ", "TOLQ", "GUAB", "CYSB", "NUDB")
+
+input_data = matrix_container[20, ]$drug_feature_matrices[[1]]
+input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+    
+if("drugname_typaslab" %in% colnames(input_data)){
+        input_data = select(input_data, -drugname_typaslab)
+    }
+if("conc" %in% colnames(input_data)){
+    input_data = select(input_data, -conc)
+}
+
+input_data = input_data %>% select(process_broad, best_feat)
+    
+predictMoa = makeClassifTask(data = input_data, target = "process_broad")
+    
+lrn = makeLearner("classif.knn", par.vals = list(k = 1)) 
+model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "LOO", predict = "both"))
+    
+
+
+
+```
+
+
 
 # Features selection based on T test pvalue
 
 
 ```{r}
 
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = matrix_container[1, ]$drug_feature_matrices[[1]]
 mat = mat %>% select( -conc,  -drugname_typaslab)
 allRes = c()
 
@@ -539,10 +579,122 @@ for( moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
     
     for (i in colnames(matTmp)) {
         if(i != "process_broad"){
-            res[[i]] = t.test(matTmp[matTmp$process_broad == moa, i], matTmp[matTmp$process_broad != moa, i])$p.value
+            res[[i]] = wilcox.test(matTmp[matTmp$process_broad == moa, i], matTmp[matTmp$process_broad != moa, i])$p.value
         }
     }
+    res = sort(unlist(res))
     allRes = c(allRes, names(res[1:5]))
 }
+
+```
+
+
+
+
+
+
+# Model surgery
+
+Two best models for DNA in terms of AUC, almost equal but input data really different
+
+```{r}
+# line 26
+rf_model1 = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_most_interactions_top20pct_TRUE.rds")
+
+drugs_pred_prob_from_container(pred_data = matrix_container[26, ]$PredData[[1]], moa="dna" )
+
+
+# line 18
+rf_model2 = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top5pct_TRUE.rds")
+
+drugs_pred_prob_from_container(pred_data = matrix_container[18, ]$PredData[[1]], moa="dna" )
+```
+
+Actually line 26 is better after looking at the plots
+
+
+
+Test with one tree. You never know...
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+
+misclass_drugs = list()
+
+for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+    input_data = matrix_container[19, ]$drug_feature_matrices[[1]]
+    input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+    
+    if("drugname_typaslab" %in% colnames(input_data)){
+            input_data = select(input_data, -drugname_typaslab)
+        }
+    if("conc" %in% colnames(input_data)){
+        input_data = select(input_data, -conc)
+    }
+    
+    predictMoa = makeClassifTask(data = input_data, target = "process_broad")
+    
+    lrn = makeLearner("classif.rpart", par.vals = list(minsplit = 3)) 
+    model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "LOO", predict = "both"))
+    
+    # With LOO classification, see which drugs don't fit in a given tree
+    tough_drugs = which(model$measures.test$mmce == 1)
+    input_data = matrix_container[26, ]$drug_feature_matrices[[1]]
+    misclass_drugs[[moa]] = input_data$drugname_typaslab[tough_drugs]
+}
+
+
+# Multiclass
+
+input_data = matrix_container[19, ]$drug_feature_matrices[[1]]
+input_data = input_data %>% mutate(process_broad = replace(process_broad, !(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis")), "other"))
+
+
+if("drugname_typaslab" %in% colnames(input_data)){
+    input_data = select(input_data, -drugname_typaslab)
+}
+if("conc" %in% colnames(input_data)){
+    input_data = select(input_data, -conc)
+}
+
+predictMoa = makeClassifTask(data = input_data, target = "process_broad")
+
+lrn = makeLearner("classif.rpart", par.vals = list(minsplit = 10)) 
+model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "CV", predict = "both", iters = 10))
+
+
+rpart.plot::rpart.plot(model$learner.model, extra = 1)
+summary(model$learner.model)
+
+# with minsplit it overfits, find a way to label individuals in each leaf
+
+```
+
+
+Plot Boosting tree : always the same gene during ~50 trees, which correpsonds to the time needed for the weight put on the misclassified individuals to be big enough to change the way the preditcion is done
+
+```{r}
+# line 40
+xgb_10pc = readRDS("run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_TRUE.rds")
+
+input_data = matrix_container[40, ]$drug_feature_matrices[[1]]
+if("drugname_typaslab" %in% colnames(input_data)){
+        input_data = select(input_data, -drugname_typaslab)
+    }
+if("conc" %in% colnames(input_data)){
+    input_data = select(input_data, -conc)
+}
+
+ipak("DiagrammeR")
+a = xgb_10pc$`Nested CV 1`$`Outer fold 1`$model_dna$learner.model
+
+ipak("DiagrammeR")
+library(xgboost)
+
+xgb.plot.tree(model = a, trees = 1:10, feature_names = colnames(input_data)[-1])
+xgb.plot.tree(model = a, trees = 10:20, feature_names = colnames(input_data)[-1])
+
 
 ```
