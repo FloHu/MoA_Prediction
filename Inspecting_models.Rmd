@@ -225,7 +225,7 @@ Overview of the analysis :
 ## Heatmap function
 
 ```{r}
-plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 ) {
+plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL) {
     # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
     cluster_matrix <- m
     moa_to_colour <- c(cell_wall = "#FF0000FF",
@@ -239,6 +239,12 @@ plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 ) {
 
     rowcols <- moa_to_colour[process_lut]
     drugs_names = cluster_matrix$drugname_typaslab
+    if(!is.null(names_order)){
+        row_ord = unlist(lapply(names_order, function(x){which(cluster_matrix$drugname_typaslab== x)}))
+    }else{
+        row_ord = TRUE
+    }
+    
     cluster_matrix$drugname_typaslab <- NULL
    
     cluster_matrix$process_broad <- NULL
@@ -247,8 +253,10 @@ plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 ) {
     if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
     
     heatmap.2(cluster_matrix,
+              scale = "column",
               trace = "none",
-              breaks = c(seq(-10,10,length=50)), # use this i/o zlim
+              Rowv = row_ord, 
+              breaks = c(seq(-5,5,length=20)), # use this i/o zlim
               RowSideColors = rowcols,
               cexRow = name_size,
               labRow = drugs_names,
@@ -275,6 +283,13 @@ names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 
 
 ## CELL WALL 
+
+```{r}
+lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
+
+model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], moa = "cell_wall", pdf_filename = "test_analysis.pdf", model_type = "lasso")
+
+```
 
 ```{r}
 # Best model based on AUC : line 155
@@ -308,7 +323,11 @@ mat = matrix_container[2, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
 plot_heatmap(m = mat)
 
-drugs_pred_prob_from_container(pred_data = matrix_container[155, ]$PredData[[1]], moa="cell_wall" )
+#Same heatmap order by probabilities of prediction
+names_order = drugs_pred_prob_from_container(pred_data = matrix_container[155, ]$PredData[[1]], moa="cell_wall" )
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat,  names_order = names_order)
 
 dev.off()
 ```
@@ -349,7 +368,11 @@ mat = matrix_container[20, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
 plot_heatmap(m = mat, name_size = 1)
 
-drugs_pred_prob_from_container(pred_data = matrix_container[180, ]$PredData[[1]], moa="protein_synthesis" )
+#Same heatmap order by probabilities of prediction
+names_order = drugs_pred_prob_from_container(pred_data = matrix_container[180, ]$PredData[[1]], moa="protein_synthesis" )
+mat = matrix_container[20, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat, name_size = 1, names_order = names_order)
 
 dev.off()
 ```
@@ -396,6 +419,13 @@ plot_heatmap(m = mat)
 
 drugs_pred_prob_from_container(pred_data = matrix_container[172, ]$PredData[[1]], moa="membrane_stress" )
 
+#Same heatmap order by probabilities of prediction
+names_order = drugs_pred_prob_from_container(pred_data = matrix_container[172, ]$PredData[[1]], moa="membrane_stress" )
+mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = mat %>% select(drugname_typaslab, process_broad, names(a))
+plot_heatmap(m = mat, names_order = names_order)
+
+
 dev.off()
 ```
 
@@ -435,7 +465,9 @@ mat = matrix_container[20, ]$drug_feature_matrices[[1]]
 mat = mat %>% select(drugname_typaslab, process_broad, names(a))
 plot_heatmap(m = mat, name_size = 1)
 
-drugs_pred_prob_from_container(pred_data = matrix_container[165, ]$PredData[[1]], moa="dna" )
+#Same heatmap order by probabilities of prediction
+names_order = drugs_pred_prob_from_container(pred_data = matrix_container[165, ]$PredData[[1]], moa="dna" )
+plot_heatmap(m = mat, name_size = 1, names_order = names_order)
 
 dev.off()
 ```
@@ -535,29 +567,71 @@ p <- plot_ly(mat_MDS_res, x = ~MDS1, y = ~MDS2, z = ~MDS3, color = ~process_broa
 
 ## Kmeans or KNN based on a subspace of features
 
+Compare results of KNN in the all-feature space and limited best features space : For which MoA does it make a difference. Since we're using LOO CV, it's also easy to assesss which drugs are misclassified
+
 ```{r}
-best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP", "NumAromaticRings")
+best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP")
 best_feat_extended = c("SLT", "MRCB", "TOLB", "SPR", "SlogP", "ACRB", "GLMS", "ASMA", "RFAE", "SURA", "PAL", "RFAF", "IMP", "NAGA", "RECC", "RECA", "YCHJ", "TOLQ", "GUAB", "CYSB", "NUDB")
 
-input_data = matrix_container[20, ]$drug_feature_matrices[[1]]
-input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+
+run_KNN = function(feat_subset = NULL, knn_k = 1){
     
-if("drugname_typaslab" %in% colnames(input_data)){
-        input_data = select(input_data, -drugname_typaslab)
+    models_knn = list()
+    
+    for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+
+        input_data = matrix_container[20, ]$drug_feature_matrices[[1]]
+        input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+            
+        if("drugname_typaslab" %in% colnames(input_data)){
+                input_data = select(input_data, -drugname_typaslab)
+            }
+        if("conc" %in% colnames(input_data)){
+            input_data = select(input_data, -conc)
+        }
+        
+        if(!is.null(feat_subset)){
+            if(feat_subset == "random"){
+                input_data = input_data %>% select(process_broad, sample(colnames(input_data)[-1], size = length(best_feat), replace = F))
+            }else{
+                input_data = input_data %>% select(process_broad, feat_subset)
+            }
+        }
+        predictMoa = makeClassifTask(data = input_data, target = "process_broad")
+            
+        lrn = makeLearner("classif.knn", par.vals = list(k = knn_k)) 
+        model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "LOO", predict = "both"))
+        models_knn[[moa]] = model
     }
-if("conc" %in% colnames(input_data)){
-    input_data = select(input_data, -conc)
+    return(models_knn)
 }
 
-input_data = input_data %>% select(process_broad, best_feat)
-    
-predictMoa = makeClassifTask(data = input_data, target = "process_broad")
-    
-lrn = makeLearner("classif.knn", par.vals = list(k = 1)) 
-model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "LOO", predict = "both"))
-    
+knn_res = list()
+
+for(feat in list(NULL, best_feat_extended, best_feat, "random")){
+    for(nb_knn in c(1,2,3,4,5)){
+        print(length(knn_res))
+        name =  as.character(length(knn_res))
+        knn_res[[name]] <- run_KNN(feat_subset = feat, knn_k = nb_knn)
+    }
+}
 
 
+a = unlist(knn_res, recursive = F)
+a = lapply(a, function(x){x$aggr})
+
+a = as.data.frame(unlist(a))
+colnames(a) = "mmce"
+a$moa = rep(c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), times = 20)
+a$knn = rep(seq(1,5), each = 4)
+a$model = rep(c("all_feat_knn_", "best_feat_knn_", "best_feat_ext_knn_", "random"), each = 20)
+
+p1 = ggplot(data = a[1:20, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("All feat") + theme(legend.position="bottom")+ ylim(0,0.4)
+p2 = ggplot(data = a[21:40, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("Best feat ext") + theme(legend.position="bottom")+ ylim(0,0.4)
+p3 = ggplot(data = a[41:60, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("Best feat") + theme(legend.position="bottom") + ylim(0,0.4)
+p4 = ggplot(data = a[61:80, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("Random feat") + theme(legend.position="bottom") + ylim(0,0.4)
+
+grid.arrange(p1, p2, p3,p4, nrow = 1)
 
 ```
 
