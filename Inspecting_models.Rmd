@@ -287,8 +287,7 @@ names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 ```{r}
 lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
 
-model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], moa = "cell_wall", pdf_filename = "test_analysis.pdf", model_type = "lasso")
-
+model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", pdf_filename = "model_explanation_cell_wall.pdf", model_type = "lasso")
 ```
 
 ```{r}
@@ -338,6 +337,13 @@ We can see on the Heatmap that a robust and pure cluster of cell wall drug is "d
 ## PROTEIN SYNTHESIS
 
 ```{r}
+lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
+
+model_analysis(res_obj = lasso_5pc_most, matrix_container_line = matrix_container[180, ], matrix_container_line_noChemFeat = matrix_container[179, ] , moa = "protein_synthesis", pdf_filename = "model_explanation_protein_synthesis.pdf", model_type = "lasso")
+```
+
+
+```{r}
 # Best model based on AUC : line 180
 lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
 
@@ -379,7 +385,7 @@ dev.off()
 
 Here it is not really clear which features are driving the clusterization
 
-Potentialy TOLB, SPR, SlogP, ACRB and ACRA but also GLMS, ASMA, RFAE
+Potentialy ASMA and GLMS, maybe RFAE and ACRA
 
 The result also depends on the threshold used (% of models with a given feature)
 
@@ -387,11 +393,18 @@ The result also depends on the threshold used (% of models with a given feature)
 ## MEMBRANE STRESS
 
 ```{r}
-# Best model based on AUC : line 172
+lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
+
+model_analysis(res_obj = lasso_25pc_all, matrix_container_line = matrix_container[154, ], matrix_container_line_noChemFeat = matrix_container[153, ],  moa = "membrane_stress", pdf_filename = "model_explanation_membrane_stress.pdf", model_type = "lasso")
+```
+
+
+```{r}
+# Best model based on AUC : line 154
 lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
 
 pdf(file = "model_explanation_membrane_stress.pdf", width = 14, height = 14 )
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
+mat = matrix_container[154, ]$drug_feature_matrices[[1]]
 
 par(mfrow= c(1,1))
 plot_ROC_allRep(lasso_25pc_all, moa = "membrane_stress", plotAllRep = T)
@@ -429,10 +442,17 @@ plot_heatmap(m = mat, names_order = names_order)
 dev.off()
 ```
 
-Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe with SlogP and IMP (medium values, look at the boxplot repartition, it's funny)
+Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe HFQ, SlogP
 
 
 ## DNA
+
+```{r}
+lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
+
+model_analysis(res_obj = lasso_10pc_most, matrix_container_line = matrix_container[165, ], matrix_container_line_noChemFeat = matrix_container[166, ], moa = "dna", pdf_filename = "model_explanation_dna.pdf", model_type = "lasso")
+```
+
 
 ```{r}
 # Best model based on AUC : line 165
@@ -475,6 +495,30 @@ dev.off()
 DNA drugs cluster easily with RECC and RECA values
 
 Somehow NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (subclasses ?) or help seperating it from other MoA
+
+
+# Run of model analysis using best RF models
+
+
+```{r}
+
+# Line 18 corresp 17
+bestRF_dna = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top5pct_TRUE.rds")
+#Line 24 corresp 23
+bestRF_cell_wall = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_most_interactions_top15pct_TRUE.rds")
+#Line 6 corresp 5
+bestRF_membrane_stress = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top15pct_TRUE.rds")
+#Line 10 corresp 9
+bestRF_protein_synthesis = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_TRUE.rds")
+
+
+model_analysis(res_obj = bestRF_dna, matrix_container_line = matrix_container[18, ], matrix_container_line_noChemFeat = matrix_container[17, ], moa = "dna", pdf_filename = "model_explanation_RF_dna.pdf", model_type = "tree", feat_imp_thres = 0.9, topFeatThres = 0.95)
+model_analysis(res_obj = bestRF_cell_wall, matrix_container_line = matrix_container[24, ], matrix_container_line_noChemFeat = matrix_container[23, ], moa = "cell_wall", pdf_filename = "model_explanation_RF_cell_wall.pdf", model_type = "tree", feat_imp_thres = 0.9, topFeatThres = 0.95)
+model_analysis(res_obj = bestRF_membrane_stress, matrix_container_line = matrix_container[6, ], matrix_container_line_noChemFeat = matrix_container[5, ], moa = "membrane_stress", pdf_filename = "model_explanation_RF_membrane_stress.pdf", model_type = "tree", feat_imp_thres = 0.99, topFeatThres = 1)
+model_analysis(res_obj = bestRF_protein_synthesis, matrix_container_line = matrix_container[10, ], matrix_container_line_noChemFeat = matrix_container[9, ], moa = "protein_synthesis", pdf_filename = "model_explanation_RF_protein_synthesis.pdf", model_type = "tree", feat_imp_thres = 0.95, topFeatThres = 1)
+```
+
+Random Forest is really worse in feature selection and even if one select only features found in all the models, it still is too much. Threshold are quite high here, but otherwise pdf file are too big
 
 
 # FOCUS on best features driving the MoA
@@ -570,14 +614,13 @@ p <- plot_ly(mat_MDS_res, x = ~MDS1, y = ~MDS2, z = ~MDS3, color = ~process_broa
 Compare results of KNN in the all-feature space and limited best features space : For which MoA does it make a difference. Since we're using LOO CV, it's also easy to assesss which drugs are misclassified
 
 ```{r}
-best_feat = c("MRCB", "SLT","TOLB","SPR","SURA","PAL","RFAF","RECC","RECA","YLCG", "SlogP")
+best_feat = c("MRCB", "SLT","ASMA", "GLMS","RFAE", "ACRA" ,"SURA", "PAL", "RFAF", "HFQ", "SlogP", "RECC", "RECA") 
 best_feat_extended = c("SLT", "MRCB", "TOLB", "SPR", "SlogP", "ACRB", "GLMS", "ASMA", "RFAE", "SURA", "PAL", "RFAF", "IMP", "NAGA", "RECC", "RECA", "YCHJ", "TOLQ", "GUAB", "CYSB", "NUDB")
 
 
 run_KNN = function(feat_subset = NULL, knn_k = 1){
     
     models_knn = list()
-    
     for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
 
         input_data = matrix_container[20, ]$drug_feature_matrices[[1]]
@@ -634,6 +677,7 @@ p4 = ggplot(data = a[61:80, ]) + geom_line(mapping = aes(x = knn, y = mmce, colo
 grid.arrange(p1, p2, p3,p4, nrow = 1)
 
 ```
+
 
 
 

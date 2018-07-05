@@ -1,0 +1,89 @@
+A22	isothiourea
+AMOXICILLIN	beta_lactam
+AMPICILLIN	beta_lactam
+AZTREONAM	beta_lactam
+CARBENICILLIN	beta_lactam
+CEFACLOR	beta_lactam
+CEFOXITIN	beta_lactam
+CEFSULODIN	beta_lactam
+CEFTAZIDIME	beta_lactam
+CYCLOSERINED	oxazolidinone
+FOSFOMYCIN	phosphonic_acid
+GLUFOSFOMYCIN	phosphonic_acid
+MECILLINAM	beta_lactam
+OXACILLIN	beta_lactam
+TUNICAMYCIN	nucleoside_antibiotic
+ACRIFLAVINE	others
+ACTINOMYCIND	peptide
+AZIDOTHYMIDINE	nucleoside_analog
+BLEOMYCIN	peptide
+CIPROFLOXACIN	quinolone
+CISPLATIN	others
+DOXORUBICIN	anthracycline
+ETHIDIUMBROMIDE	others
+HYDROXYUREA	others
+LEVOFLOXACIN	quinolone
+METHOTREXATE	antimetabolite
+MITOMYCINC	others
+MMS	others
+NALIDIXICACID	quinolone
+NITROFURANTOIN	nitrofuran
+NORFLOXACIN	quinolone
+NOVOBIOCIN	aminocoumarin
+PHLEOMYCIN	peptide
+PROPIDIUMIODIDE	others
+RIFAMPICIN	macrolactam
+STREPTONIGRIN	aminoquinone
+SULFAMETHIZOLE	sulfonamide
+SULFAMONOMETHOXINE	sulfonamide
+TRIMETHOPRIM	sulfonamide
+UV	NA
+BACITRACIN	peptide
+BENZALKONIUM	detergent
+BILE	detergents
+CERULENIN	epoxide
+CHIR090	hydroxamic_acid
+CHOLATE	detergent
+DEOXYCHOLATE	detergent
+EGCG	catechin_gallate
+INDOLICIDIN	peptide
+POLYMYXINB	peptide
+SDS	detergent
+TAUROCHOLATE	detergent
+THIOLACTOMYCIN	thiolactone (?)
+TRICLOSAN	diphenylether
+TRITONX	detergent
+VANCOMYCIN	peptide
+CECROPINB	peptide
+PARAQUAT	
+PEROXIDE	
+PMS	
+PYOCYANIN	
+CCCP	aminobenzole
+DIBUCAINE	anesthetic
+NIGERICIN	polyether
+PROCAINE	anesthetic
+VERAPAMIL	
+RADICICOL	hydroxybenzoic_acid_derivative
+AMIKACIN	aminoglycoside
+AZITHROMYCIN	macrolide
+CHLORAMPHENICOL	phenylpropanoid
+CLARYTHROMYCIN	macrolide
+DOXYCYCLINE	tetracycline
+ERYTHROMYCIN	macrolide
+FUSIDICACID	fusidane
+GENTAMICIN	aminoglycoside
+MINOCYCLINE	tetracycline
+PUROMYCIN	aminonucleoside
+SPECTINOMYCIN	aminocylitol
+SPIRAMYCIN	macrolide
+STREPTOMYCIN	aminoglycoside
+TETRACYCLINE	tetracycline
+TOBRAMYCIN	aminoglycoside
+BICYCLOMYCIN	peptide
+CHLOROPROMAZINE	phenothiazine
+EPINEPHRINE	neurotransmitter
+ETHANOL	
+ISONIAZID	
+NOREPINEPHRINE	neurotransmitter
+THEOPHYLLINE	others
