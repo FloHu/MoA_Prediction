@@ -26,9 +26,13 @@ source("./R/ipak.R")
 source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-load("./data/matrix_container.RData")
 
-library(gridExtra)
+matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+ipak(plotmo)
+ipak(reshape2)
+ipak(gplots)
+ipak("gridExtra")
+ipak("plotly")
 ```
 
 # Hierarchical clusterings of drugs
@@ -388,6 +392,89 @@ boxplot(corData,
         col = rep(rainbow(2), times = 2), lwd = 1.5, outline = T, pch = 21
 )
 abline(h = 0, lty = "dotted")
+
+
+
+```
+
+
+
+Look at correlation between drugs chemical classes
+
+
+# Details of drugs chemical classes
+
+```{r}
+
+full_matrix = matrix_container[2, ]$drug_feature_matrices[[1]]
+tail(colnames(full_matrix), n = 14)
+chem_feat = tail(colnames(full_matrix), n = 13)
+
+labels = unique(full_matrix$drugname_typaslab)
+chem_class = read.table(file = "data/drugs_chem_classes.txt", header = FALSE, sep = "\t", stringsAsFactors = FALSE)
+chem_class = chem_class %>% filter(V1 %in% labels)
+
+
+chem_class$V2 = unlist(lapply(chem_class$V2, function(x){ifelse(x== "", "others", x)}))
+
+colnames(chem_class) = c("drugname_typaslab", "chem_class")
+full_matrix = left_join(full_matrix, chem_class, by = "drugname_typaslab")
+full_matrix = full_matrix %>% select(drugname_typaslab, process_broad, chem_class, chem_feat)
+full_matrix = unique(full_matrix)
+full_matrix = full_matrix %>% filter(chem_class %in% names(which(table(full_matrix$chem_class) >=2)))
+
+for (feat in colnames(full_matrix)[-c(1,2,3)]) {
+    boxplot(full_matrix[[feat]] ~ full_matrix$chem_class, main = feat)
+}
+
+```
+
+
+```{r}
+
+
+m = full_matrix %>% select(-drugname_typaslab, -process_broad, -chem_class)
+pca_data <- prcomp(m, scale = TRUE)
+
+barplot(pca_data$sdev / sum(pca_data$sdev))
+sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
+
+plotData <- as.data.frame(pca_data$x)
+plotData = cbind(plotData, process_broad = full_matrix$process_broad, chem_class = full_matrix$chem_class, names = full_matrix$drugname_typaslab)
+
+plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
+
+p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~chem_class, colors = rainbow(10)) %>%
+  add_markers(text = paste(plotData$process_broad, plotData$names)) %>%
+  layout(scene = list(xaxis = list(title = paste('PC1', as.character(round((pca_data$sdev / sum(pca_data$sdev))[1], digits = 3)))),
+                     yaxis = list(title =  paste('PC2', as.character(round((pca_data$sdev / sum(pca_data$sdev))[2], digits = 3)))),
+                     zaxis = list(title =  paste('PC3', as.character(round((pca_data$sdev / sum(pca_data$sdev))[3], digits = 3))))))
+
+
+# ========================================================================================
+
+cor(m)
+# TOO MUCH !
+for (feat in c("TPSA", "SlogP", "NumRings")) {
+    boxplot(full_matrix[[feat]] ~ full_matrix$chem_class, main = feat)
+}
+
+
+
+# ========================================================================================
+
+data = matrix_container[2, ]$drug_feature_matrices[[1]]  %>% select(-drugname_typaslab, -conc, -process_broad)
+
+test  = corr_feat_selection(data = data)
+matrix_container[2, ]$drug_feature_matrices[[1]] = matrix_container[2, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc, process_broad, colnames(test))
+
+x = ncol(test)
+matrix_container[2, ]$hyperparam_grid[[1]] = makeParamSet(
+                    makeDiscreteParam("ntree", values = c(200, 500)),
+                    makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
+                    )
+
+
 
 
 ```
