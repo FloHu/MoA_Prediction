@@ -2,7 +2,7 @@ knitr::opts_chunk$set(echo = T)
 knitr::opts_chunk$set(message = T)
 knitr::opts_chunk$set(warning = F)
 knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
+knitr::opts_chunk$set(cache = F)
 Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
 ipak(tidyverse)

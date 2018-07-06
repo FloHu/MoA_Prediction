@@ -41,7 +41,7 @@ of models, feature preselections etc and was saved in a separate results object
 putting them into `matrix_container` we will add new columns just containing the parts we are 
 interested in. 
 
-```{r reading_in}
+```{r reading_in, message = FALSE}
 # old matrix_container object
 load("./data/matrix_container.RData")
 matrix_container_old <- matrix_container
@@ -260,7 +260,7 @@ stability_assessment$feat_preselect <-
 Shows the distribution of probabilities for each drug across repeats of the nested CV. Can plot 
 only one model at a time. Grey rectangles indicate the dosage with the most interactions. 
 
-```{r ultimate_plots}
+```{r ultimate_plots, eval = FALSE}
 # Let's start with 2 ultimate plots for now: random forests, keepall, no chemical features, all dosages
 # (what we discussed with Nassos)
 # other stuff to come later
@@ -274,6 +274,18 @@ tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats 
               fitted_model == "classif.glmnet", drug_dosages == "all")
 
 ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_alldosages_nochemfeats.pdf")
+
+# and now both of them with just the "most_interactions" dosage
+tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats == FALSE, 
+              fitted_model == "classif.randomForest", drug_dosages == "most_interactions")
+
+ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_mostinteractions_nochemfeats.pdf")
+
+
+tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats == FALSE, 
+              fitted_model == "classif.glmnet", drug_dosages == "most_interactions")
+
+ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_mostinteractions_nochemfeats.pdf")
 ```
 
 
@@ -293,7 +305,7 @@ When fixing the following:
 --> What is the impact of feat_preselect on model stability, depending on the model type and the 
 hyperparameter grid?
 
-```{r}
+```{r, fig.width = 10, fig.height = 7}
 foo <- 
    stability_assessment %>%
    filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
@@ -312,7 +324,8 @@ p <-
    labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
         title = "Stabilities of MoA predictions, each drug = one point\n(no chem. feats, most_interactions, MoA modelled = MoA truth)") + 
    theme_bw()
-ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect.pdf")
+p
+ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect.pdf", width = 10, height = 7)
 
 
 # What about 'classif.xgboost'? - Possible that stabilities depend on hyperparameter grid?
@@ -325,12 +338,14 @@ p <-
    labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
         title = "Stabilities of MoA predictions: classif.xgboost only\n(no chem. feats, most_interactions, MoA modelled = MoA truth)") + 
    theme_bw()
+p
 ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
 ```
 
-Conclusion: Random forests is the most stable model, lasso the least stable one although the latter 
-has a big difference between individual drugs. For boosted trees, stabilities don't seem to differ 
-between different hyperparameter grids. 
+Conclusion: No apparent correlation between feat_preselect and stabilities of probabilities. 
+Random forests is the most stable model, lasso the least stable one although the latter 
+has a big difference between individual drugs. Boosted trees is in between and there stabilities 
+don't seem to differ between different hyperparameter grids. 
 
 
 #### Stabilities of probabilities: impact of all dosages vs. most_interactions
@@ -338,7 +353,7 @@ between different hyperparameter grids.
 Just like above, except that we now want to see whether models become more or less stable if all 
 dosages are used or only one dosage with most interactions. 
 
-```{r}
+```{r, fig.width = 16, fig.height = 10}
 foo <- 
    stability_assessment %>%
    filter(chemical_feats == FALSE) %>%
@@ -347,15 +362,13 @@ foo <-
    filter(moa_modelled_is_truth)
 head(foo)
 
-p <- 
-   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
-   geom_boxplot(aes(colour = drug_dosages), position = position_dodge(), outlier.shape = NA) + 
-   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = drug_dosages), size = 1, alpha = 0.5) + 
-   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
-   facet_grid(fitted_model ~ feat_preselect) + 
-   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+p <- ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = drug_dosages)) + 
+   facet_grid(process_broad ~ fitted_model) + 
+   labs(x = "Feature preselection", y = "Standard deviation of probabilities", 
         title = "Stabilities of MoA predictions: all dosages vs. most_interactions\n(no chem. feats, MoA modelled = MoA truth)") + 
-   theme_bw()
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p
 
 ggsave(plot = p, filename = "./plots/Prob_stabilities_all_vs_mostinteractions.pdf", width = 16)
@@ -376,8 +389,17 @@ ggsave(plot = p, filename = "./plots/Prob_stabilities_all_vs_mostinteractions_on
 ```
 
 Conclusion: most interactions is a lot more stable for random forests and less so for boosted trees. 
-The difference is probably not significant for lasso. Again, there is no influence of the 
-hyperparameter grid used for boosted trees. 
+For lasso there is also a trend to be more stable with most interactions but it's less clear and 
+depends on the mode of action. Again, there is no influence of the hyperparameter grid used for boosted trees. 
+
+Interestingly: stabilities change a bit between MoAs for random forests but only if all dosages are 
+used, not if just most_interactions are used, which would be another argument for using just one 
+dosage. 
+
+Why are stabilities quite different between MoAs between the MoAs, especially for lasso? Why are 
+most_interactions a lot more stable for RF but only a bit more stable for lasso? Can we conclude 
+anything from the stability differences between MoAs for the lasso or is this just the normal noise 
+of the model. 
 
 
 #### Stabilities of probabilities: impact of whether MoA modelled = truth
@@ -387,22 +409,21 @@ is the same as the MoA of the drug. So we ask whether drugs are more stably pred
 MoA or whether they are more stably predicted to be not their MoA. Check once for all dosages and 
 once for most_interactions. 
 
-```{r}
+```{r, fig.width = 16, fig.height = 10}
 foo <- 
    stability_assessment %>%
    filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
    select(-one_of("PredData", "auc_stabilities")) %>%
    unnest()
 
-p <- 
-   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
-   geom_boxplot(aes(colour = moa_modelled_is_truth), position = position_dodge(), outlier.shape = NA) + 
-   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = moa_modelled_is_truth), size = 1, alpha = 0.5) + 
-   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
-   facet_grid(fitted_model ~ feat_preselect) + 
-   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+p <- ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = moa_modelled_is_truth), outlier.size = 1) + 
+   facet_grid(process_broad ~ fitted_model) + 
+   labs(x = "Feature preselection", y = "Standard deviation of probabilities", 
         title = "Stabilities of MoA predictions: MoA modelled = truth or not\n(no chem. feats, most_interactions)") + 
-   theme_bw()
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
 
 ggsave(plot = p, filename = "./plots/Prob_stabilities_moa_modelled_is_truth_mostinteractions.pdf", width = 16)
 
@@ -413,22 +434,21 @@ foo <-
    select(-one_of("PredData", "auc_stabilities")) %>%
    unnest()
 
-p <- 
-   ggplot(foo, aes(x = process_broad, y = prob.moa_sd)) + 
-   geom_boxplot(aes(colour = moa_modelled_is_truth), position = position_dodge(), outlier.shape = NA) + 
-   geom_point(position = position_jitterdodge(jitter.width = 0.2), aes(colour = moa_modelled_is_truth), size = 1, alpha = 0.5) + 
-   geom_vline(xintercept = c(1.5, 2.5, 3.5), linetype = "dotted") + 
-   facet_grid(fitted_model ~ feat_preselect) + 
-   labs(x = "Mode of action modelled", y = "Standard deviation of probabilities", 
+p <- ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd)) + 
+   geom_boxplot(aes(colour = moa_modelled_is_truth), outlier.size = 1) + 
+   facet_grid(process_broad ~ fitted_model) + 
+   labs(x = "Feature preselection", y = "Standard deviation of probabilities", 
         title = "Stabilities of MoA predictions: MoA modelled = truth or not\n(no chem. feats, all dosages)") + 
-   theme_bw()
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p
 
 ggsave(plot = p, filename = "./plots/Prob_stabilities_moa_modelled_is_truth_alldosages.pdf", width = 16)
 ```
 
 Conclusion: if most interactions are kept: predictions where drug MoA = MoA modelled are more stable 
-except for lasso where it's vice versa. Interestingly, with all dosages, predictions are always more 
-stable if MoA != MoA modelled. 
+except for lasso where it's vice versa. Interestingly, with all dosages, predictions where MoA == 
+moa_modelled get a lot more unstable for RF. 
 
 
 
@@ -437,11 +457,11 @@ stable if MoA != MoA modelled.
 Which models have the best AUCs and how does it change between models, feature_preselections and so 
 on. Also allows assessing how stable AUCs are across repetitions of nested CV. 
 
-#### AUCs and AUC stabilities by model, feat_preselect and hyperparameter grid. 
+#### AUCs/AUC stabilities by feat_preselect 
 
 Without chemical features, using most_interactions. 
 
-```{r}
+```{r, fig.width = 16, fig.height = 10}
 foo <- 
    stability_assessment %>%
    filter(chemical_feats == FALSE, drug_dosages == "most_interactions") %>%
@@ -449,32 +469,39 @@ foo <-
    unnest()
 
 p <- 
-   ggplot(foo, aes(x = feat_preselect, y = auc)) + 
-   geom_boxplot(aes(colour = moa_modelled), position = position_dodge(), outlier.shape = NA) + 
-   geom_point(position = position_jitterdodge(jitter.width = 0.1), aes(colour = moa_modelled), size = 1, alpha = 0.5) + 
+   ggplot(foo, aes(x = moa_modelled, y = auc)) + 
+   geom_boxplot(aes(colour = feat_preselect), position = position_dodge(), outlier.shape = NA) + 
+   geom_point(position = position_jitterdodge(jitter.width = 0.1), aes(colour = feat_preselect), size = 1, alpha = 0.5) + 
    geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5), linetype = "dotted") + 
    facet_grid(fitted_model ~ .) + 
    labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
         title = "AUCs of MoA predictions\n(no chem. feats, most_interactions)") + 
    theme_bw()
+p
 
-ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages.pdf", width = 16)
+ggsave(plot = p, filename = "./plots/AUC_stabilities_mostinteractions.pdf", width = 16)
 ```
 
 Conclusion: it depends on the MoA:
 * `cell_wall` performs best overall and is relatively stable. top15pct seems to be better for RF 
-whereas top5pct is best for lasso. For lasso performance seems to drop with the higher number of 
+whereas top5pct is best for lasso. For lasso performance seems to drop slightly with the higher number of 
 features that are kept. 
 * `dna` also has a decent performance which is again quite stable. For lasso again the performance 
-seems to drop with the increasing number of features. But perhaps it also just reflects the 
+seems to drop slightly with the increasing number of features. But perhaps it also just reflects the 
 instability of the lasso model as performance goes up again later on. 
 * `protein_synthesis` performs poorly for RF and lasso with top5 and top10pct but performance goes 
 up with top15pct (RF) and top20pct (lasso), respectively. 
 * `membrane_stress` has overall the worst performance and is also the least stable. 
 
+When looking closely: cell_wall and dna are a bit more stable with RF. 
+
+The best compromise across lasso and RF would probably be top15pct. RF and lasso perform similarly 
+well, lasso perhaps only because of being less stable? 
+
+
 #### AUCs: all dosages vs. most_interactions
 
-```{r}
+```{r, fig.width = 16, fig.height = 10}
 foo <- 
    stability_assessment %>%
    filter(chemical_feats == FALSE) %>%
@@ -483,24 +510,23 @@ foo <-
 head(foo)
 
 p <- 
-   ggplot(foo, aes(x = moa_modelled, y = auc, colour = drug_dosages)) + 
+   ggplot(foo, aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
    geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
    geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1) + 
-   #stat_summary(fun.y = "median", geom = "point", colour = "red", size = 2) + 
-   geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5), linetype = "dotted") + 
-   facet_grid(fitted_model ~ feat_preselect) + 
+   facet_grid(moa_modelled ~ fitted_model) + 
    labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
-        title = "AUCs of MoA predictions\n(no chem. feats)") + 
+        title = "AUCs of MoA predictions: all dosages vs. most_interactions\n(no chem. feats)") + 
    theme_bw() + 
    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p
-ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", width = 16)
+
+ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", width = 16, height = 10)
 ```
 
 Conclusions: 
 * RF: 
-   + cell_wall and dna: aucs are very similar between all dosages and most_interactions. 
-   + For membrane_stress, most_interactions always performs worse. 
+   + cell_wall and dna: most_interactions performs slightly better. 
+   + For membrane_stress, most_interactions almost always performs worse. 
    + For protein_synthesis most_interactions performs worse up to top15pct and for higher feature numbers it's very similar. 
 * Lasso: 
    + cell_wall: aucs are very similar up to top20pct, after that, most_interactions gets worse. 
@@ -508,10 +534,12 @@ Conclusions:
    + membrane_stress: most_interactions sometimes worse, sometimes equal - it depends.
    + protein_synthesis: most_interactions almost always performs worse. 
 
+Could this be an effect of increased specificity with many dosages? 
+
 
 #### AUCs: with and without chemical features (only looking at most_interactions)
 
-```{r}
+```{r, fig.width = 16, fig.height = 10}
 foo <- 
    stability_assessment %>%
    filter(drug_dosages == "most_interactions") %>%
@@ -519,18 +547,17 @@ foo <-
    unnest()
 
 p <- 
-   ggplot(foo, aes(x = moa_modelled, y = auc, colour = chemical_feats)) + 
+   ggplot(foo, aes(x = feat_preselect, y = auc, colour = chemical_feats)) + 
    geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
    geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1) + 
-   #stat_summary(fun.y = "median", geom = "point", colour = "red", size = 2) + 
-   geom_vline(xintercept = c(1.5, 2.5, 3.5, 4.5), linetype = "dotted") + 
-   facet_grid(fitted_model ~ feat_preselect) + 
+   facet_grid(moa_modelled ~ fitted_model) + 
    labs(x = "Mode of action modelled", y = "AUC (one dot per repeat of nested CV)", 
-        title = "AUCs of MoA predictions\n(most_interactions)") + 
+        title = "AUCs of MoA predictions: with vs. without chemical features\n(most_interactions)") + 
    theme_bw() + 
    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p
-ggsave(plot = p, filename = "./plots/AUC_stabilities_plusminus_chemical_feats.pdf", width = 16)
+
+ggsave(plot = p, filename = "./plots/AUC_stabilities_plusminus_chemical_feats.pdf", width = 16, height = 10)
 ```
 
 Conclusions: chemical features bring big improvement in performance for protein_synthesis and, 
@@ -553,7 +580,7 @@ This is a bit tricky because we need to get `the_matrix` from the first notebook
 after the `do(select_mutant(.))` step. In addition, the number of significant interactions will 
 depend on the number of features that have been preselected. 
 
-```{r}
+```{r, eval = FALSE}
 the_matrix <- readRDS("./data/the_matrix_after_select_mutant.rds")
 
 get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
@@ -590,7 +617,7 @@ matrix_container_ext$PredDataWithNSignif <-
 Now we can test how prediction probabilities compare with number of significant interactions. Take 
 again RF, all dosages, no chemical features, keepall (same as ultimate plot above). 
 
-```{r}
+```{r, eval = FALSE}
 tmp <- filter(matrix_container_ext, fitted_model == "classif.randomForest", feat_preselect == "keepall", 
               chemical_feats == FALSE, drug_dosages == "all")
 stopifnot(nrow(tmp) == 1)
@@ -623,7 +650,7 @@ ggsave(filename = "./plots/Probabilities_vs_NSignif_cell_wall.pdf")
 # Exploring matrix container - ROC curves 
 
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 
 resMatrix = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
 
