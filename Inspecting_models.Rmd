@@ -548,8 +548,9 @@ barplot(pca_data$sdev / sum(pca_data$sdev))
 var_3pca = sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
 
 plotData <- as.data.frame(pca_data$x)
-plotData = cbind(plotData, process_broad = mat$process_broad)
+plotData = cbind(plotData, process_broad = mat$process_broad, drugnames = mat$drugname_typaslab)
 
+plotData$process_broad = as.character(plotData$process_broad)
 plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
 
 p1 <- ggplot(plotData, aes(x = PC1, y = PC2)) +
@@ -575,8 +576,8 @@ ggtitle(" PC 4 and 5 ")
 grid.arrange(p1, p2, p4, p3, nrow = 2)
 
 
-p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF","white", "white", "white", "#8000FFFF") ) %>%
-  add_markers() %>%
+p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF", "black" , "#8000FFFF") ) %>%
+  add_markers(text = ~drugnames) %>%
   layout(scene = list(xaxis = list(title = 'PC1'),
                      yaxis = list(title = 'PC2'),
                      zaxis = list(title = 'PC3')))
@@ -710,9 +711,6 @@ for( moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
 
 
 
-
-
-
 # Model surgery
 
 Two best models for DNA in terms of AUC, almost equal but input data really different
@@ -818,3 +816,6 @@ xgb.plot.tree(model = a, trees = 10:20, feature_names = colnames(input_data)[-1]
 
 
 ```
+
+
+

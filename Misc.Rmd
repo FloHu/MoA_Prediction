@@ -475,6 +475,30 @@ matrix_container[2, ]$hyperparam_grid[[1]] = makeParamSet(
                     )
 
 
+```
+
+
+
+# ROC Curves of one feature
+
+
+
+```{r}
+
+dt_mat = matrix_container[1, ]$drug_feature_matrices[[1]]
+
+all_feat = colnames(dt_mat)[-c(1,2,3)]
+
+areas = list()
+
+for(f in all_feat){
+    
+    for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+        cat(f, " - ", moa, "\n")
+        a = ROC_curve_1feat(dt_mat = dt_mat, moa = moa, feat = f)
+        areas[[moa]] = c(areas[[moa]], a$auc)
+    }
+}
 
 
 ```

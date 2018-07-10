@@ -165,6 +165,14 @@ selector <-
    ungroup() %>%
    pull(selector)
 
+selector_2dosages <- 
+   the_matrix_signifs %>%
+   group_by(drugname_typaslab) %>%
+   arrange(conc, .by_group = TRUE) %>%
+   do(select_dosage_most_ias_2(.)) %>%
+   ungroup() %>%
+   pull(selector)
+
 the_matrix <- the_matrix %>%
    group_by(drugname_typaslab) %>%
    arrange(conc, .by_group = TRUE) %>%
@@ -172,6 +180,7 @@ the_matrix <- the_matrix %>%
 
 the_matrix_alldosgs_nochemfeats <- the_matrix
 the_matrix_mostias_nochemfeats <- the_matrix[selector, ]
+the_matrix_mostias_nochemfeats_2dosages <- the_matrix[selector_2dosages, ]
 ```
 
 
@@ -271,7 +280,6 @@ matrix_container <-
 matrix_container$drug_feature_matrices <- 
    map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
 ```
-
 
 ## Adding model and hyperparameter specifications
 
@@ -388,6 +396,65 @@ matrix_container <- do.call(rbind, map(hyperparam_container, ~bind_cols(matrix_c
 
 save(matrix_container, file = "./data/matrix_container.RData")
 ```
+
+
+# New small matrix container - 10/07/2018
+
+Do the same with matrix with 2 dosages with most significant phenotypes. 
+And also get rid of the "other" MoA (different from cell_wall, dna, membrane_stress, protein_synthesis)
+
+```{r}
+
+the_matrix_mostias_nochemfeats_2dosages = left_join(the_matrix_mostias_nochemfeats_2dosages, my_labels_knowndrugs)
+the_matrix_mostias_nochemfeats_2dosages = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, everything())
+the_matrix_mostias_nochemfeats_2dosages = the_matrix_mostias_nochemfeats_2dosages %>% filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
+
+saveRDS(object = the_matrix_mostias_nochemfeats_2dosages, file = "data/matrix_2mostia_mainMoA.rds")
+
+```
+
+The saved matrix can be used (loaded) to run a resampling instance creation with the appropriate notebook.
+Once generated, the resampling object need to be loaded
+
+```{r}
+
+instance_2mostia_mainMoA = readRDS(file = "data/RNCV_instance_2mostia_mainMoa.rds")
+
+tmp = list()
+tmp[1:6] = list(the_matrix_mostias_nochemfeats_2dosages)
+
+matrix_container_new <- 
+   tibble(datasets_included = rep("nichols_2011", 6), 
+          drug_dosages =  rep("most2_interactions", 6), 
+          feat_preselect = c("all", "all", "corr", "corr", "protCmplx", "protCmplx"), 
+          chemical_feats = rep(FALSE, 6), 
+          drug_feature_matrices = tmp)
+
+matrix_container_new$tuning_measure <- list("meas" = list(auc, mmce, ppv))
+matrix_container_new$resamp_instance <- list(instance_2mostia_mainMoA)
+
+
+lasso_hyp_param <- 
+   makeParamSet(
+      makeDiscreteParam("alpha", 1), 
+      makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
+   )
+
+rf_hyp_param <- 
+   lapply(
+      map_dbl(matrix_container$drug_feature_matrices, ncol), 
+      function(x) {
+         x <- x - 3 # to account for drugname, process_broad, conc
+         makeParamSet(
+            makeDiscreteParam("ntree", values = c(200, 500)), 
+            makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
+         )
+      }
+   )
+names(rf_hyp_param) <- rep_len("rf_hyp_param", length(rf_hyp_param))
+
+```
+
 
 
 # System and session info
