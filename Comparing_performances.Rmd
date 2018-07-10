@@ -26,8 +26,8 @@ source("./R/ipak.R")
 source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-library(cowplot)
-library(pryr)
+# library(cowplot)
+# library(pryr)
 ```
 
 
@@ -45,12 +45,6 @@ interested in.
 # old matrix_container object
 load("./data/matrix_container.RData")
 matrix_container_old <- matrix_container
-
-# just an example of a results object
-load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
-example_res <- result_RF_10pc_allDrugs_tuneMMCE
-rm(result_RF_10pc_allDrugs_tuneMMCE)
-
 
 ##################################################
 ##### ROUTINE TO READ IN ALL RESULTS OBJECTS #####
@@ -72,7 +66,8 @@ if (file.exists("./data/matrix_container_withextractions.rds")) {
 }
 
 # available results files
-available_files <- list.files("./run_results_from_server/matrix_container_result/")
+available_files <- list.files("./run_results_from_server/matrix_container_result/", 
+                              pattern = "xgboost|rf|lasso")
 moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
 
 # loop to read in results files
@@ -113,6 +108,14 @@ for (rownum in seq_len(nrow(matrix_container))) {
 
 #  update
 saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
+
+# to get an example of a results object
+my_row <- matrix_container[1, ]
+(my_filename <- paste(unlist(my_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_"))
+my_filename <- paste0("./run_results_from_server/matrix_container_result/", my_filename, ".rds")
+stopifnot(file.exists(my_filename))
+example_res <- readRDS(my_filename)
+rm(my_row, my_filename)
 ```
 
 
