@@ -100,6 +100,13 @@ plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj =
     
     colMap = rainbow(length(unique(eff)))
     names(colMap) = unique(eff)
+    
+    # test
+    a = data.frame(feat_name = names(feat_cat), len = unlist(lapply(feat_cat, length)), med = unlist(lapply(feat_cat, median)))
+    a = arrange(a, len, med)
+    feat_cat = feat_cat[as.character(a$feat_name)]
+    # end test
+    
     par(mar = c(5,10,4,2))
     boxplot(feat_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], ...)
     

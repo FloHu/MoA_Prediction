@@ -126,6 +126,9 @@ for(i in 1:10){
 ```
 
 
+
+
+
 A bunch of getters and test functions
 
 ```{r}
@@ -229,6 +232,35 @@ for(i in 1:length(Rep_Nest_CV_instance_allDosage)){
 # With this tricky resampling strategy, the same drugs are in the exact same sets in both cases (with or whithout all dosages)
 # Only difference is that using all dosage, drugs are in a way present multiple times
 # ================
+
+```
+
+
+# Resampling instance - 2 mostIA dosages + main MoA
+
+Load the matrix, get rid of doubles, run once the instance creation and run again the chunk above.
+
+```{r}
+
+matrix_2mostia_mainMoa = readRDS(file = "data/matrix_2mostia_mainMoA.rds")
+Rep_Nest_CV_instance = list()
+dataset = matrix_2mostia_mainMoa[c(TRUE, FALSE), ] 
+
+for(i in 1:10){
+    name = paste("NCV_", as.character(i), sep="")
+    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = dataset, printTest = F)
+}
+
+
+# Then run : 
+dataset_allDosage = matrix_2mostia_mainMoa
+dataset_newDrugs = dataset
+Rep_Nest_CV_instance_newDrugs = Rep_Nest_CV_instance
+Rep_Nest_CV_instance_allDosage = Rep_Nest_CV_instance_newDrugs
+
+# And then run the for loop of the chunk above. It is clearly not the most convenient way. The chunk wasn't suposed to be used multiple times when it was written...
+
+saveRDS(object = Rep_Nest_CV_instance_allDosage, file = "data/RNCV_instance_2mostia_mainMoa.rds")
 
 ```
 
