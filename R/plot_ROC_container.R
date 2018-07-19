@@ -45,7 +45,7 @@ plot_ROC_from_container = function(containerObj, moa = "all", by = NULL){
             AUCdata = round(unlist(AUCdata), digits = 3)
             plotData$moa_modelled = paste0(plotData$moa_modelled, " AUC : ",AUCdata[plotData$moa_modelled])
             
-            plot_title = paste(containerObj[containerRow, ]$hyperparam_grid_name,
+            plot_title = paste(containerObj[containerRow, ]$fitted_model,
                                containerObj[containerRow, ]$drug_dosages,
                                containerObj[containerRow, ]$feat_preselect,
                                containerObj[containerRow, ]$chemical_feats, sep="_")
@@ -109,7 +109,7 @@ plot_ROC_from_container = function(containerObj, moa = "all", by = NULL){
             
             AUCdata = round(computeAUC(plotData), digits = 3)
             
-            plotData$run_name  = paste(containerObj[containerRow, ]$hyperparam_grid_name,
+            plotData$run_name  = paste(containerObj[containerRow, ]$fitted_model,
                                containerObj[containerRow, ]$drug_dosages,
                                containerObj[containerRow, ]$feat_preselect,
                                containerObj[containerRow, ]$chemical_feats,

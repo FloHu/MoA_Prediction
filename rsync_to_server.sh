@@ -6,7 +6,7 @@
 # in the 'MoA_Prediction' project (Github) to the EMBL server (/home/dubois/MoA_Prediction)
 # so that jobs can be executed on the cluster.
 
-SOURCEFILES="clusterscripts/*.sh clusterscripts/*.R R/*.R data/*.RData"
+SOURCEFILES="clusterscripts/*.sh clusterscripts/*.R R/*.R data/*.RData data/*.rds"
 TO_HOSTNAME="login.cluster.embl.de"
 USER=$(whoami)
 TARGETDIR="/home/dubois/MoA_Prediction"

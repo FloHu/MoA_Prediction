@@ -119,6 +119,67 @@ rm(my_row, my_filename)
 ```
 
 
+
+## Extracting results of the new matrix container
+
+Similar to the one above but for the anlysis based on the matrix using 2 dosages by drug (most interactions)
+
+```{r reading_in, message = FALSE}
+
+matrix_container_new = readRDS("data/matrix_container_new.rds")
+
+matrix_container_new$ThreshVsPerfData <- list(NA)
+matrix_container_new$PredData <- list(NA)
+
+# available results files
+available_files <- list.files("./run_results_from_server/matrix_container_result/", 
+                              pattern = "most2")
+moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+
+# loop to read in results files
+for (rownum in seq_len(nrow(matrix_container_new))) {
+   matrix_container_row <- matrix_container_new[rownum, ]
+   # look for a file corresponding to a row
+   targetfile <- paste(unlist(matrix_container_row[, c("drug_dosages", "fitted_model",  "feat_preselect", "chemical_feats")]), collapse = "_")
+   targetfile <- paste0(targetfile, ".rds")
+   my_match <- available_files[available_files == targetfile]
+   
+   # check if values are not defined: if yes: check if matching file exists or continue
+   # if values are already defined means we parsed a corresponding results object previously so we 
+   # can continue
+   if ( any(is.na(unlist(matrix_container_row[, c("ThreshVsPerfData", "PredData")]))) ) {
+      if (length(my_match) > 0) {
+         cat("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
+      } else {
+         cat("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
+         # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
+         next
+      }
+   } else {
+      cat("Row ", rownum, " already populated, continuing to next line.\n")
+      next
+   }
+   
+   resultsobj <- readRDS(paste0("./run_results_from_server/matrix_container_result/", my_match))
+   
+   # extract ThreshVsPerfData and prediction object data using some custom functions
+   matrix_container_new$ThreshVsPerfData[[rownum]] <- map_dfr(moas, prediction_merger, res = resultsobj, extractorfunc = perf_extractor)
+   
+   # get prediction data, add drug name information and concentration
+   pred_data <- map_dfr(moas, prediction_merger, res = resultsobj, extractorfunc = pred_extractor)
+   pred_data$drugname_typaslab <- (matrix_container_row$drug_feature_matrices[[1]])$drugname_typaslab[pred_data$id]
+   pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
+   matrix_container_new$PredData[[rownum]] <- pred_data
+}
+
+#  update
+saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
+
+```
+
+
+    
+
 ## Adding more information - `matrix_container_ext`
 
 Add information about MoA for each drug and which dosage is the dosage with most interactions. 

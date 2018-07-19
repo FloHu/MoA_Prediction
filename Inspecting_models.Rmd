@@ -28,6 +28,8 @@ source("./setup.R")
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
+
 ipak(plotmo)
 ipak(reshape2)
 ipak(gplots)
@@ -523,6 +525,179 @@ model_analysis(res_obj = bestRF_protein_synthesis, matrix_container_line = matri
 Random Forest is really worse in feature selection and even if one select only features found in all the models, it still is too much. Threshold are quite high here, but otherwise pdf file are too big
 
 
+# Run of model analysis - New matrix container
+
+Total overview
+
+```{r}
+
+pdf(file= "new_matrix_container_results/matrix_container_new_allROC.pdf", height = 32, width = 17)
+plot_ROC_from_container(containerObj = matrix_container_new, moa = "all", by = c("feat_preselect", "fitted_model"))
+dev.off()
+
+```
+
+Overview by Model type and MoA
+
+```{r}
+
+pdf(file = "new_matrix_container_results/EN_overview.pdf", width = 24, height = 17)
+p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "dna")
+p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "cell_wall")
+p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "membrane_stress")
+p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "protein_synthesis")
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+dev.off()
+
+pdf(file = "new_matrix_container_results/RF_overview.pdf", width = 24, height = 17)
+p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "dna")
+p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "cell_wall")
+p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "membrane_stress")
+p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "protein_synthesis")
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+dev.off()
+
+```
+
+Analysis of these plots allows to decide which models should we focus on.
+Since multiple model display similar perfromances, one should look for interpretability
+
+
+```{r}
+
+
+# Best model (highest AUC)
+
+res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_corr06_FALSE.rds")
+model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[1, ], matrix_container_line_noChemFeat = matrix_container_new[1, ], moa = "dna", pdf_filename = "new_matrix_container_results/best_dna_results.pdf", model_type = "tree", feat_imp_thres = 0.98, topFeatThres = 0.98)
+rm(res_best_dna)
+
+res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_all_FALSE.rds")
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], matrix_container_line_noChemFeat = matrix_container_new[1, ], moa = "membrane_stress", pdf_filename = "new_matrix_container_results/best_membrane_stress_results.pdf", model_type = "tree", feat_imp_thres = 1, topFeatThres = 1)
+rm(res_best)
+
+res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_protCmplx_FALSE.rds")
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], matrix_container_line_noChemFeat = matrix_container_new[7, ], moa = "protein_synthesis", pdf_filename = "new_matrix_container_results/best_protein_synthesis_results.pdf", model_type = "lasso", feat_imp_thres = 1, topFeatThres = 1)
+rm(res_best)
+
+res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_all_FALSE.rds")
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], matrix_container_line_noChemFeat = matrix_container_new[1, ], moa = "cell_wall", pdf_filename = "new_matrix_container_results/best_cell_wall_results.pdf", model_type = "lasso", feat_imp_thres = 0.6, topFeatThres = 0.9)
+rm(res_best)
+
+```
+
+
+Results : MoA prediction - Driving Genes
+
+cell_wall
+MRCB, SLT (YEJE, YBAB)
+
+dna
+RECG, XERC, YDFI, MOTA, TPX, YGFA, RECN, HUPA
+
+protein_synthesis
+RYFC, YAIU, GLXK, YGAZ_YGAH, YHFW, YGAT, DSRB, KSGA 
+
+membrane_stress
+RFAF, YJHQ, YRAP, YJJG, YDCH, PLDB, YBGC
+
+
+PCA visualization
+
+```{r}
+
+chemogeno_fingerpint = c("MRCB", "SLT", "YEJE", "YBAB",
+                         "RECG", "XERC", "YDFI", "MOTA", "TPX", "YGFA", "RECN", "HUPA",
+                         "RYFC", "YAIU", "GLXK", "YGAZ_YGAH", "YHFW", "YGAT", "DSRB", "KSGA",
+                         "RFAF", "YJHQ", "YRAP", "YJJG", "YDCH", "PLDB", "YBGC")
+
+
+full_mat = bind_cols(x = matrix_container_new[1, ]$drug_feature_matrices[[1]],
+                      y = matrix_container_new[7, ]$drug_feature_matrices[[1]]) 
+
+fingerprint_mat = full_mat %>% select(drugname_typaslab, process_broad, chemogeno_fingerpint)
+
+
+m = fingerprint_mat %>% select(chemogeno_fingerpint)
+pca_data <- prcomp(m, scale = TRUE)
+
+barplot(pca_data$sdev / sum(pca_data$sdev))
+var_3pca = sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
+
+plotData <- as.data.frame(pca_data$x)
+plotData = cbind(plotData, process_broad = fingerprint_mat$process_broad, drugnames = fingerprint_mat$drugname_typaslab)
+
+p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF") ) %>%
+  add_markers(text = ~drugnames) %>%
+  layout(scene = list(xaxis = list(title = 'PC1'),
+                     yaxis = list(title = 'PC2'),
+                     zaxis = list(title = 'PC3')))
+```
+
+Now KNN models to test prediction based on that
+
+```{r}
+
+run_KNN = function(feat_subset = NULL, knn_k = 1, dataMat){
+    
+    models_knn = list()
+    for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
+
+        input_data = dataMat
+        input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
+        blockFactor = as.factor(input_data$drugname_typaslab)
+        
+        if("conc" %in% colnames(input_data)){
+            input_data = select(input_data, -conc)
+        }
+        
+        if(!is.null(feat_subset)){
+                input_data = input_data %>% select(process_broad, feat_subset)
+        }
+        predictMoa = makeClassifTask(data = input_data, target = "process_broad", blocking = blockFactor)
+            
+        lrn = makeLearner("classif.knn", par.vals = list(k = knn_k))
+        
+        model = resample(learner = lrn,task =  predictMoa, resampling = makeResampleDesc(method = "LOO", predict = "both"))
+        models_knn[[moa]] = model
+    }
+    return(models_knn)
+}
+
+# ==============================================================================
+
+randomFeat = sample(colnames(full_mat)[-c(1,2,3)], size = length(chemogeno_fingerpint), replace = F)
+
+knn_res = list()
+# Don't test with 1 cause it might be the replicate with another dosage
+for(feat in list(chemogeno_fingerpint, randomFeat)){
+    for(nb_knn in c(3,5,7,9,11)){
+        print(length(knn_res))
+        name =  as.character(length(knn_res))
+        knn_res[[name]] <- run_KNN(feat_subset = feat, knn_k = nb_knn, dataMat = full_mat)
+    }
+}
+
+a = unlist(knn_res, recursive = F)
+a = lapply(a, function(x){x$aggr})
+
+a = as.data.frame(unlist(a))
+colnames(a) = "mmce"
+a$moa = rep(c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), times = 5)
+a$knn = rep(c(3,5,7,9,11), each = 4)
+a$model = rep(c("chemogeno_fingerpint", "randomFeat"), each = 20)
+
+
+p1 = ggplot(data = a[1:20, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("chemogeno_fingerpint") + theme(legend.position="bottom")+ ylim(0,0.5)
+p2 = ggplot(data = a[21:40, ]) + geom_line(mapping = aes(x = knn, y = mmce, color = moa), lwd = 1.5) + theme_bw() + scale_color_manual(values = rainbow(4)) + ggtitle("randomFeat") + theme(legend.position="bottom")+ ylim(0,0.5)
+
+
+grid.arrange(p1, p2, nrow = 1)
+
+
+```
+
+
 # FOCUS on best features driving the MoA
 
 Quick look : does it make sense to use only features mentioned above ?
@@ -621,12 +796,12 @@ best_feat = c("MRCB", "SLT","ASMA", "GLMS","RFAE", "ACRA" ,"SURA", "PAL", "RFAF"
 best_feat_extended = c("SLT", "MRCB", "TOLB", "SPR", "SlogP", "ACRB", "GLMS", "ASMA", "RFAE", "SURA", "PAL", "RFAF", "IMP", "NAGA", "RECC", "RECA", "YCHJ", "TOLQ", "GUAB", "CYSB", "NUDB")
 
 
-run_KNN = function(feat_subset = NULL, knn_k = 1){
+run_KNN = function(feat_subset = NULL, knn_k = 1, dataMat){
     
     models_knn = list()
     for (moa in c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
 
-        input_data = matrix_container[20, ]$drug_feature_matrices[[1]]
+        input_data = dataMat
         input_data = input_data %>% mutate(process_broad = replace(process_broad, process_broad != moa, paste0("not_", moa)))
             
         if("drugname_typaslab" %in% colnames(input_data)){

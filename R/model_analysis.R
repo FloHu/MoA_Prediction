@@ -48,12 +48,13 @@ plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL
               col = colorRampPalette(c("red", "white", "blue")),
               margins = c(12, 9),
               dendrogram = dend) # only draw row dendrogram
-    legend("top",
-           legend = names(moa_to_colour),
-           col = moa_to_colour,
-           lty = 1,
-           lwd = 10)
-    
+    if(dend != "both"){
+        legend("top",
+               legend = names(moa_to_colour),
+               col = moa_to_colour,
+               lty = 1,
+               lwd = 10)
+    }
     if(plotFile){ dev.off() }
 }
 
@@ -97,6 +98,12 @@ plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj =
     # filter
     feat_cat = feat_cat[(eff/80) >= thres]
     eff = eff[(eff/80) >= thres]
+    
+    #Remove coefficient whose impact on the model is ambigous
+    if(model_type == "lasso"){
+        toKeep = unlist(lapply(feat_cat, function(x){length(table(x > 0)) == 1}))
+        feat_cat = feat_cat[toKeep]
+    }
     
     colMap = rainbow(length(unique(eff)))
     names(colMap) = unique(eff)
@@ -173,11 +180,11 @@ model_analysis = function(res_obj , matrix_container_line, matrix_container_line
     if(nrow(mat) > 100){
         plot_heatmap(m = mat, names_order = names_order)
         plot_heatmap(m = mat, names_order = names_order, scaleMethod = "none")
-        plot_heatmap(m = mat, names_order = names_order, clust = "column")
+        plot_heatmap(m = mat, names_order = names_order, clust = "both")
     }else{
         plot_heatmap(m = mat, names_order = names_order, name_size = 0.9)
         plot_heatmap(m = mat, names_order = names_order, scaleMethod = "none", name_size = 0.9)
-        plot_heatmap(m = mat, names_order = names_order, clust = "column", name_size = 0.9)
+        plot_heatmap(m = mat, names_order = names_order, clust = "both", name_size = 0.9)
     }
    
     

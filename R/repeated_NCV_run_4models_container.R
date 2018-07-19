@@ -6,7 +6,7 @@
 
 repeated_NCV_run_4models_container = function(data_container, line_number, predict_type = "prob"){
     
-    if(line_number > dim(matrix_container)[1]){
+    if(line_number > dim(data_container)[1]){
         return("Incorrect line number")
     }
 

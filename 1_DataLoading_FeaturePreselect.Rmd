@@ -295,7 +295,7 @@ matrix_container_tmp <- matrix_container
 
 # stuff common to all: tuning measures, CV instances
 load("./data/Rep_Nest_CV_instance_newDrugs.RData") # normal instanced repeated stratified CV
-load("./data/Rep_Nest_CV_instance_allDosage.RData ") # as above but with dosages blocked together
+load("./data/Rep_Nest_CV_instance_allDosage.RData") # as above but with dosages blocked together
 
 matrix_container$tuning_measure <- list("auc" = list(auc, mmce, ppv))
 matrix_container$resamp_instance <- 
@@ -416,45 +416,144 @@ saveRDS(object = the_matrix_mostias_nochemfeats_2dosages, file = "data/matrix_2m
 The saved matrix can be used (loaded) to run a resampling instance creation with the appropriate notebook.
 Once generated, the resampling object need to be loaded
 
+
+Edit the data matrices with the right filtering
+
+First correlation based feature preselection
+```{r}
+mat_corr07 = corr_feat_selection(data = the_matrix_mostias_nochemfeats_2dosages %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.7)
+mat_corr07 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corr07))
+
+mat_corr06 = corr_feat_selection(data = mat_corr07 %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.6)
+mat_corr06 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corr06))
+
+mat_corrBonf01 = corr_feat_selection(data = the_matrix_mostias_nochemfeats_2dosages %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf01")
+mat_corrBonf01 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf01))
+
+mat_corrBonf05 = corr_feat_selection(data = mat_corrBonf01 %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf05")
+mat_corrBonf05 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf05))
+
+```
+
+Then based on protein complexes from the EcoCyc database. The average signal for a complex is computed and defined as a new feature
+
+```{r}
+
+cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
+load("../dbsetup/data/genesWithEG_ID.RData")
+gene_synonyms$synonym = toupper(gene_synonyms$synonym)
+
+
+genes_cmplx = lapply(cmplx$`Genes of polypeptide, complex, or RNA`,
+        FUN = function(x){
+            genenames = str_match_all(string = x, pattern = "[a-zA-Z]{3,4}")
+            genenames = toupper(unlist(genenames))
+       })
+
+names(genes_cmplx) = cmplx$`Protein-Complexes`
+genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
+
+lens = lapply(genes_cmplx, function(x){length(x)})
+genes_cmplx = genes_cmplx[lens != 1]
+
+mat_cmplx = the_matrix_mostias_nochemfeats_2dosages %>% select(-drugname_typaslab, -conc, -process_broad)
+
+for (g in genes_cmplx) {
+    map_gene = which(g %in% colnames(mat_cmplx))
+    if(length(map_gene) > 1){
+        new_value = apply(mat_cmplx[ ,g[map_gene]], 1, mean)
+        
+        # Is there an easier way to supress column ?
+        mat_cmplx = mat_cmplx[, !(colnames(mat_cmplx) %in% g[map_gene])]
+        mat_cmplx[, paste(g[map_gene], collapse = "_")] = new_value
+    }
+}
+
+mat_cmplx = mat_cmplx %>% mutate("drugname_typaslab" = the_matrix_mostias_nochemfeats_2dosages$drugname_typaslab,
+                   "conc" = the_matrix_mostias_nochemfeats_2dosages$conc, 
+                   "process_broad" = the_matrix_mostias_nochemfeats_2dosages$process_broad) 
+
+mat_cmplx = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, everything())
+
+```
+
+Extreme features selection : First take the Protein complexes matrix, and apply the correlation based selection with 0.6 or 0.7 cutoff. Than look at the variance across all drugs. 
+By boxploting these variances, one can extract the outlier individuals (based on some distribution and IQR, outlier are individuals with values above (median + 1.5 * IQR)). It is similar in a way to the top 10% or top 15% of individuals with the highest variance but it make more sense to define the cutoff that way. It is in this case kind of a data-dependant cutoff.
+
+
+```{r}
+
+mat_cmplx_corr07 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.7)
+var_all = unlist(apply(mat_cmplx_corr07, 2, var))
+out_ind = boxplot.stats(var_all)$out
+mat_cmplx_corr07 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
+
+
+mat_cmplx_Bonf01 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf01")
+var_all = unlist(apply(mat_cmplx_Bonf01, 2, var))
+out_ind = boxplot.stats(var_all)$out
+mat_cmplx_Bonf01 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
+
+mat_cmplx_Bonf05 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf05")
+var_all = unlist(apply(mat_cmplx_Bonf05, 2, var))
+out_ind = boxplot.stats(var_all)$out
+mat_cmplx_Bonf05 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
+
+
+mat_cmplx_corr06 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.6)
+var_all = unlist(apply(mat_cmplx_corr06, 2, var))
+out_ind = boxplot.stats(var_all)$out
+mat_cmplx_corr06 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
+
+
+```
+
+
+Building the new matrix container
+
 ```{r}
 
 instance_2mostia_mainMoA = readRDS(file = "data/RNCV_instance_2mostia_mainMoa.rds")
 
 tmp = list()
-tmp[1:6] = list(the_matrix_mostias_nochemfeats_2dosages)
+tmp = list(the_matrix_mostias_nochemfeats_2dosages, the_matrix_mostias_nochemfeats_2dosages,
+                mat_corr06, mat_corr06, mat_corr07, mat_corr07,
+                mat_cmplx, mat_cmplx, mat_cmplx_corr06, mat_cmplx_corr06, 
+                mat_corrBonf01, mat_corrBonf01, mat_cmplx_Bonf01, mat_cmplx_Bonf01,
+                mat_corrBonf05, mat_corrBonf05, mat_cmplx_Bonf05, mat_cmplx_Bonf05)
 
 matrix_container_new <- 
-   tibble(datasets_included = rep("nichols_2011", 6), 
-          drug_dosages =  rep("most2_interactions", 6), 
-          feat_preselect = c("all", "all", "corr", "corr", "protCmplx", "protCmplx"), 
-          chemical_feats = rep(FALSE, 6), 
+    tibble(datasets_included = rep("nichols_2011", 18), 
+          drug_dosages =  rep("most2_interactions", 18), 
+          feat_preselect = rep(c("all", "corr06", "corr07", "protCmplx", "cplx_corr_outlier", "corrBonf01", "cplx_corrBonf_outlier01", "corrBonf05", "cplx_corrBonf_outlier05"), each = 2), 
+          chemical_feats = rep(FALSE, 18), 
           drug_feature_matrices = tmp)
 
 matrix_container_new$tuning_measure <- list("meas" = list(auc, mmce, ppv))
 matrix_container_new$resamp_instance <- list(instance_2mostia_mainMoA)
 
+el_net_hyp_param <- makeParamSet( makeDiscreteParam("alpha", values = c(0,0.25,0.5,0.75,1)), 
+                    makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 100)))
 
-lasso_hyp_param <- 
-   makeParamSet(
-      makeDiscreteParam("alpha", 1), 
-      makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
-   )
 
-rf_hyp_param <- 
-   lapply(
-      map_dbl(matrix_container$drug_feature_matrices, ncol), 
-      function(x) {
-         x <- x - 3 # to account for drugname, process_broad, conc
-         makeParamSet(
-            makeDiscreteParam("ntree", values = c(200, 500)), 
-            makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
-         )
-      }
-   )
+rf_hyp_param <- lapply(map_dbl(matrix_container_new$drug_feature_matrices, ncol), 
+        function(x) {
+            x <- x - 3 # to account for drugname, process_broad, conc
+            makeParamSet(makeDiscreteParam("ntree", values = c(200, 500)), 
+                makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
+            )
+        })
+
 names(rf_hyp_param) <- rep_len("rf_hyp_param", length(rf_hyp_param))
+matrix_container_new$hyperparam_grid = rf_hyp_param
+matrix_container_new$fitted_model = rep(c("classif.glmnet", "classif.randomForest"), times = 9)
+
+matrix_container_new[matrix_container_new$fitted_model == "classif.glmnet", ]$hyperparam_grid = list("classif.elastic_net" = el_net_hyp_param)
+
+
+saveRDS(object = matrix_container_new, file = "data/matrix_container_new.rds")
 
 ```
-
 
 
 # System and session info
