@@ -229,52 +229,52 @@ Overview of the analysis :
 ## Heatmap function
 
 ```{r}
-plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL) {
-    # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
-    cluster_matrix <- m
-    moa_to_colour <- c(cell_wall = "#FF0000FF",
-                       dna = "#80FF00FF",
-                       protein_synthesis = "#8000FFFF",
-                       membrane_stress = "#00FFFFFF",
-                       pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
-    )
-    
-    process_lut <- cluster_matrix$process_broad
-
-    rowcols <- moa_to_colour[process_lut]
-    drugs_names = cluster_matrix$drugname_typaslab
-    if(!is.null(names_order)){
-        row_ord = unlist(lapply(names_order, function(x){which(cluster_matrix$drugname_typaslab== x)}))
-    }else{
-        row_ord = TRUE
-    }
-    
-    cluster_matrix$drugname_typaslab <- NULL
-   
-    cluster_matrix$process_broad <- NULL
-    cluster_matrix <- as.matrix(cluster_matrix)
-
-    if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
-    
-    heatmap.2(cluster_matrix,
-              scale = "column",
-              trace = "none",
-              Rowv = row_ord, 
-              breaks = c(seq(-5,5,length=20)), # use this i/o zlim
-              RowSideColors = rowcols,
-              cexRow = name_size,
-              labRow = drugs_names,
-              col = colorRampPalette(c("red", "white", "blue")),
-              margins = c(12, 9),
-              dendrogram = "row") # only draw row dendrogram
-    legend("top",
-           legend = names(moa_to_colour),
-           col = moa_to_colour,
-           lty = 1,
-           lwd = 10)
-    
-    if(plotFile){ dev.off() }
-}
+# plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL) {
+#     # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
+#     cluster_matrix <- m
+#     moa_to_colour <- c(cell_wall = "#FF0000FF",
+#                        dna = "#80FF00FF",
+#                        protein_synthesis = "#8000FFFF",
+#                        membrane_stress = "#00FFFFFF",
+#                        pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
+#     )
+#     
+#     process_lut <- cluster_matrix$process_broad
+# 
+#     rowcols <- moa_to_colour[process_lut]
+#     drugs_names = cluster_matrix$drugname_typaslab
+#     if(!is.null(names_order)){
+#         row_ord = unlist(lapply(names_order, function(x){which(cluster_matrix$drugname_typaslab== x)}))
+#     }else{
+#         row_ord = TRUE
+#     }
+#     
+#     cluster_matrix$drugname_typaslab <- NULL
+#    
+#     cluster_matrix$process_broad <- NULL
+#     cluster_matrix <- as.matrix(cluster_matrix)
+# 
+#     if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
+#     
+#     heatmap.2(cluster_matrix,
+#               scale = "column",
+#               trace = "none",
+#               Rowv = row_ord, 
+#               breaks = c(seq(-5,5,length=20)), # use this i/o zlim
+#               RowSideColors = rowcols,
+#               cexRow = name_size,
+#               labRow = drugs_names,
+#               col = colorRampPalette(c("red", "white", "blue")),
+#               margins = c(12, 9),
+#               dendrogram = "row") # only draw row dendrogram
+#     legend("top",
+#            legend = names(moa_to_colour),
+#            col = moa_to_colour,
+#            lty = 1,
+#            lwd = 10)
+#     
+#     if(plotFile){ dev.off() }
+# }
 
 ```
 

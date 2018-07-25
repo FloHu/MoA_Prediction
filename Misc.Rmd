@@ -272,28 +272,6 @@ mdsPlot <- ggplot(data = mds_data) +
 
 
 
-```{r}
-
-# =========== TEST Model with only chem feat =====================
-
-dt_matrix <- filter(matrix_container, drug_dosages == "most_interactions", chemical_feats == TRUE)$drug_feature_matrices[[1]]
-
-dt_chem_mostInteraction <- cbind(dt_matrix[ , !grepl(x = colnames(dt_matrix), pattern = "^[A-Z]{3,4}")], TPSA = dt_matrix$TPSA)
-rownames(dt_chem_mostInteraction) <- dt_chem_mostInteraction$drugname_typaslab
-dt_chem_mostInteraction <- dt_chem_mostInteraction %>% select(-conc, -drugname_typaslab)
-
-mat = matrix_container[56, ]
-mat$drug_feature_matrices[[1]] = dt_chem_mostInteraction
-
-    
-testChemFeat_only_BT = repeated_NCV_run_4models_container(data_container = mat, line_number = 1)
-
-```
-
-
-
-
-
 # Super Random control
 
 Just to be sure, RF model with random features (same sd and mean but random values). test on the chemogenomic matrix with 10% top variance features
@@ -478,10 +456,7 @@ matrix_container[2, ]$hyperparam_grid[[1]] = makeParamSet(
 ```
 
 
-
 # ROC Curves of one feature
-
-
 
 ```{r}
 
@@ -502,3 +477,190 @@ for(f in all_feat){
 
 
 ```
+
+
+# Old chunks from "Boosting_tree_results_overview.Rmd"
+
+File was deleted on 2018-07-25. Some stuff may still be useful so keep it here. 
+
+Wilcoxon test based feature selection: some features contain information, others don't: 
+
+```{r boosting_tree_results_overview_legacy_I}
+load("./run_results_from_server/result_XGBT_10topWilcox_allDrugs_tuneMMCE.RData")
+load("./run_results_from_server/result_XGBT_10worstWilcox_allDrugs_tuneMMCE.RData")
+
+compare_ROC_models(moa = "dna", result_XGBT_10topWilcox_allDrugs_tuneMMCE, 
+                   result_XGBT_10worstWilcox_allDrugs_tuneMMCE)
+```
+
+Random forests plot: how OOB error changes with number of trees. Note that the error for "not" 
+class goes down, the other error stays the same - class imbalance. 
+
+```{r boosting_tree_results_overview_legacy_II}
+plot_RF_perf_allRep = function(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna"){
+    res_all500 = matrix(0, nrow = 500, ncol = 3)
+    res_all200 = matrix(0, nrow = 200, ncol = 3)
+    nb500 = 0
+    nb200 = 0
+    
+    plot(NULL, xlim = c(1,500), ylim = c(0,1), xlab = "Number of trees", ylab = "Error rate")
+    for (i in 1:length(res)){
+        for(j in 1:length(res[[1]])){
+            rf_res = res[[i]][[j]][[paste0("model_",moa)]]$learner.model
+            plot(rf_res, lty = 1, col = c("lightgrey", "lightblue", "orange"), add =T)
+            if(dim(rf_res$err.rate)[1] == 500){
+                res_all500 = res_all500 + rf_res$err.rate
+                nb500 = nb500 +1
+            }else{
+                res_all200 = res_all200 + rf_res$err.rate
+                nb200 = nb200 + 1
+            }
+        }
+    }
+    
+    res200 = (res_all200 +res_all500[1:200,]) / (nb200 + nb500)
+    res500 = res_all500 / nb500
+    
+    lines(res200[ ,1], lty = 1, lwd = 3, col = "black")
+    lines(x = seq(201, 500), y = res500[201:500, 1], lty = 1, lwd = 3, col = "black")
+    lines(res200[ ,2], lty = 1, lwd = 3, col = "blue")
+    lines(x = seq(201, 500), y = res500[201:500, 2], lty = 1, lwd = 3, col = "blue")
+    lines(res200[ ,3], lty = 1, lwd = 3, col = "red")
+    lines(x = seq(201, 500), y = res500[201:500, 3], lty = 1, lwd = 3, col = "red")
+    legend("topright", legend= colnames(res500), col=c("black", "blue", "red"), lwd=3, cex=1)  
+}
+
+load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
+
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
+plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
+```
+
+This here is actually useful as a draft to mark a specific point on a ROC curve. Here, it shows the 
+point with the highest MCC. 
+
+```{r boosting_tree_results_overview_legacy_III}
+load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
+
+my_res <- plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
+View(my_res$confMat)
+
+ggsave(filename = "./plots/present_optThres.pdf", width = 14, height = 7, 
+       plot = my_res$plot)
+```
+
+
+# Old chunks from "FeatureImp_RF_XGBT_results_overview.Rmd"
+
+Like above: file was deleted on 2018-07-25, useful stuff can still be found here. That notebook was 
+dealing mainly with feature importances and has been superseded by `Inspecting_models.Rmd` and 
+`model_analysis.R`. 
+
+Old heatmap plotting function. May be useful for other heatmaps. Was used to check if we can get 
+MoA classification by doing a simple hierarchical clustering of all/a selected subset of 
+(presumably) best features from the chemical genomics data. Need to provide some "the_matrix" 
+object, which can still be found under ./data or in the drug_feature_matrices field from the 
+matrix_container. Not sure if it runs like this though:
+
+```{r eval = FALSE}
+plot_heatmap <- function(m = the_matrix_allDrugs_top10pct, feats_to_keep = "all", filename = "heatmap.pdf") {
+   library(gplots)
+   library(RColorBrewer)
+   # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
+   cluster_matrix <- m
+   row.names(cluster_matrix) <- cluster_matrix$drugname_typaslab
+   cluster_matrix$drugname_typaslab <- NULL
+   process_lut <- cluster_matrix$process_broad
+   names(process_lut) <- row.names(cluster_matrix)
+   cluster_matrix$process_broad <- NULL
+   cluster_matrix <- as.matrix(cluster_matrix)
+
+   # keep only genes in the columns because of measurement scale
+   if (feats_to_keep != "all") {
+      cluster_matrix <- cluster_matrix[, colnames(cluster_matrix) %in% feats_to_keep]
+   }
+
+   # get correlation-based distances between the drugs (--> transpose matrix)
+   drug_drug_dist <- as.dist(1 - abs(cor(t(cluster_matrix))))
+   gene_gene_dist <- as.dist(1 - abs(cor(cluster_matrix)))
+
+   # define colors for the mode of action
+   moa_to_colour <- c(cell_wall = "#a6cee3",
+                      dna = "#1f78b4",
+                      protein_synthesis = "#b2df8a",
+                      membrane_stress = "#33a02c",
+                      pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
+                      )
+   rowcols <- moa_to_colour[process_lut[rownames(cluster_matrix)]]
+
+   pdf(paste0("./plots/", filename), width = 20, height = 20)
+   heatmap.2(cluster_matrix,
+             trace = "none",
+             breaks = c(-10, -5, -3, -1, 0, 1, 3, 5, 10), # use this i/o zlim
+             Rowv = as.dendrogram(hclust(drug_drug_dist)), # change order of rows
+             Colv = as.dendrogram(hclust(gene_gene_dist)),
+             RowSideColors = rowcols,
+             margins = c(12, 9),
+             dendrogram = "row") # only draw row dendrogram
+   legend("top",
+          legend = names(moa_to_colour),
+          col = moa_to_colour,
+          lty = 1,
+          lwd = 10)
+   dev.off()
+}
+
+plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = genes$gene_synonym, 
+             filename = "heatmap_cordist_all.pdf")
+# exclude SlogP:
+features_of_interest <- features_of_interest[features_of_interest != "SlogP"]
+# now with only the 'relevant' features:
+plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = features_of_interest, 
+             filename = "heatmap_cordist_most_imprtnt_rf.pdf")
+
+```
+
+Plotting feature importances using results objects. Were used to generate plots "present_sscore_dists.pdf" 
+and "present_feat_imp${MOA}.pdf". 
+
+```{r old_feature_importance_functions}
+# make sure you loaded the results object from ./data
+feat_RF_dna <- plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
+feat_RF_dna_dfr <- make_importance_dfr(feat_RF_dna, cutoff = 0.07)
+plot_importance(feat_RF_dna_dfr, moa = "dna")
+load("./data/the_matrix_newDrugs_top10pct.RData")
+p <- feature_distrib_ggplot(the_matrix_newDrugs_top10pct, "RECA", save = FALSE)
+p
+```
+
+Code to generate old to generate "ultimate_plot" files. 
+
+```{r old_ultimate_plot eval = FALSE}
+ultimate_plot(res =result_XGBT_10pc_allDrugs_tuneMMCE)
+
+pdf(file = "~/Documents/recap_utlimate.pdf", width = 20, height = 30)
+layout(matrix(seq(1,6), 3,2, byrow = T))
+for(d in the_matrix_allDrugs$drugname_typaslab){
+    distrib_drug_prob_small(res = result_RF_10pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+    distrib_drug_prob_small(res = result_RF_5pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+    distrib_drug_prob_small(res = result_XGBT_10pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+    distrib_drug_prob_small(res = result_XGBT_5pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+    distrib_drug_prob_small(res = result_XGBT_10topWilcox_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+    distrib_drug_prob_small(res = result_RF_27feat_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
+}
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
