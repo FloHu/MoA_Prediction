@@ -12,6 +12,7 @@
 *.rds
 *cache
 !Rep_Nest_CV*.RData
+!RNCV_instance*.rds
 *.pdf
 *.jpg
 *.JPG
