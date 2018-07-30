@@ -5,8 +5,8 @@
 
 perf_extractor <- function(x, moa) {
    # x = a prediction object
+   # moa = mode of action
    perfs <- generateThreshVsPerfData(x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
-
    return(perfs)
 }
 
@@ -27,7 +27,6 @@ prediction_merger <- function(resultsobj, moa, extractorfunc) {
    dfr_list <-
    map(resultsobj, function(.x) { # apply to each repeat of the nested CV
       map2(.x, names(.x), function(.x, .y) { # apply to each fold, record the name
-         #dfr <- generateThreshVsPerfData(.x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
          dfr <- extractorfunc(.x, moa)
          dfr$fold <- .y
          return(dfr)
@@ -35,7 +34,7 @@ prediction_merger <- function(resultsobj, moa, extractorfunc) {
       bind_rows() # to rbind all the test folds
    })
 
-   # collapse into a
+   # collapse into a data frame
    dfr <- imap_dfr(dfr_list, function(.x, .y) {
       .x[["cvrep"]] <- .y
       return(.x)

@@ -26,8 +26,6 @@ source("./R/ipak.R")
 source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
-# library(cowplot)
-# library(pryr)
 ```
 
 
@@ -291,11 +289,11 @@ stability_assessment <-
 # again, here is an example:
 get_aucs_per_repeat <- function(predDataTbl) {
    #### TO DO: extract concatenated results objects already at the beginning, then they can be coerced to ROCR objects to get partial AUCs
-   # take threshVsPerfData and calculate auc for each repeat and each moa
+   # take threshVsPerfData (= argument predDataTbl) and calculate auc for each repeat and each moa
    aucs <- 
       predDataTbl %>%
       mutate(negative = paste0("not_", moa_modelled)) %>%
-      group_by(cvrep, moa_modelled) %>%
+      group_by(cvrep, moa_modelled) %>% # => we don't get aucs per fold but for the concatenation of all folds per repeat per moa
       summarise(auc = measureAUC(probabilities = prob.moa, truth = truth, negative = negative, positive = moa_modelled)) %>% 
       ungroup()
    return(aucs)
@@ -306,13 +304,89 @@ get_aucs_per_repeat(input_dat_exmpl)
 
 # and apply again to each model
 stability_assessment$auc_stabilities <- map(stability_assessment$PredData, get_aucs_per_repeat)
+```
 
-# for ordering in plots
+
+```{r stability_assessment_tableIII_partialAUCs}
+
+# results we already have
+if (file.exists("./data/stability_assessment.rds")) {
+   stability_assessment <- readRDS("./data/stability_assessment.rds")
+} else {
+   stability_assessment$auc_stabilities_new <- list(NA)
+}
+
+# available results files
+available_files <- list.files("./run_results_from_server/matrix_container_result/", 
+                              pattern = "xgboost|rf|lasso")
+moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+
+# like above - might write a function for this at some point
+
+for (rownum in seq_len(nrow(stability_assessment))) {
+   stability_assessment_row <- stability_assessment[rownum, ]
+   # look for a file corresponding to a row
+   targetfile <- paste(unlist(stability_assessment_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_")
+   targetfile <- paste0(targetfile, ".rds")
+   my_match <- available_files[available_files == targetfile]
+   
+   # check if values are not defined: if yes: check if matching file exists or continue
+   # if values are already defined means we parsed a corresponding results object previously so we 
+   # can continue
+   if ( any(is.na(stability_assessment_row$auc_stabilities_new[[1]])) ){ # [, c("auc_stabilities_new")]))) ) {
+      if (length(my_match) > 0) {
+         cat("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
+      } else {
+         cat("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
+         next
+      }
+   } else {
+      cat("Row ", rownum, " already populated, continuing to next line.\n")
+      next
+   }
+   
+   resultsobj <- readRDS(paste0("./run_results_from_server/matrix_container_result/", my_match))
+   
+   my_dfr <- expand.grid(cvrep = names(resultsobj), 
+                         moa_modelled = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
+                         stringsAsFactors = FALSE)
+   my_dfr <- as_tibble(my_dfr)
+   
+   # get one prediction object per repetition of the nested CV per mode of action
+   # concatenate the prediction object data slots
+   my_dfr$predobj <- 
+      map2(my_dfr$cvrep, my_dfr$moa_modelled, function(.cvrep, .moa) {
+         # we don't want a separate AUC for each outer fold but we need the structure of the 
+         # results object to concatenate the results of the other folds (this works correctly, 
+         # I checked)
+         pred_obj_shell <- resultsobj[[.cvrep]][["Outer fold 1"]][[paste0("prediction_", .moa)]] 
+         pred_obj_shell$data <- map_dfr(resultsobj[[.cvrep]], function(.x) {
+            return(.x[[paste0("prediction_", .moa)]]$data) # fetch the data slot for each fold of a specific .cvrep
+         })
+         return(pred_obj_shell)
+      })
+   my_dfr$auc <- map_dbl(my_dfr$predobj, ~ ROCR::performance(mlr::asROCRPrediction(.x), measure = "auc")@y.values[[1]]) # accessory functions for ROCR???
+   my_dfr$part_auc_01 <- map_dbl(my_dfr$predobj, ~ ROCR::performance(mlr::asROCRPrediction(.x), measure = "auc", fpr.stop = 0.1)@y.values[[1]])
+   
+   stability_assessment$auc_stabilities_new[[rownum]] <- my_dfr
+   rm(resultsobj)
+}
+
+#  update
+saveRDS(stability_assessment, file = "./data/stability_assessment.rds")
+
+ggplot(my_dfr, aes(x = auc, y = part_auc_01)) + 
+   geom_point(aes(colour = moa_modelled)) + 
+   geom_smooth(aes(colour = moa_modelled), method = "lm")
+
+# for ordering in plots further downstream
 stability_assessment$feat_preselect <- 
    factor(stability_assessment$feat_preselect, 
           levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", "top30pct", 
                       "top40pct", "top50pct", "keepall"))
+
 ```
+
 
 
 # Data analyses
