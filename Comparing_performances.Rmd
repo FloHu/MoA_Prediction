@@ -752,6 +752,8 @@ TO DO:
 
 ## Further investigations on drug dosages
 
+### Distributions of dosages among drugs
+
 It looks like using all dosages is better than most_interactions. At the same time, it seems 
 plausible that some dosages will be "wrong" in terms of having a too low drug dosages. Moreover, 
 some drugs were tested with only 1 dosage, others with 6, which would lead to an overweighting of 
@@ -759,11 +761,28 @@ the latter drugs. Perhaps there is a compromise such as using the 2 dosages with
 Also, it'd be interesting to see if there is a correlation of the number of interactions and 
 prediction probabilities. 
 
+How does number of dosages distribute among the different drugs and MoA?
+
+```{r}
+# take a drug_feature_matrix which has all dosages and all drugs etc. 
+tmp <- matrix_container$drug_feature_matrices[[1]]
+tmp <- 
+   select(tmp, drugname_typaslab, conc, process_broad) %>%
+   group_by(drugname_typaslab, process_broad) %>%
+   summarise(ndosages = n())
+
+ggplot(tmp, aes(x = process_broad, y = ndosages, colour = process_broad)) + 
+   ggbeeswarm::geom_beeswarm(groupOnX = TRUE) + 
+   theme_bw()
+
+tapply(tmp$ndosages, tmp$process_broad, mean)
+```
+
 
 ### Correlating the number of significant interactions per drug with prediction probabilities
 
-From the ultimate plot it seems like the dosages with the most interactions are also often the ones 
-that are best at predicting a particular MoA. However, this is not always the case. Moreover, we 
+From the ultimate plot it seems like the dosages with the most interactions might also be the ones 
+that are best at predicting a particular MoA. However, the trend is not crystal clear. Moreover, we 
 don't know how many interactions this actually corresponds to. In addition, one may wonder whether 
 some poorly predicted drugs are poorly predicted because they show only very few interactions even 
 with "most_interactions". 
@@ -772,17 +791,23 @@ with "most_interactions".
 #### Preparing the data
 
 This is a bit tricky because we need to get `the_matrix` from the first notebook ("1_DataLoading...") 
-after the `do(select_mutant(.))` step. In addition, the number of significant interactions will 
-depend on the number of features that have been preselected. 
+after the `do(select_mutant(.))` step because it contains the qvalue for each drug-gene-concentration 
+combination. For each drug-dosage combination in each of the models we built the number of 
+significant interactions will depend on the number of features that have been preselected. 
 
-```{r, eval = FALSE}
+```{r}
 the_matrix <- readRDS("./data/the_matrix_after_select_mutant.rds")
 
 get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
-   # drugfeatmat: from matrix_container_ext: the drug_feature matrix
+   # function to add some more information to PredData: number of significant interactions, 
+   # ranks of concentrations etc. 
+   # drugfeatmat: from matrix_container_ext: the drug_feature matrix (used for modelling)
    # predDataTbl: from matrix_container_ext: the prediction table
-   # the_matrix: from first notebook: the_matrix after the do(select_mutant(.)) step
-   drugfeatmat_long <- select(drugfeatmat, -process_broad) %>% gather(3:ncol(.), key = "gene_synonym", value = "sscore")
+   # the_matrix: from first notebook: the_matrix after the do(select_mutant(.)) step - contains 
+   # sscores and qvalues for each drug-gene-concentration combination
+   drugfeatmat_long <- 
+      select(drugfeatmat, -process_broad) %>% 
+      gather(3:ncol(.), key = "gene_synonym", value = "sscore")
    
    # by doing a join we can do a lookup which drug-concentration-gene combination is significant
    tab_nsignif <- left_join(drugfeatmat_long, the_matrix) %>%
@@ -790,14 +815,27 @@ get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
       summarise(n_signif = sum(significant, na.rm = TRUE))
    
    # and now join this back into the predDataTbl object - which is what we need for plotting
+   # exclude drugs of category "other"
    tab_nsignif <- left_join(predDataTbl, tab_nsignif)
+   tab_nsignif <- tab_nsignif[tab_nsignif$process_broad %in% 
+                                 c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), ]
    tab_nsignif$moa_modelled_is_truth <- tab_nsignif$moa_modelled == tab_nsignif$process_broad
    
    # in this case we're not interested in the probabilities for each repeat of the nested CV, only 
    # in the median
    tab_nsignif <- tab_nsignif %>%
-      group_by(drugname_typaslab, conc, moa_modelled, moa_modelled_is_truth, n_signif) %>%
+      group_by(drugname_typaslab, conc, moa_modelled, moa_modelled_is_truth, n_signif, conc_mostias) %>%
       summarise(median_prob.moa = median(prob.moa))
+
+   # get ranks of concentrations, of number of significant interactions, ...
+   # but beware: conc with "highest number of significant interactions" was based on all features
+   tab_nsignif <- 
+      tab_nsignif %>%
+      group_by(drugname_typaslab, moa_modelled) %>%
+      mutate(conc_rank = rank(conc), 
+             n_signif_rank = order(order(n_signif, conc)), # enables custom tie breaking as order(order(x)) == rank(x)
+             n_conc = length(conc)) %>%
+      ungroup(tmp)
    
    return(tab_nsignif)
 }
@@ -806,15 +844,23 @@ get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
 # and indicating how many significant interactions there are per drug and concentration using the 
 # drug_feature_matrix that was used for that particular model 
 matrix_container_ext$PredDataWithNSignif <- 
-   map2(matrix_container_ext$drug_feature_matrices, matrix_container_ext$PredData, get_nsignif, the_matrix = the_matrix)
+   map2(matrix_container_ext$drug_feature_matrices, matrix_container_ext$PredData, 
+        get_nsignif, 
+        the_matrix = the_matrix)
 ```
 
-Now we can test how prediction probabilities compare with number of significant interactions. Take 
-again RF, all dosages, no chemical features, keepall (same as ultimate plot above). 
+#### Investigating number of interactions and class probabilities
 
-```{r, eval = FALSE}
-tmp <- filter(matrix_container_ext, fitted_model == "classif.randomForest", feat_preselect == "keepall", 
-              chemical_feats == FALSE, drug_dosages == "all")
+General question: is there something like a minimum number of significant interactions to get 
+useful predictions? 
+
+We check here for both random forests and lasso trained with all features, and without chemical 
+features.
+
+```{r}
+# any model with keepall is fine here
+tmp <- filter(matrix_container_ext, fitted_model == "classif.randomForest", 
+              feat_preselect == "keepall", chemical_feats == FALSE, drug_dosages == "all")
 stopifnot(nrow(tmp) == 1)
 tmp <- tmp$PredDataWithNSignif[[1]]
 
@@ -823,22 +869,77 @@ ggplot(tmp, aes(x = n_signif, y = median_prob.moa)) +
    facet_grid(moa_modelled ~ moa_modelled_is_truth) + 
    theme_bw() + 
    labs(x = "Number of significant interactions", y = "Median probability for MoA for each drug", 
-        title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n
-        (RF, all dosages, no chem feats, keepall)")
+        title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n(RF, all dosages, no chem feats, keepall)")
 
-ggsave(filename = "./plots/Probabilities_vs_NSignif_RF_all_nochemfeats_keepall.pdf")
+tmp <- filter(matrix_container_ext, fitted_model == "classif.glmnet", 
+              feat_preselect == "keepall", chemical_feats == FALSE, drug_dosages == "all")
+stopifnot(nrow(tmp) == 1)
+tmp <- tmp$PredDataWithNSignif[[1]]
 
-ggplot(tmp[tmp$moa_modelled == "cell_wall" & tmp$moa_modelled_is_truth, ], 
-       aes(x = n_signif, y = median_prob.moa, colour = drugname_typaslab)) + 
+ggplot(tmp, aes(x = n_signif, y = median_prob.moa)) + 
    geom_point(shape = 1) + 
-   geom_line(aes(group = drugname_typaslab)) + 
-   geom_text(aes(label = drugname_typaslab), hjust = 0, nudge_x = 0.05) + 
    facet_grid(moa_modelled ~ moa_modelled_is_truth) + 
-   theme_bw()
+   theme_bw() + 
+   labs(x = "Number of significant interactions", y = "Median probability for MoA for each drug", 
+        title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n(Lasso, all dosages, no chem feats, keepall)")
 
-ggsave(filename = "./plots/Probabilities_vs_NSignif_cell_wall.pdf")
 ```
 
+So there seems to be a trend, but only for cell_wall and dna. Interestingly, lasso seems to have 
+different levels of a "background" probability for certain MoAs if moa_modelled != actual MoA. 
+
+But what about _within_ drugs? Do predictions profit from taking concentration with higher number 
+of significant interactions? Exclude drugs with just one dosage. 
+
+First check how n_signif ranks and conc_ranks correlate.
+
+```{r}
+# exclude cases where moa_modelled != truth and drugs with just one concentration
+tmp2 <- tmp[tmp$moa_modelled_is_truth & tmp$n_conc > 1, ]
+
+ggplot(tmp2, aes(x = conc_rank, y = n_signif_rank)) + 
+   geom_count() + 
+   labs(title = "Ranks of number of significant interactions vs. ranks of concentrations, all drugs
+        \n(cases with just one concentration excluded)")
+
+cor(tmp2$conc_rank, tmp2$n_signif_rank, method = "spearman")
+
+# novobiocin, for example:
+filter(tmp2, drugname_typaslab == "NOVOBIOCIN")
+```
+
+Now compare prediction probabilities vs. ranks.
+
+```{r}
+ggplot(tmp2, aes(x = n_signif_rank, y = median_prob.moa)) + 
+   geom_point(shape = 1) + 
+   geom_line(aes(group = drugname_typaslab)) + 
+   facet_grid(moa_modelled ~ n_conc) + 
+   theme_bw() + 
+   labs(title = "Median probability vs. concentration rank. Each line is a drug.")
+
+ggplot(tmp2, aes(x = conc_rank, y = median_prob.moa)) + 
+   geom_point(shape = 1) + 
+   geom_line(aes(group = drugname_typaslab)) + 
+   facet_grid(moa_modelled ~ n_conc) + 
+   theme_bw() + 
+   labs(title = "Median probability vs. n_signif interaction rank. Each line is a drug.")
+```
+
+It looks like it would actually be better to just take the two highest concentrations. This is also 
+what a correlation test says:
+
+```{r}
+cor(x = tmp2$n_signif_rank, y = tmp2$median_prob.moa, method = "spearman")
+cor(x = tmp2$conc_rank, y = tmp2$median_prob.moa, method = "spearman")
+```
+
+Open points: 
+
+- Make a plot with median probability using the two highest concentrations vs. using all of them 
+- Correlation of median_prob.moa and ranks should perhaps be done for individual drugs and across all models. 
+- The concentration with "highest number of interactions" is based on "keepall". How often is it different from the actual concentration with highest number of interactions using a specific feature selection?
+- show plot contrasting within vs. between dosages correlation
 
 
 
