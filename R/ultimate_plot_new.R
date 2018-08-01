@@ -77,5 +77,5 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
   plotlist_flattened <- flatten(plotlist)
   ultimate_plot_new <- cowplot::plot_grid(plotlist = plotlist_flattened, ncol = max(lengths(plotlist)))
 
-  save_plot(filename, ultimate_plot_new, base_width = base_width, base_height = base_height, limitsize = FALSE)
+  cowplot::save_plot(filename, ultimate_plot_new, base_width = base_width, base_height = base_height, limitsize = FALSE)
 }
