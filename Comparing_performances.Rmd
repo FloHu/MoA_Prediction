@@ -89,9 +89,9 @@ for (rownum in seq_len(nrow(matrix_container))) {
    # can continue
    if ( any(is.na(unlist(matrix_container_row[, c("ThreshVsPerfData", "PredData")]))) ) {
       if (length(my_match) > 0) {
-         cat("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
+         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
       } else {
-         cat("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
+         message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
          # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
          next
       }
@@ -131,12 +131,15 @@ rm(my_row, my_filename)
 
 Similar to the one above but for the anlysis based on the matrix using 2 dosages by drug (most interactions)
 
-```{r reading_in_new, eval = FALSE, message = FALSE}
+```{r reading_in_new, message = FALSE}
 
-matrix_container_new = readRDS("data/matrix_container_new.rds")
-
-matrix_container_new$ThreshVsPerfData <- list(NA)
-matrix_container_new$PredData <- list(NA)
+if (file.exists("./data/matrix_container_new_withextractions.rds")) {
+   matrix_container_new <- readRDS("./data/matrix_container_new_withextractions.rds")
+} else {
+   matrix_container_new$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
+   matrix_container_new$ThreshVsPerfData <- list(NA)
+   matrix_container_new$PredData <- list(NA)
+}
 
 # available results files
 available_files <- list.files("./run_results_from_server/matrix_container_result/", 
@@ -156,14 +159,14 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
    # can continue
    if ( any(is.na(unlist(matrix_container_row[, c("ThreshVsPerfData", "PredData")]))) ) {
       if (length(my_match) > 0) {
-         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, "\n", sep = "")
+         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
       } else {
-         message("Didn't find a match for line ", rownum, ", continuing to next line.\n", sep = "")
+         message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
          # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
          next
       }
    } else {
-      message("Row ", rownum, " already populated, continuing to next line.\n")
+      message("Row ", rownum, " already populated, continuing to next line.")
       next
    }
    
@@ -177,11 +180,11 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
    pred_data$drugname_typaslab <- (matrix_container_row$drug_feature_matrices[[1]])$drugname_typaslab[pred_data$id]
    pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
    matrix_container_new$PredData[[rownum]] <- pred_data
+   rm(resultsobj)
 }
 
 #  update
 saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
-
 ```
 
 
@@ -340,6 +343,7 @@ for (rownum in seq_len(nrow(stability_assessment))) {
    stability_assessment_row <- stability_assessment[rownum, ]
    # look for a file corresponding to a row
    targetfile <- paste(unlist(stability_assessment_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_")
+   # targetfile <- paste(unlist(stability_assessment_row[, c("drug_dosages", "fitted_model", "feat_preselect", "chemical_feats")]), collapse = "_")
    targetfile <- paste0(targetfile, ".rds")
    my_match <- available_files[available_files == targetfile]
    
@@ -564,17 +568,17 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "c
 But caution: physicochemical features may not be truly predictive - compare file 
 drug_drug_similarities_RDKit.pdf. 
 
-From the plots above we would probably say: take all dosages, with chemical features, top20pct, 
+From the plots above we would probably say: take all dosages, with chemical features, top20pct/top25pct, 
 slight preference for RF. 
 
 
-## Model stabilities 
+## Model stabilities (of probabilities)
 
 Stability here means: how much do prediction probabilities fluctuate for drugs across different ways 
 of splitting the data (i.e. each repetition of the nested CV). 
 
 
-## 'Ultimate plot'
+### 'Ultimate plot'
 
 Shows the distribution of probabilities for each drug across repeats of the nested CV. Can plot 
 only one model at a time. Grey rectangles indicate the dosage with the most interactions. 
@@ -606,12 +610,6 @@ tmp <- filter(matrix_container_ext, feat_preselect == "keepall", chemical_feats 
 
 ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_mostinteractions_nochemfeats.pdf")
 ```
-
-
-## Stabilities of probabilities: global comparison
-
-Calculate the standard deviation of the probabilities assigned to each drug for each mode of action. 
-Different dosages will be lumped together. 
 
 
 ### Stabilities of probabilities: impact of feat_preselect
@@ -689,19 +687,6 @@ plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar 
 # ggsave(plot = p, filename = "./plots/Prob_stabilities_all_vs_mostinteractions_onlyxgboost.pdf", width = 16)
 ```
 
-Conclusion: most interactions is a lot more stable for random forests and less so for boosted trees. 
-For lasso there is also a trend to be more stable with most interactions but the data are very noisy 
-and it depends a bit on the mode of action. 
-
-Interestingly: stabilities change a bit between MoAs/feature sets for random forests but only if all 
-dosages are used, not if just most_interactions are used, which would be another argument for using 
-just one dosage. 
-
-Why are stabilities quite different between MoAs between the MoAs, especially for lasso? Why are 
-most_interactions a lot more stable for RF but only a bit more stable for lasso? Can we conclude 
-anything from the stability differences between MoAs for the lasso or is this just the normal noise 
-of the model?
-
 
 ### Stabilities of probabilities: impact of whether MoA modelled = truth
 
@@ -743,13 +728,77 @@ vice versa. Interestingly, with all dosages, predictions where MoA == moa_modell
 unstable for RF. 
 
 
-<!--
-TO DO:
-- investigate dosage question: correlation (see below), distribution between drugs; note that chemical features wouldn't be necessary with most_interactions
-- discuss issue with chemical features: correlations, naive KNN model, literature
-- check selected ROC and precision-recall curves
-- continue below, look at matrix_container_new
--->
+## Selected ROC/precision-recall curves
+
+Random forests and lasso. 
+Moreover, take with chemical features and using all dosages. Finally, top25pct/keepall seemed to 
+be decent feature preselections. So what do the ROC curves look like? 
+
+```{r}
+tmp <- filter(matrix_container, 
+              fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+              feat_preselect %in% c("top25pct", "keepall"), 
+              chemical_feats, 
+              drug_dosages == "all")
+
+plot_ROC_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
+plot_ROC_from_container(tmp[tmp$fitted_model == "classif.glmnet", ])
+
+# # check if AUCs are correct:
+# stability_assessment %>% 
+#    filter(fitted_model == "classif.randomForest", 
+#           feat_preselect %in% c("top25pct", "keepall"), 
+#           chemical_feats, 
+#           drug_dosages == "all") %>% 
+#    select(-one_of("prob.moa_stabilities", "auc_stabilities", "PredData")) %>%
+#    unnest() %>%
+#    group_by(fitted_model, feat_preselect, moa_modelled) %>% 
+#    summarise(mean_auc = mean(auc))
+# 
+# # they are sometimes a bit off - no idea why - rounding? 
+```
+
+Note: for cell_wall/dna/protein_synthesis: even though lasso and random forests are very similar 
+for total AUCs (check top25pct), ROC curve shapes and, consequently, partial AUCs (see also above) 
+show that random forests performs a lot better. Only for membrane_stress, lasso is the clear winner. 
+But note the issue with probabilities, showing ROC curves for each repeat might still be useful. 
+
+To be complete, here the precision-recall curves: 
+
+```{r}
+plot_precRecall_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
+plot_precRecall_from_container(tmp[tmp$fitted_model == "classif.glmnet", ])
+```
+
+? Why do they not start at 1? Not apparent from ROC-curves. 
+
+## Selected AUC/partial AUC comparison
+
+There may be reasons though to work without chemical features and fewer dosages (see below). This 
+would impact our performances as follows. I'm taking only top25pct and keepall for simplicity as 
+they are the best feat_preselect cases depending on the MoA. 
+
+```{r}
+tmp <- 
+   stability_assessment %>%
+   filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+          drug_dosages == "all", 
+          feat_preselect %in% c("top25pct", "keepall")) %>%
+   select(-one_of("prob.moa_stabilities", "auc_stabilities", "PredData")) %>%
+   unnest()
+
+plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "auc", colourvar = "chemical_feats", 
+                facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
+```
+
+So one may be able to compensate for the loss of chemical features by using lasso. Here are the 
+partial AUCs:
+
+```{r}
+plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "part_auc_01", colourvar = "chemical_feats", 
+                facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
+```
+
 
 ## Further investigations on drug dosages
 
@@ -1023,13 +1072,9 @@ ggplot(aes(x = process_broad, y = value, colour = process_broad)) +
 ```
 
 
-
-
-### Exploring matrix container - ROC curves 
-
+## Exploring matrix container - ROC curves 
 
 ```{r, eval = FALSE, echo = FALSE}
-
 resMatrix = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
 
 plot_ROC_from_container(containerObj = resMatrix[1:18, ], moa = "all", by = c("feat_preselect", "chemical_feats"))
@@ -1040,7 +1085,50 @@ plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  T
 plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "lasso_hyp_param"), moa = "all", by = c("feat_preselect", "drug_dosages"))
 plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "rf_hyp_param"), moa = "all", by = c("feat_preselect", "drug_dosages"))
 plot_ROC_from_container(containerObj = resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "xgboost_hyp_param_std"), moa = "all", by = c("feat_preselect", "drug_dosages"))
+```
 
+
+## Exploring matrix_container_new
+
+```{r exploring_matrix_container_new}
+stability_assessment_new <- readRDS("./data/stability_assessment_newmatrixcontainer.rds")
+
+tmp <- 
+   select(stability_assessment_new, drug_dosages:hyperparam_grid_name, auc_stabilities_new) %>%
+   unnest()
+
+# aucs
+plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "auc", colourvar = "fitted_model", 
+                facet_expr = quote(facet_wrap( ~ feat_preselect, ncol = 3)), additional_info = "")
+ggsave(filename = "./plots/matrix_container_new_perf.pdf", width = 16, height = 18)
+
+# partial aucs
+plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "part_auc_01", colourvar = "fitted_model", 
+                facet_expr = quote(facet_wrap( ~ feat_preselect, ncol = 3)), additional_info = "")
+
+
+tmp <- 
+   select(stability_assessment_new, drug_dosages:hyperparam_grid_name, prob.moa_stabilities) %>%
+   unnest() %>%
+   filter(moa_modelled_is_truth) %>%
+   left_join(drug_feature_matrix[, c("drugname_typaslab", "process_broad")])
+
+plot_auc_vs_moa(tmp, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar = "fitted_model", 
+                facet_expr = quote(facet_wrap( ~ feat_preselect, ncol = 3)), additional_info = "")
+ggsave(filename = "./plots/matrix_container_new_stablts.pdf", width = 16, height = 18)
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
