@@ -153,28 +153,29 @@ model_analysis = function(res_obj , matrix_container_line, matrix_container_line
     a = unlist(lapply(featImp, length))
     topFeat = names(a[a >= nb_models*topFeatThres])
    
-    # Stripcharts of top feat repartition
-    par(mfrow = c(2,2))
-    for(f in topFeat){
-        stripchart(mat[[f]] ~ mat$process_broad, pch = 21, bg = "orange", cex = 1.2, las = 2, xlab = f)
-    }
+    # # Stripcharts of top feat repartition
+    # par(mfrow = c(2,2))
+    # for(f in topFeat){
+    #     stripchart(mat[[f]] ~ mat$process_broad, pch = 21, bg = "orange", cex = 1.2, las = 2, xlab = f)
+    # }
+    # 
+    # # Plot of top features 2 by 2
+    # for(f1 in 1:(length(topFeat)-1)){
+    #     for(f2 in 2:length(topFeat)){
+    #         if(f1 != f2){
+    #             plot(x = mat[[topFeat[f1]]], y = mat[[topFeat[f2]]], pch = 21, bg = colMap[mat$process_broad], cex = 1.5, las = 2, xlab = topFeat[f1], ylab = topFeat[f2])
+    #         }
+    #     }
+    # }
     
-    # Plot of top features 2 by 2
-    for(f1 in 1:(length(topFeat)-1)){
-        for(f2 in 2:length(topFeat)){
-            if(f1 != f2){
-                plot(x = mat[[topFeat[f1]]], y = mat[[topFeat[f2]]], pch = 21, bg = colMap[mat$process_broad], cex = 1.5, las = 2, xlab = topFeat[f1], ylab = topFeat[f2])
-            }
-        }
-    }
-    
-    par(mfrow = c(1,2))
+    #par(mfrow = c(1,2))
     mat = mat %>% select(drugname_typaslab, process_broad, names(featImp))
     names_order = drugs_pred_prob_from_container(pred_data = matrix_container_line$PredData[[1]], moa = moa,
                                                 main = paste0(matrix_container_line$hyperparam_grid_name,
                                                               matrix_container_line$feat_preselect,
                                                               as.character(matrix_container_line$chemical_feats)), sep = "_" )
-    prob_shift_plot(pred_data = matrix_container_line$PredData[[1]], pred_data_noChem = matrix_container_line_noChemFeat$PredData[[1]], moa = moa, main = "Comparison with or without ChemFeat" )
+    #prob_shift_plot(pred_data = matrix_container_line$PredData[[1]], pred_data_noChem = matrix_container_line_noChemFeat$PredData[[1]], moa = moa, main = "Comparison with or without ChemFeat" )
+    print(drugs_pred_prob_by_dosage(pred_data = matrix_container_line$PredData[[1]], moa = moa))
     
     
     if(nrow(mat) > 100){

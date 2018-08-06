@@ -27,7 +27,7 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+#matrix_container = readRDS("/Volumes/typas/Florian/MoA_prediction_data/matrix_container_withextractions.rds")
 matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
 
 ipak(plotmo)
@@ -35,10 +35,19 @@ ipak(reshape2)
 ipak(gplots)
 ipak("gridExtra")
 ipak("plotly")
+library(ComplexHeatmap)
+ipak("circlize")
 ```
 
 
 Aim of this notebook is to have a deeper look at all the different results from the matrix container and understand which features are used, for what, which of them help us defining groups based on MoA.
+
+For keeping the same color code for MoA
+
+```{r}
+colMap = rainbow(4)
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+```
 
 
 # Lasso model regularization paths
@@ -91,130 +100,6 @@ grid.arrange(dna11, dna12, dna13, dna14, nrow = 2)
 ```
 
 
-# Averaging Lasso coefficients
-
-Idea : boxplot of the values of the coefficient aassociated with one feature across rep/fold.
-On top of that, we use a color code depending on in how many models does a feature appear
-
-```{r}
-
-plot_cat_lasso_coeffs = function(resObj, moa = "dna", thres = 0, return_obj = FALSE, ...){
-    
-    match.arg(arg = moa, choices = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
-    
-    nrep = length(resObj)
-    nfold = length(resObj[[1]])
-    #List of coefficient values across all models
-    coeff_cat = list()
-    
-    for(rep in 1:nrep){
-        for(fold in 1:nfold){
-            model = resObj[[rep]][[nfold]][[paste0("model_", moa)]]
-            
-            lambda_for_pred = model$learner$par.vals$s
-            # Get the index of the lambda used in model building that is the closest to s, the lambda used for testing
-            closest_lambda_index = which.min(abs(lambda_for_pred - model$learner.model$lambda))
-            
-            coeffs = as.matrix(model$learner.model$beta[, closest_lambda_index])
-            coeffs = coeffs[coeffs !=0,  ]
-            for(n in names(coeffs)){
-                coeff_cat[[n]] = c(coeff_cat[[n]], coeffs[n])
-            }
-        }
-    }
-
-    #eff contains how many times features appear in a model
-    eff = sort(unlist(lapply(coeff_cat, length)))
-    coeff_cat = coeff_cat[names(eff)]
-
-    # filter
-    coeff_cat = coeff_cat[(eff/80) >= thres]
-    eff = eff[(eff/80) >= thres]
-    
-    colMap = rainbow(length(unique(eff)))
-    names(colMap) = unique(eff)
-    
-    par(mar = c(5,10,4,2))
-    boxplot(coeff_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], ...)
-    legend("bottomleft", legend = paste0(as.numeric(names(colMap))/80 * 100, " %"), 
-           fill = colMap, title = "Present in % models", cex = 0.8)
-    abline(v = 0)
-    if(return_obj){
-        return(coeff_cat)
-    }
-}
-
-# Simple test to see how the function behave
-
-lasso_5pc = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
-
-par(mfrow = c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "dna", main= "Lasso 5pc dna", thres = 0.6)
-plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "cell_wall", main= "Lasso 5pc cell_wall", thres = 0.6)
-plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "membrane_stress", main= "Lasso 5pc membrane_stress", thres = 0.6)
-plot_cat_lasso_coeffs(resObj = lasso_5pc, moa = "protein_synthesis", main= "Lasso 5pc protein_synthesis", thres = 0.6)
-
-```
-
-
-# Similar function for tree based models 
-
-It averages the feature importance score for tree based models, which is the Decrease in Gini impurity
-
-```{r}
-
-plot_cat_xgb_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj = FALSE, ...){
-    
-    match.arg(arg = moa, choices = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
-    
-    nrep = length(resObj)
-    nfold = length(resObj[[1]])
-    #List of coefficient values across all models
-    feat_cat = list()
-    
-    for(rep in 1:nrep){
-        for(fold in 1:nfold){
-        
-            coeffs = getFeatureImportance(resObj[[rep]][[fold]][[paste0("model_", moa)]])$res
-            coeffs = coeffs[which(coeffs !=0)]
-            for(n in names(coeffs)){
-                feat_cat[[n]] = unlist(c(feat_cat[[n]], coeffs[n]))
-            }
-        }
-    }
-
-    #eff contains how many times features appear in a model
-    eff = sort(unlist(lapply(feat_cat, length)))
-    feat_cat = feat_cat[names(eff)]
-
-    # filter
-    feat_cat = feat_cat[(eff/80) >= thres]
-    eff = eff[(eff/80) >= thres]
-    
-    colMap = rainbow(length(unique(eff)))
-    names(colMap) = unique(eff)
-    
-    par(mar = c(5,10,4,2))
-    boxplot(feat_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], ...)
-    legend("bottomright", legend = paste0(as.numeric(names(colMap))/80 * 100, " %"), 
-           fill = colMap, title = "Present in % models", cex = 0.8)
-    abline(v = 0)
-    if(return_obj){
-        return(feat_cat)
-    }
-}
-
-
-xgb_10pc = readRDS("run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_TRUE.rds")
-lasso_10pc = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top10pct_TRUE.rds")
-
-# Simple comparison
-par(mfrow = c(1,2))
-plot_cat_xgb_feat_importance(resObj = xgb_10pc, moa = "dna", thres = 0.7)
-plot_cat_lasso_coeffs(resObj = lasso_10pc, moa = "dna", main= "Lasso 10pc dna", thres = 0.7)
-
-```
-
 
 
 # Model exploration of features importance
@@ -226,65 +111,6 @@ Overview of the analysis :
 - For the best features, have a look at the distribution of the s-score across MoA
 - Also look at what happen if we try to clusterize drugs based on these features only : Heatmap function
 
-## Heatmap function
-
-```{r}
-plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL) {
-    # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
-    cluster_matrix <- m
-    moa_to_colour <- c(cell_wall = "#FF0000FF",
-                       dna = "#80FF00FF",
-                       protein_synthesis = "#8000FFFF",
-                       membrane_stress = "#00FFFFFF",
-                       pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
-    )
-    
-    process_lut <- cluster_matrix$process_broad
-
-    rowcols <- moa_to_colour[process_lut]
-    drugs_names = cluster_matrix$drugname_typaslab
-    if(!is.null(names_order)){
-        row_ord = unlist(lapply(names_order, function(x){which(cluster_matrix$drugname_typaslab== x)}))
-    }else{
-        row_ord = TRUE
-    }
-    
-    cluster_matrix$drugname_typaslab <- NULL
-   
-    cluster_matrix$process_broad <- NULL
-    cluster_matrix <- as.matrix(cluster_matrix)
-
-    if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
-    
-    heatmap.2(cluster_matrix,
-              scale = "column",
-              trace = "none",
-              Rowv = row_ord, 
-              breaks = c(seq(-5,5,length=20)), # use this i/o zlim
-              RowSideColors = rowcols,
-              cexRow = name_size,
-              labRow = drugs_names,
-              col = colorRampPalette(c("red", "white", "blue")),
-              margins = c(12, 9),
-              dendrogram = "row") # only draw row dendrogram
-    legend("top",
-           legend = names(moa_to_colour),
-           col = moa_to_colour,
-           lty = 1,
-           lwd = 10)
-    
-    if(plotFile){ dev.off() }
-}
-
-```
-
-For keeping the same color code for MoA
-
-```{r}
-colMap = rainbow(4)
-names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-```
-
 
 ## CELL WALL 
 
@@ -292,47 +118,6 @@ names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
 
 model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", pdf_filename = "model_explanation_cell_wall.pdf", model_type = "lasso")
-```
-
-```{r}
-# Best model based on AUC : line 155
-lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
-
-pdf(file = "model_explanation_cell_wall.pdf", width = 14, height = 14 )
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
-
-par(mfrow= c(1,1))
-plot_ROC_allRep(lasso_30pc_all, moa = "cell_wall", plotAllRep = T)
-
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.7)
-stripchart(MIOC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(YDAN ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(ISO ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.7)
-stripchart(ASMA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(RFAC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(SLT ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(1,1))
-plot(SLT ~ ASMA, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-plot(RFAC ~ MIOC, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-
-a = plot_cat_lasso_coeffs(resObj = lasso_30pc_all, moa = "cell_wall", main= "lasso_30pc_all", thres = 0.6, return_obj = T)
-# Load matrix correpsonding to the model : with All dosage
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat)
-
-#Same heatmap order by probabilities of prediction
-names_order = drugs_pred_prob_from_container(pred_data = matrix_container[155, ]$PredData[[1]], moa="cell_wall" )
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat,  names_order = names_order)
-
-dev.off()
 ```
 
 We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and MRCB
@@ -346,46 +131,6 @@ lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_
 model_analysis(res_obj = lasso_5pc_most, matrix_container_line = matrix_container[180, ], matrix_container_line_noChemFeat = matrix_container[179, ] , moa = "protein_synthesis", pdf_filename = "model_explanation_protein_synthesis.pdf", model_type = "lasso")
 ```
 
-
-```{r}
-# Best model based on AUC : line 180
-lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
-
-pdf(file = "model_explanation_prot_synthesis.pdf", width = 14, height = 14 )
-mat = matrix_container[20, ]$drug_feature_matrices[[1]]
-
-par(mfrow= c(1,1))
-plot_ROC_allRep(lasso_5pc_most, moa = "protein_synthesis", plotAllRep = T)
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.5)
-stripchart(TOLB ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(SPR~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-plot(SPR ~ TOLB, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.2, las = 2)
-
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.5)
-stripchart(VISC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(ASMA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(ACRA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(1,1))
-plot(SlogP ~ TOLB, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-plot(SlogP ~ SPR, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-
-a = plot_cat_lasso_coeffs(resObj = lasso_5pc_most, moa = "protein_synthesis", main= "lasso_5pc_most", thres = 0.6, return_obj = T)
-# Load matrix correpsonding to the model : dosage with most interaction
-mat = matrix_container[20, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat, name_size = 1)
-
-#Same heatmap order by probabilities of prediction
-names_order = drugs_pred_prob_from_container(pred_data = matrix_container[180, ]$PredData[[1]], moa="protein_synthesis" )
-mat = matrix_container[20, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat, name_size = 1, names_order = names_order)
-
-dev.off()
-```
 
 Here it is not really clear which features are driving the clusterization
 
@@ -402,50 +147,6 @@ lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_
 model_analysis(res_obj = lasso_25pc_all, matrix_container_line = matrix_container[154, ], matrix_container_line_noChemFeat = matrix_container[153, ],  moa = "membrane_stress", pdf_filename = "model_explanation_membrane_stress.pdf", model_type = "lasso")
 ```
 
-
-```{r}
-# Best model based on AUC : line 154
-lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
-
-pdf(file = "model_explanation_membrane_stress.pdf", width = 14, height = 14 )
-mat = matrix_container[154, ]$drug_feature_matrices[[1]]
-
-par(mfrow= c(1,1))
-plot_ROC_allRep(lasso_25pc_all, moa = "membrane_stress", plotAllRep = T)
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.6)
-stripchart(YBIM ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(MALK~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(YFIO~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.6)
-stripchart(MALS ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(ISCR ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(ACEF ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(1,1))
-plot(SlogP ~ YBIM, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-plot(MALK ~ YFIO, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-
-a = plot_cat_lasso_coeffs(resObj = lasso_25pc_all, moa = "membrane_stress", main= "lasso_25pc_all", thres = 0.3, return_obj = T)
-# Load matrix correpsonding to the model : with All dosage
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat)
-
-drugs_pred_prob_from_container(pred_data = matrix_container[172, ]$PredData[[1]], moa="membrane_stress" )
-
-#Same heatmap order by probabilities of prediction
-names_order = drugs_pred_prob_from_container(pred_data = matrix_container[172, ]$PredData[[1]], moa="membrane_stress" )
-mat = matrix_container[2, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat, names_order = names_order)
-
-
-dev.off()
-```
-
 Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe HFQ, SlogP
 
 
@@ -457,44 +158,6 @@ lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso
 model_analysis(res_obj = lasso_10pc_most, matrix_container_line = matrix_container[165, ], matrix_container_line_noChemFeat = matrix_container[166, ], moa = "dna", pdf_filename = "model_explanation_dna.pdf", model_type = "lasso")
 ```
 
-
-```{r}
-# Best model based on AUC : line 165
-lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
-
-pdf(file = "model_explanation_dna.pdf", width = 14, height = 14 )
-mat = matrix_container[20, ]$drug_feature_matrices[[1]]
-
-par(mfrow= c(1,1))
-plot_ROC_allRep(lasso_10pc_most, moa = "dna", plotAllRep = T)
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6)
-stripchart(RECC ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(RECA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(NAGA ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(2,2))
-plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6)
-stripchart(TOLQ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(YCHJ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-stripchart(PROQ ~ process_broad, data = mat, pch = 21, bg = "orange", cex = 1.2, las = 2)
-
-par(mfrow= c(1,1))
-plot(RECC ~ NAGA, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-plot(RECA ~ TOLQ, data = mat, pch = 21, bg = colMap[process_broad], cex = 1.5, las = 2)
-
-a = plot_cat_lasso_coeffs(resObj = lasso_10pc_most, moa = "dna", main= "lasso_10pc_most", thres = 0.6, return_obj = T)
-# Load matrix correpsonding to the model : with All dosage
-mat = matrix_container[20, ]$drug_feature_matrices[[1]]
-mat = mat %>% select(drugname_typaslab, process_broad, names(a))
-plot_heatmap(m = mat, name_size = 1)
-
-#Same heatmap order by probabilities of prediction
-names_order = drugs_pred_prob_from_container(pred_data = matrix_container[165, ]$PredData[[1]], moa="dna" )
-plot_heatmap(m = mat, name_size = 1, names_order = names_order)
-
-dev.off()
-```
 
 DNA drugs cluster easily with RECC and RECA values
 
@@ -568,7 +231,6 @@ The aim is to identify a group of gene in a model which is driving the clusteriz
 
 ```{r}
 
-
 # Best model (highest AUC)
 
 res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_corr06_FALSE.rds")
@@ -589,27 +251,248 @@ rm(res_best)
 
 ```
 
+Try to obtain a nice representation showing the group of features driving a pure cluster of the targeted MoA
 
-Results : MoA prediction - Driving Genes
+## Screening Heatmap cutting schemes
 
-cell_wall
-MRCB, SLT (YEJE, YBAB)
-
-dna
-RECG, XERC, YDFI, MOTA, TPX, YGFA, RECN, HUPA
-
-protein_synthesis
-RYFC, YAIU, GLXK, YGAZ_YGAH, YHFW, YGAT, DSRB, KSGA 
-
-membrane_stress
-RFAF, YJHQ, YRAP, YJJG, YDCH, PLDB, YBGC
 
 ```{r}
-chemogeno_fingerprint = c("MRCB", "SLT", "YEJE", "YBAB",
+# DNA Model
+cut_DNA = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_corr06_FALSE.rds", 
+                                  model_type = "tree", moa = "dna", mat_from_container = matrix_container_new[1, ]$drug_feature_matrices[[1]])
+
+# Cell Wall
+cut_WALL = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_all_FALSE.rds", 
+                                  model_type = "lasso", moa = "cell_wall", mat_from_container = matrix_container_new[1, ]$drug_feature_matrices[[1]])
+
+
+#Protein Synthesis
+cut_PROT = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_protCmplx_FALSE.rds", 
+                                  model_type = "lasso", moa = "protein_synthesis", mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
+
+
+#Membrane Stress
+cut_MEMBRANE = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_all_FALSE.rds", 
+                                  model_type = "tree", moa = "membrane_stress", mat_from_container = matrix_container_new[1, ]$drug_feature_matrices[[1]])
+
+save(cut_DNA, cut_WALL, cut_PROT, cut_MEMBRANE, file = "data/HM_cut.RData")
+
+```
+
+
+```{r}
+load(file = "data/HM_cut.RData")
+
+chemogeno_fingerprint = c()
+```
+
+
+```{r}
+
+# DNA
+cut_DNA = na.omit(cut_DNA)
+#cut_plan = cut_DNA[which(cut_DNA$distToOptPoint == min(cut_DNA$distToOptPoint)), ]
+#Second one slightly better for it invlves far less features
+cut_plan = arrange(cut_DNA %>% filter(recall >= 0.75 & ppv >= 0.75), nbGene)[1, ]
+res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_corr06_FALSE.rds")
+featImp = plot_top_feat_importance(resObj = res_obj,
+                                   moa = "dna", main= deparse(substitute(resObj)) , thres = 0.95, return_obj = T, model_type = "tree")  
+rm(res_obj)
+
+cluster_matrix = matrix_container_new[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, names(featImp))
+cluster_matrix = as.data.frame(cluster_matrix)
+rownames(cluster_matrix) = paste(cluster_matrix$drugname_typaslab, seq(1, nrow(cluster_matrix)), sep = "_")
+        
+annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
+rownames(annot) = rownames(cluster_matrix)
+        
+cluster_matrix = cluster_matrix %>% select(-drugname_typaslab)
+
+genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-process_broad) ))), k = cut_plan$nGeneCut )
+
+for (i in 1:cut_plan$nGeneCut){
+    mats_subGene = cluster_matrix[, c(names(genes_grp[genes_grp == i]), "process_broad")]
+    drugs_grp = cutree(hclust(dist(mats_subGene %>% select(-"process_broad"))), k = cut_plan$nDrugsCut)
+    assign(x = paste0("h", as.character(i)),
+           value = Heatmap(matrix = mats_subGene  %>% select(-"process_broad"), col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+                    gap = unit(10, "mm"), show_row_names = F, split = drugs_grp)
+           )
+}
+
+ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+
+pdf(file = "plots/HMcut_dna.pdf", height = 15, width = 15)
+h3 +h1 + h2 +h4+h5+h6+ ha_row
+dev.off()
+
+chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h3@matrix) )
+
+```
+
+```{r}
+cut_PROT = na.omit(cut_PROT)
+# cut_plan = cut_PROT[which(cut_PROT$distToOptPoint == min(cut_PROT$distToOptPoint)), ]
+cut_plan = arrange(cut_PROT %>% filter(recall >= 0.75 & ppv >= 0.75), nbGene)[1, ]
+res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_protCmplx_FALSE.rds")
+featImp = plot_top_feat_importance(resObj = res_obj,
+                                   moa = "protein_synthesis", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "lasso")  
+rm(res_obj)
+
+cluster_matrix = matrix_container_new[7, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, names(featImp))
+cluster_matrix = as.data.frame(cluster_matrix)
+rownames(cluster_matrix) = paste0(cluster_matrix$process_broad, seq(1, nrow(cluster_matrix)))
+        
+annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
+rownames(annot) = rownames(cluster_matrix)
+        
+cluster_matrix = cluster_matrix %>% select(-drugname_typaslab)
+
+genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-process_broad) ))), k = cut_plan$nGeneCut )
+
+for (i in 1:cut_plan$nGeneCut){
+    mats_subGene = cluster_matrix[, c(names(genes_grp[genes_grp == i]), "process_broad")]
+    drugs_grp = cutree(hclust(dist(mats_subGene %>% select(-"process_broad"))), k = cut_plan$nDrugsCut)
+    assign(x = paste0("h", as.character(i)),
+           value = Heatmap(matrix = mats_subGene  %>% select(-"process_broad"), col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+                    gap = unit(10, "mm"), show_row_names = F, split = drugs_grp)
+           )
+}
+
+ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+
+pdf(file = "plots/HMcut_protein_synthesis.pdf", height = 15, width = 15)
+h2 + h1+h3 + ha_row
+dev.off()
+
+chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h2@matrix) )
+
+```
+
+```{r}
+cut_MEMBRANE = na.omit(cut_MEMBRANE)
+# cut_plan = cut_MEMBRANE[which(cut_MEMBRANE$distToOptPoint == min(cut_MEMBRANE$distToOptPoint)), ]
+cut_plan = arrange(cut_MEMBRANE %>% filter(recall >= 0.7 & ppv >= 0.7), nbGene)[1, ]
+
+res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_all_FALSE.rds")
+featImp = plot_top_feat_importance(resObj = res_obj,
+                                   moa = "membrane_stress", main= deparse(substitute(resObj)) , thres = 0.8625, return_obj = T, model_type = "tree")  
+rm(res_obj)
+
+cluster_matrix = matrix_container_new[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, names(featImp))
+cluster_matrix = as.data.frame(cluster_matrix)
+rownames(cluster_matrix) = paste0(cluster_matrix$process_broad, seq(1, nrow(cluster_matrix)))
+        
+annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
+rownames(annot) = rownames(cluster_matrix)
+        
+cluster_matrix = cluster_matrix %>% select(-drugname_typaslab)
+
+genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-process_broad) ))), k = cut_plan$nGeneCut )
+
+for (i in 1:cut_plan$nGeneCut){
+    mats_subGene = cluster_matrix[, c(names(genes_grp[genes_grp == i]), "process_broad")]
+    drugs_grp = cutree(hclust(dist(mats_subGene %>% select(-"process_broad"))), k = cut_plan$nDrugsCut)
+    assign(x = paste0("h", as.character(i)),
+           value = Heatmap(matrix = mats_subGene  %>% select(-"process_broad"), col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+                    gap = unit(10, "mm"), show_row_names = F, split = drugs_grp)
+           )
+}
+
+ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+
+pdf(file = "plots/HMcut_membrane_stress.pdf", height = 15, width = 15)
+h1 + h2 +h3  + ha_row
+dev.off()
+
+chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h1@matrix) )
+```
+
+```{r}
+cut_WALL = na.omit(cut_WALL)
+cut_plan = cut_WALL[which(cut_WALL$distToOptPoint == min(cut_WALL$distToOptPoint)), ]
+cut_plan = cut_plan[1, ]
+res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_all_FALSE.rds")
+featImp = plot_top_feat_importance(resObj = res_obj,
+                                   moa = "cell_wall", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "lasso")  
+rm(res_obj)
+
+cluster_matrix = matrix_container_new[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, names(featImp))
+cluster_matrix = as.data.frame(cluster_matrix)
+rownames(cluster_matrix) = paste0(cluster_matrix$process_broad, seq(1, nrow(cluster_matrix)))
+        
+annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
+rownames(annot) = rownames(cluster_matrix)
+        
+cluster_matrix = cluster_matrix %>% select(-drugname_typaslab)
+
+genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-process_broad) ))), k = cut_plan$nGeneCut )
+
+for (i in 1:cut_plan$nGeneCut){
+    mats_subGene = cluster_matrix[, c(names(genes_grp[genes_grp == i]), "process_broad")]
+    drugs_grp = cutree(hclust(dist(mats_subGene %>% select(-"process_broad"))), k = cut_plan$nDrugsCut)
+    assign(x = paste0("h", as.character(i)),
+           value = Heatmap(matrix = mats_subGene  %>% select(-"process_broad"), col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+                    gap = unit(10, "mm"), show_row_names = F, split = drugs_grp)
+           )
+}
+
+ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+
+pdf(file = "plots/HMcut_cell_wall.pdf", height = 15, width = 15)
+h1 + ha_row
+dev.off()
+
+chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h1@matrix) )
+```
+
+
+
+
+```{r}
+# Based on intuitive extraction on cluster driving genes
+chemogeno_fingerprint_old = c("MRCB", "SLT", "YEJE", "YBAB",
                         "RECG", "XERC", "YDFI", "MOTA", "TPX", "YGFA", "RECN", "HUPA",
                         "RYFC", "YAIU", "GLXK", "YGAZ_YGAH", "YHFW", "YGAT", "DSRB", "KSGA",
                         "RFAF", "YJHQ", "YRAP", "YJJG", "YDCH", "PLDB", "YBGC")
+
+# Based on researchof a trade-off between recal, ppv and number of genes used
+chemogeno_fingerprint = c('CSPD', 'YABI', 'YBHE', 'YIHF', 'YQAC', 'YJBG', 'YIGB', 'GLMU', 'MDTC', 'RNB', 'YFJO', 'NAGA', 'YCEF',
+                          'GLPD', 'YCGF', 'FIMF', 'YBAD', 'YFHJ', 'FIMC', 'FADD', 'WZZE', 'YGEX', 'YJHX', 'YMDA', 'PYRI', 'ALLD',
+                          'ULAE', 'YIBA', 'YJJY', 'HUPB', 'MALS', 'FLIO', 'ILVN', 'SPOT', 'DCRB', 'YFDM', 'YBED', 'PRPB',
+                          'PHNN', 'CVPA', 'GLPT', 'YCEP', 'YFIO', 'SPEF', 'ISCR', 'KEFA', 'YIDH', 'MDTA', 'PLDB', 'YDCH', 
+                          'YJJG', 'YRAP', 'YJHQ', 'SLT', 'MRCB', 'MIOC')
+
+#if needed
+#   chemogeno_fingerprint = chemogeno_fingerprint[-grep(chemogeno_fingerprint, pattern =  "^Y")]
+
+# Need to build a new matrix containing data from gene AND complexes. This allows to extract simply everything we need
+full_mat = bind_cols(x = matrix_container_new[1, ]$drug_feature_matrices[[1]],
+                      y = matrix_container_new[7, ]$drug_feature_matrices[[1]]) 
+
+chemGeno_mat = as.data.frame(full_mat %>% select(chemogeno_fingerprint, "process_broad"))
+rownames(chemGeno_mat) = paste(chemGeno_mat$drugname_typaslab, seq(1, nrow(chemGeno_mat)), sep = "_")
+annot = data.frame(MoA = chemGeno_mat[ ,"process_broad"])
+rownames(annot) = rownames(chemGeno_mat)
+      
+Heatmap(matrix = chemGeno_mat  %>% select(-process_broad), col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+                    gap = unit(10, "mm"), show_row_names = F) + rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+
+# OR ALSO THAT :
+res = kmeans(chemGeno_mat %>% select(-process_broad), centers = 4, nstart = 100)
+chemGeno_mat$clust = res$cluster
+table(chemGeno_mat[, c("clust", "process_broad")])
+
 ```
+
+```{r}
+load(file = "../dbsetup/data/genesWithEG_ID.RData")
+
+genes %>% filter(gene_synonym %in% chemogeno_fingerprint) %>% select(ugi, gene_synonym, name)
+# Extract information for interaction prediction
+bigMat = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc, chemogeno_fingerprint)
+saveRDS(bigMat, file = "data/chemGen_fingerprint_mat.rds")
+```
+
 
 ## t-SNE
 
@@ -619,24 +502,31 @@ ipak(Rtsne)
 mat = full_mat %>% select(drugname_typaslab, process_broad, chemogeno_fingerprint)
 mat$process_broad = as.factor(mat$process_broad)
 
-tsne_res = Rtsne(X = mat[, -1], dims = 3, pca = F)
-#tsne_res = Rtsne(X = mat[, -1], dims = 3, perplexity = 10, max_iter = 2000)
+#tsne_res = Rtsne(X = mat[, -1], dims = 3, pca = F)
+tsne_res = Rtsne(X = mat[, -1], dims = 3, perplexity = 10, max_iter = 2000)
 
 plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
 colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
-p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF") ) %>%
-  add_markers(text = ~drug) %>%
-  layout(title = "Best Features",
-         scene = list(xaxis = list(title = 'tSNE1'),
-                     yaxis = list(title = 'tSNE2'),
-                     zaxis = list(title = 'tSNE3')))
+p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF"),
+        marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>%
+        add_markers(text = ~drug) %>%
+        layout(title = "Best Features",
+                scene = list(xaxis = list(title = 'tSNE1'),
+                        yaxis = list(title = 'tSNE2'),
+                        zaxis = list(title = 'tSNE3')))
 p
 # =====================================================
 
-tsne_res = Rtsne(X = mat[, -1], dims = 2, pca = F)
+#tsne_res = Rtsne(X = mat[, -1], dims = 2, pca = F)
+tsne_res = Rtsne(X = mat[, -1], dims = 2, perplexity = 10, max_iter = 2000, pca = F)
 plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
 colnames(plotData)[1:2] = c("tSNE1", "tSNE2")
-ggplot() + geom_point(data = plotData, mapping =aes(x = tSNE1, y = tSNE2 , colour = MoA), size = 3) + theme_bw() + scale_color_manual(values = rainbow(4))
+plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, color = ~MoA, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF"),
+        marker = list(size = 12, line = list(color = 'rgba(0, 0, 0, .8)', width = 1.5))) %>%
+        add_markers(text = ~drug) %>%
+        layout(title = "Best Features",
+                scene = list(xaxis = list(title = 'tSNE1'),
+                            yaxis = list(title = 'tSNE2')))
 
 # =====================================================
 
@@ -675,18 +565,12 @@ pRandom <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, c
                      zaxis = list(title = 'tSNE3')))
 pRandom
 
-
-
 ```
 
 
 ## PCA visualization
 
 ```{r}
-# Need to build a new matrix containing data from gene AND complexes. This allows to extract simply everything we need
-
-full_mat = bind_cols(x = matrix_container_new[1, ]$drug_feature_matrices[[1]],
-                      y = matrix_container_new[7, ]$drug_feature_matrices[[1]]) 
 
 fingerprint_mat = full_mat %>% select(drugname_typaslab, process_broad, conc, chemogeno_fingerprint)
 saveRDS(fingerprint_mat, file = "data/chemGen_fingerprint_mat.rds")
@@ -701,9 +585,10 @@ var_3pca = sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
 plotData <- as.data.frame(pca_data$x)
 plotData = cbind(plotData, process_broad = fingerprint_mat$process_broad, drugnames = fingerprint_mat$drugname_typaslab)
 
-p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF") ) %>%
-  add_markers(text = ~drugnames) %>%
-  layout(scene = list(xaxis = list(title = 'PC1'),
+p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF"),
+             marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>%
+            add_markers(text = ~drugnames) %>%
+            layout(scene = list(xaxis = list(title = 'PC1'),
                      yaxis = list(title = 'PC2'),
                      zaxis = list(title = 'PC3')))
 

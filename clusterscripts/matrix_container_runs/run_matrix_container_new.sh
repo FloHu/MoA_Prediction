@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -J new_container_run
+#SBATCH -J new_container_run_correctedResamp
 #SBATCH -A typas              
 #SBATCH -N 1                        # number of nodes
 #SBATCH -n 24                      # number of cores
 #SBATCH --mem 20G                # memory pool for all cores
 #SBATCH -t 7-00:00                  # runtime limit (D-HH:MM:SS)
-#SBATCH -o new_container_run.out          # STDOUT
+#SBATCH -o new_container_run_correctedResamp.out         # STDOUT
 #SBATCH --mail-type=BEGIN,END,FAIL        # notifications for job done & fail
 #SBATCH --mail-user=leonard.dubois@embl.de
 

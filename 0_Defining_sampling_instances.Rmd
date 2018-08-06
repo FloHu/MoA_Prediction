@@ -53,6 +53,19 @@ Since we have a small data set, it is actually better to use more folds. Thus, t
 contain more individuals. The testing set results can be concatenated afterwards, with each individual 
 having been predicted by a model in which it was not trained. 
 
+A bunch of getters and test functions
+
+```{r}
+
+get_outer_train_ids = function(NCV_sampling, rep_nb){
+    NCV_sampling[[rep_nb]]$outer$train.inds
+}
+
+get_inner_train_ids = function(NCV_sampling, rep_nb, outer_nb){
+    NCV_sampling[[rep_nb]]$inner[[outer_nb]]$train.inds
+}
+
+```
 
 ```{r function}
 
@@ -121,24 +134,6 @@ dataset_newDrugs = mutate(dataset_newDrugs, process_broad = replace(process_broa
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")
     Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = dataset_newDrugs, printTest = F)
-}
-
-```
-
-
-
-
-
-A bunch of getters and test functions
-
-```{r}
-
-get_outer_train_ids = function(NCV_sampling, rep_nb){
-    NCV_sampling[[rep_nb]]$outer$train.inds
-}
-
-get_inner_train_ids = function(NCV_sampling, rep_nb, outer_nb){
-    NCV_sampling[[rep_nb]]$inner[[outer_nb]]$train.inds
 }
 
 ```
@@ -244,7 +239,9 @@ Load the matrix, get rid of doubles, run once the instance creation and run agai
 
 matrix_2mostia_mainMoa = readRDS(file = "data/matrix_2mostia_mainMoA.rds")
 Rep_Nest_CV_instance = list()
-dataset = matrix_2mostia_mainMoa[c(TRUE, FALSE), ] 
+unique_pos = match(unique(matrix_2mostia_mainMoa$drugname_typaslab), matrix_2mostia_mainMoa$drugname_typaslab)
+dataset = matrix_2mostia_mainMoa[unique_pos, ] 
+
 
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")

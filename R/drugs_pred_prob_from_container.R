@@ -23,6 +23,7 @@ drugs_pred_prob_from_container = function(pred_data, moa, order = median, ...){
 }
 
 
+# Same but compare with/without chemFeat
 prob_shift_plot = function(pred_data, pred_data_noChem, moa, order = median, ...){
     
     pred_data = pred_data %>% filter(moa_modelled == moa) %>% select(prob.moa, drugname_typaslab, truth)
@@ -41,7 +42,29 @@ prob_shift_plot = function(pred_data, pred_data_noChem, moa, order = median, ...
     grp_pred = grp_pred[ord]
     
     boxplot(grp_pred, lwd = 1,  las = 2, horizontal = TRUE, cex.axis = 0.8, col = "red", add = T, at = seq(from = 2, to = 3*length(grp_pred), by = 3), yaxt = 'n',  outline = F, ...)
+}
+
+
+
+#Compare Dosages prediction
+drugs_pred_prob_by_dosage = function(pred_data, moa, order = median){
     
+    
+    pred_data = pred_data %>% filter(moa_modelled == moa) %>% select(prob.moa, drugname_typaslab, truth, conc)
+    # Redefine name in order to group by drugs and by dosage
+    pred_data$conc = paste(pred_data$drugname_typaslab, pred_data$conc, sep = "_")
+    
+    mean_pred = by(data = pred_data$prob.moa, pred_data$conc, FUN = order)
+    grp_pred = split(pred_data$prob.moa, f = pred_data$conc)
+    ord = names(sort(mean_pred))
+    grp_pred = grp_pred[ord]
+    
+    names(grp_pred) = lapply(str_split(names(grp_pred), pattern = "_"), function(x){x[1]})
+
+    ggplot(data = pred_data, aes(x = conc, y = prob.moa )) + geom_boxplot() + 
+        facet_wrap(~drugname_typaslab, scales = "free_y",nrow =18, ncol = 4 ) + 
+        coord_flip() + 
+        theme_bw()
     
     
 }
