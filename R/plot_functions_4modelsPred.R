@@ -27,48 +27,6 @@ cat_outer_fold_pred = function(res , repetition = 1, moa = "dna"){
 
 # ==============================================================================
 
-#AIM : Generate a boxplot of a performance measure across all repetition
-#       Can be used for 1 MoA or for comparing all of them
-#INPUT : Result object, any measure from the MLR package and a MoA name or "all"
-#OUTPUT : Some classic boxplot
-plot_mean_perf = function(res , meas = auc, moa = "dna", ...){
-
-    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-    if(!moa %in% c(set_MoA, "all")){
-        print("Invalid Mode of action")
-        return(-1)
-    }
-
-    if(moa == "all"){
-        toPlot = c()
-        for (m in set_MoA){
-            x = c()
-            for(rep in 1:10){
-                pred = cat_outer_fold_pred(res = res, repetition = rep, moa = m)
-                x = c(x, performance(pred, measures = meas))
-            }
-            toPlot = rbind(toPlot, x)
-        }
-        rownames(toPlot) = set_MoA
-        boxplot(t(toPlot), lwd = 1.5, outline = F, ylab = meas$name,
-                main = paste0("Measure comparison across MoA :", as.character(meas$id) ),
-                sub = paste0("result object : ", deparse(substitute(res))),
-                col = rainbow(length(set_MoA)),...)
-    }else{
-        toPlot = c()
-        for(rep in 1:10){
-            pred = cat_outer_fold_pred(res = res,repetition = rep, moa = moa)
-            toPlot = c(toPlot, performance(pred, measures = meas))
-        }
-        boxplot(toPlot, lwd = 1.5, outline = F, ylab = meas$name,
-                main = paste0("Measure comparison across Repetition : ", as.character(meas$id), " for ", moa, " MoA" ) ,
-                sub = paste0("result object : ", deparse(substitute(res))), ...)
-        stripchart(toPlot, method = "jitter", pch = 21, col = "black", bg = "orange", cex = 2, vertical = T, add = T,lwd = 1.5, ...)
-    }
-}
-
-# ==============================================================================
-
 #AIM : Overall results of a run, plot a ROC curve based on the concatenation of
 #       all outer folds of all repetitions
 #INPUT : Results object, MoA name or "all"
@@ -127,65 +85,8 @@ plot_ROC_allRep = function(res, moa = "dna", plotAllRep = T){
 }
 
 # ==============================================================================
-
-#AIM : Compare thr ROC curves beetween two results object
-#INPUT : 2 result objects res1 and res2, 1 MoA name or "all"
-#OUTPUT : One plot with one ROC curve per Model if 1 MoA
-#        A splited plot with the ouput of plot_ROC_allRep() for each model
-compare_ROC_2models = function(res1, res2, moa = "dna"){
-    set_MoA = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
-    if(!moa %in% c(set_MoA, "all")){
-        print("Invalid Mode of action")
-        return(-1)
-    }
-    if(moa != "all"){
-        dataPlot = c()
-        all_rep_res1 = cat_outer_fold_pred(res = res1, repetition = 1, moa = moa)
-        for (rep in 2:10) {
-            a = cat_outer_fold_pred(res = res1, repetition = rep, moa = moa)
-            all_rep_res1$data = rbind(all_rep_res1$data, a$data)
-        }
-        all_rep_res2 = cat_outer_fold_pred(res = res2, repetition = 1, moa = moa)
-        for (rep in 2:10) {
-            a = cat_outer_fold_pred(res = res2, repetition = rep, moa = moa)
-            all_rep_res2$data = rbind(all_rep_res2$data, a$data)
-        }
-
-        x1 = generateThreshVsPerfData(all_rep_res1, measures = list( fpr, tpr))
-        x1 = x1$data
-        x1$Model = deparse(substitute(res1))
-        x2 = generateThreshVsPerfData(all_rep_res2, measures = list( fpr, tpr))
-        x2 = x2$data
-        x2$Model = deparse(substitute(res2))
-        dataPlot = rbind(x1, x2)
-
-        ggplot(dataPlot, do.call(aes_string,  list(x = "fpr", y = "tpr")) ) +
-            geom_path(mapping = aes(color = Model), size = 2) +
-            labs(x = "False positive rate", y = "True positive rate", title = paste0(moa, " - Comparison")) +
-            geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
-            scale_color_manual(values = rainbow(length(set_MoA))) +
-            theme_bw()
-
-    }else{
-        library(grid)
-        library(gridExtra)
-        plot1 = plot_ROC_allRep(res = res1, moa = "all") +
-            theme(legend.position = "bottom", legend.box = "vertical") +
-            guides(col = guide_legend(title.position = "top", nrow = 2)) +
-            ggtitle(deparse(substitute(res1)))
-        plot2 = plot_ROC_allRep(res = res2, moa = "all") +
-            theme(legend.position = "bottom", legend.box = "vertical") +
-            guides(col = guide_legend(title.position = "top", nrow = 2)) +
-            ggtitle(deparse(substitute(res2)))
-
-        grid.arrange(plot1, plot2, nrow = 1)
-    }
-}
-
-
-#Same thing as above with any amount of models
-#Work only for one MoA
+# Same thing as above with any amount of models
+# Work only for one MoA
 compare_ROC_models = function(moa = "dna", ...){
 
     if(!moa %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis")){
