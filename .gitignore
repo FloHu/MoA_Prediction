@@ -13,6 +13,7 @@
 *cache
 
 !RNCV*.rds
+!Rep_Nest*.RData
 
 *.pdf
 *.jpg
