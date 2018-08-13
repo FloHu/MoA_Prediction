@@ -1,0 +1,212 @@
+---
+title: "Retraining models"
+author: "Florian Huber, Leonard Dubois"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+# custom functions
+walk(list.files("./R", pattern = "*.R", full.names = T), source)
+
+ipak(plotmo)
+ipak(reshape2)
+ipak(gplots)
+ipak("gridExtra")
+ipak("plotly")
+library(ComplexHeatmap)
+ipak("circlize")
+library(glmnet)
+library(randomForest)
+
+# For consensus color map for MoA
+colMap = rainbow(4)
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+
+matrix_container_new = readRDS(file = "data/matrix_container_new_withextractions.rds")
+```
+
+
+# Retraining on everything
+
+Aim here is to retrain models on the whole dataset. Feat preselection and algorithm used are the ones displaying the best performances in the previous step of the analysis (see notebook Inspecting Models).
+This is the purpose of cross validation (outer loop in the analysis), assessing a model's performances. Knowing such performances, we can choose what's performing best.
+
+Performances of the retrained model cannot be studied since we do not have another dataset whose true response are known.
+However, the features importance can be studied and should be more robust and precise than the previous one.
+
+On top of that, such models can be used to predict MoA of "other" drugs, either the one with a MoA different from the 4 main ones or with an unknown MoA.
+On can use the 4 prediction model as a "meta-model". Analyzing all prediction probabilities together as a unique outcome. Some mechanisms of action can indeed lead to ambiguity and kind of ties in the predictions.
+
+The choice of hyperparameter will be made using a new loop of C (not nested this time) for EN models. RF models hyperparameter will be chosen according to the OOB error.
+
+
+```{r}
+retraining_dna = matrix_container_new[8, ]
+retraining_cell_wall = matrix_container_new[8, ]
+retraining_protein_synthesis = matrix_container_new[5, ]
+retraining_membrane_stress = matrix_container_new[9, ]
+
+matrix_allDrugs = readRDS(file = "data/matrix_2mostia_allDrugs.rds")
+matrix_mainDrugs = matrix_container_new[1, ]$drug_feature_matrices[[1]]
+
+drugsToPred = !(matrix_allDrugs$drugname_typaslab %in% matrix_mainDrugs$drugname_typaslab)
+drugs_newdata = matrix_allDrugs[drugsToPred, ]
+```
+
+In order to use OOB error, one has to define this custom Measure object for MLR functions.
+
+```{r}
+oobperf = makeMeasure("oobperf", minimize = TRUE, properties = c("classif", "classif.multi"),
+  fun = function(task, model, pred, feats, extra.args) {
+  err = model$learner.model$err.rate
+  err[nrow(err), "OOB"]
+})
+```
+
+## New Models
+
+
+```{r}
+# Choose a  MoA
+for (moa in c("dna", "cell_wall", "protein_synthesis", "membrane_stress")) {
+    moa_mat = get(paste0("retraining_", moa))$drug_feature_matrices[[1]]
+    moa_mat$process_broad = ifelse(moa_mat$process_broad == moa, yes = moa, no = paste0("not_", moa))
+    
+    moa_mat$drugname_typaslab = as.factor(moa_mat$drugname_typaslab )
+    moa_task = makeClassifTask(data = moa_mat %>% select(-conc, -drugname_typaslab), target = "process_broad", blocking = moa_mat$drugname_typaslab)
+    hyp_param = get(paste0("retraining_", moa))$hyperparam_grid[[1]]
+    
+    if(get(paste0("retraining_", moa))$fitted_model == "classif.randomForest"){
+            res_tuning = tuneParams(learner = "classif.randomForest", task = moa_task, resampling = makeResampleDesc("Holdout", split = 0.99),
+                            measures = oobperf, par.set = hyp_param, control = makeTuneControlGrid())
+    }else{
+        res_tuning = tuneParams(learner = get(paste0("retraining_", moa))$fitted_model, task = moa_task, resampling = makeResampleDesc("CV", iters = 10),
+                            measures = mmce, par.set = hyp_param, control = makeTuneControlGrid())
+    }
+    
+    lrn = setHyperPars( makeLearner(cl = get(paste0("retraining_", moa))$fitted_model, predict.type = "prob"), par.vals = res_tuning$x)
+    
+    assign(x = paste0("model_", moa),  value = train(learner = lrn, task = moa_task) )
+}
+
+save(model_dna, model_cell_wall, model_membrane_stress, model_protein_synthesis, file = "data/models_trainOnAll.RData")
+
+```
+
+
+
+## Features importance extracted from model
+
+Extract from RF model with simple function
+
+```{r}
+
+model = model_dna
+model = model_cell_wall
+
+# One dimensions K-means (better than cutoff)
+featImp = getFeatureImportance(model)$res
+featImp = sort(featImp, decreasing = T)
+featImp = t(featImp)
+set.seed(42)
+stripchart(featImp, pch = 21, bg = "orange", method = "jitter", cex = 1.5, xlab = "Mean decrease in Gini impurity")
+
+
+a = kmeans(x = featImp, centers = 2, nstart = 100)
+f = names(a$cluster[a$cluster == 2])
+
+set.seed(42)
+stripchart(featImp, pch = 21, bg = a$cluster, method = "jitter", cex = 1.5,  xlab = "Mean decrease in Gini impurity")
+
+
+```
+
+
+Extract from EN model
+
+```{r}
+model = model_protein_synthesis
+model = model_membrane_stress
+
+lambda_for_pred = model$learner$par.vals$s
+# Get the index of the lambda used in model building that is the closest to s, the lambda used for testing
+closest_lambda_index = which.min(abs(lambda_for_pred - model$learner.model$lambda))
+coeffs = as.matrix(model$learner.model$beta[, closest_lambda_index])
+coeffs = coeffs[coeffs !=0,  ]
+
+par(mar = c(5.1, 12, 3, 2.1))
+barplot(coeffs[order(coeffs)], horiz = T, las = 2, xlab = "Coefficient value", cex.names = 0.7 )
+par(mar = c(5.1, 4.1, 4.1, 2.1))
+
+#also
+barplot(coeffs[order(abs(coeffs), decreasing = T)][1:10], horiz = T, las = 2, xlab = "Coefficient value", cex.names = 0.7)
+
+stripchart(abs(coeffs), pch = 21, bg = "orange", method = "jitter", cex = 0.8, xlab = "Coefficient absolute value")
+
+
+```
+
+
+
+
+
+## Prediction on other drugs
+
+```{r}
+
+newpred_dna = predict(object = model_dna, newdata = drugs_newdata %>% select(-conc,-process_broad, -drugname_typaslab))
+newpred_cell_wall = predict(object = model_cell_wall, newdata = drugs_newdata %>% select(-conc,-process_broad, -drugname_typaslab))
+
+train_mat = retraining_membrane_stress$drug_feature_matrices[[1]] %>% select(-conc,-process_broad, -drugname_typaslab)
+predict_mat = drugs_newdata %>% select(names(train_mat))
+newpred_membrane_stress = predict(object = model_membrane_stress, newdata = predict_mat)
+
+train_mat = retraining_protein_synthesis$drug_feature_matrices[[1]] %>% select(-conc,-process_broad, -drugname_typaslab)
+predict_mat = drugs_newdata %>% select(names(train_mat))
+newpred_protein_synthesis = predict(object = model_protein_synthesis, newdata = predict_mat)
+
+
+meta_newPred = cbind(drugs_newdata%>% select(drugname_typaslab, conc, process_broad ), newpred_dna$data, newpred_cell_wall$data, 
+                     newpred_membrane_stress$data, newpred_protein_synthesis$data)
+colnames(meta_newPred)[c(6,9,12,15)] = c("response_dna", "response_cell_wall", "response_membrane", "response_prot")
+
+
+meta_newPred_prob = meta_newPred %>% select(drugname_typaslab, conc, prob.cell_wall, prob.dna, prob.membrane_stress, prob.protein_synthesis)
+
+
+meta_newPred_prob = cbind(drugname_typaslab = rep(x = meta_newPred$drugname_typaslab, times = 4) , 
+                         conc = rep(x = as.character(meta_newPred$conc), times = 4),
+                        gather(meta_newPred_prob[, grepl(x = colnames(meta_newPred_prob), pattern = "prob")], key = "Moa", value = "Probability" )
+                    )
+
+# test
+ggplot(data = meta_newPred_prob %>% filter(drugname_typaslab == "UV"), aes(x = Moa, y = Probability, fill = conc)) +
+    geom_bar(stat = "identity", position=position_dodge(), color="black") + 
+    theme_bw() + scale_fill_manual(values = c("orange", "blue")) + ylim(0,1)
+
+```
+
+
+
+
+
+# Leave-one-out Models for single drugs characterization
