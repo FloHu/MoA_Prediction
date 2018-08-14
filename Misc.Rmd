@@ -33,6 +33,10 @@ ipak(reshape2)
 ipak(gplots)
 ipak("gridExtra")
 ipak("plotly")
+
+library(ComplexHeatmap)
+library(viridis)
+library(circlize)
 ```
 
 # Hierarchical clusterings of drugs
@@ -188,15 +192,152 @@ ggsave("./plots/ROC_curve_flashtalk.pdf", width = 3.8, height = 3.8)
 
 
 
-## Nichols data: Euclidean distance
+## Nichols data: heatmaps and custom "sub heatmaps" (Euclidean and (1-corr))
 
-<!--
-include later (see FeatureImp_... notebook) when we have our big results object
--->
+Heatmap with all genes and all conditions, Euclidean distance:
+
+```{r}
+# take a drug_feature_matrix w/o chemical features from "keepall" and using all dosages
+
+tmp <- as.data.frame(matrix_container$drug_feature_matrices[[1]])
+
+moa_to_colour <- c(cell_wall = "#a6cee3",
+                   dna = "#1f78b4",
+                   protein_synthesis = "#b2df8a",
+                   membrane_stress = "#33a02c",
+                   pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa", 
+                   unknown = "#bababa")
+rowcols <- moa_to_colour[tmp$process_broad]
+
+tmp.bak <- tmp
+tmp$drugname_typaslab <- paste(tmp$drugname_typaslab, tmp$conc, sep = "_")
+row.names(tmp) <- tmp$drugname_typaslab
+tmp[, c("drugname_typaslab", "conc", "process_broad")] <- NULL
+tmp_m <- as.matrix(tmp)
+tmp_m_dist <- dist(tmp_m, method = "euclidean")
+tmp_m_dist <- as.dist((1 - cor(t(tmp_m))))
+
+pdf("./plots/euclid.pdf", width = 140, height = 30)
+heatmap.2(tmp_m, 
+          trace = "none", 
+          Rowv = as.dendrogram(hclust(tmp_m_dist)), 
+          RowSideColors = rowcols, 
+          margins = c(12, 9), 
+          dendrogram = "row", 
+          breaks = seq(from = -5, to = 5, by = 1),  
+          col = rev(heat.colors(n = 10)), 
+          main = "")
+legend("top", 
+       legend = names(moa_to_colour), 
+       col = moa_to_colour, 
+       lty = 1, 
+       lwd = 5, 
+       cex = 0.5)
+dev.off()
+```
+
+Write a function to generate "sub heatmaps", depending on the conditions and genes provided.
+
+First run a few tests for choosing color palettes etc. Important websites: the vignette for the 
+ComplexHeatmap package (can do everything) and also for the [viridis package](https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html).
+
+```{r}
+# write a function that:
+# takes a drug_feature matrix
+# takes a vector of conditions and a vector genes (features) to keep 
+# and then creates a heatmaps
+
+my_test <- myhead(tmp_m)
+# change two values to check for outliers
+my_test["A22_0.5", "AAEX"] <- -5
+my_test["ACRIFLAVINE_2", "ABGA"] <- -7
+
+my_cols <- cividis(n = 10)
+
+Heatmap(my_test, col = colorRamp2(seq(from = -4, to = 4, length.out = 10), my_cols), 
+        cell_fun = function(j, i, x, y, width, height, fill) {
+           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(fontsize = 10))
+         })
+
+# use viridis color palette for good perceptual properties
+# but how many breaks do we need? let's say we want to see 90% of the data:
+hist(tmp_m)
+quantile(tmp_m, probs = c(0.005, 0.01, 0.05, 0.1, 0.5, 0.9, 0.95, 0.99, 0.995))
+# looks like 90% of the data are between -2.2 and 1.96:
+hist(tmp_m, xlim = c(-3.5, 3.5), breaks = 300)
+
+# quantiles if one takes 99% of the data
+lapply(list(mean, sd), function(x) x(tmp_m[tmp_m[, 1] > -4.3 & tmp_m[, 1] < 3, c(T, rep(F, ncol(tmp_m) - 1))]))
+# might indicate that data were quantile normalised - because if data is normally distributed, IQR = 1.35 * sd
+# but I'm not sure, and this data set is not complete
+# anyway ...
+
+# cut the interval from -3.5 to 3.5 into 0.1-spaced intervals, using 70 colors
+my_cols <- cividis(n = 70)
+my_test[] <- seq(from = -4, to = 2, length.out = length(my_test))
+
+# to show only specific rows 
+my_test <- tmp_m
+my_test <- my_test[grepl(row.names(my_test), pattern = "A22|CEFACLOR|CYCLOSERINED|PEROXIDE"), 
+                   colnames(my_test) %in% c("RECG", "DDLB", "RYFC", "RECA", "MRCB", "SLT", "PYRE", "PYRD")]
+```
 
 
+Careful! If one wants to cluster based on Pearson correlation and not taking the sign into 
+consideration: don't use the default "pearson" argument, rather define our own distance function:
 
-## Nichols data: (1 - Pearson) distance
+```{r}
+# not what we want
+Heatmap(my_test, col = colorRamp2(seq(from = -3.5, to = 3.5, length.out = 70), my_cols), 
+        row_names_side = "left", 
+        column_names_side = "top", 
+        # split = 2, 
+        gap = unit(5, "mm"), 
+        clustering_distance_rows = "pearson", 
+        clustering_distance_columns = "pearson", 
+        cell_fun = function(j, i, x, y, width, height, fill) {
+           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
+           }
+        )
+
+# what we want:
+distfun <- function(x, y) {
+   sqrt(1 - abs(cor(x, y)))
+}
+
+Heatmap(my_test, col = colorRamp2(seq(from = -3.5, to = 3.5, length.out = 70), my_cols), 
+        row_names_side = "left", 
+        column_names_side = "top", 
+        gap = unit(5, "mm"), 
+        clustering_distance_rows = distfun, 
+        clustering_distance_columns = "pearson", 
+        cell_fun = function(j, i, x, y, width, height, fill) {
+           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
+           }
+        )
+
+# how about actually labelling the strong negative/positive q values rather than the noise in 
+# between? 
+Heatmap(my_test, col = colorRamp2(c(-3, -2.999, 0, 2.999, 3), c("#7b3294", "#cccccc", "#cccccc", "#cccccc", "#008837")), 
+        row_names_side = "left", 
+        column_names_side = "top", 
+        gap = unit(5, "mm"), 
+        clustering_distance_rows = distfun, 
+        clustering_distance_columns = "pearson", 
+        cell_fun = function(j, i, x, y, width, height, fill) {
+           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
+           }
+        )
+```
+
+Let's plot a few subheatmaps:
+
+```{r}
+pdf("./plots/bla.pdf")
+my_subheatmap(tmp_m, drugs = c("SDS"), genes = colnames(tmp_m))
+dev.off()
+```
+
 
 
 # PCA of chemical features
