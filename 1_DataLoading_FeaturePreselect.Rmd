@@ -130,6 +130,29 @@ We replace all NA values with the median of all s-scores over all conditions for
 mutant. `the_matrix` now contains all drug dosages and all mutants from nichols_2011 and forms the 
 basis for all other derived matrices. 
 
+
+
+```{r}
+# Few lines added to check the impact of replacing NA value and also their distribution across drugs dosages
+
+the_matrix$nb_NA = apply(the_matrix, 1, function(x){sum(is.na(x))})
+counting_NA = the_matrix %>% select(drugname_typaslab, conc, nb_NA)
+counting_NA = counting_NA %>%  mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
+
+matrix_container = readRDS(file = "data/matrix_container_new.rds")
+dosages_used = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc)
+dosages_used = dosages_used %>% mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
+
+counting_NA$used = counting_NA$uniqueDrug %in% dosages_used$uniqueDrug
+counting_NA = counting_NA %>% select(-uniqueDrug)
+
+boxplot(counting_NA$nb_NA ~ counting_NA$used)
+# Not any significant difference
+
+the_matrix = the_matrix %>% select(-nb_NA)
+```
+
+
 ```{r}
 # check if all drug names are defined 
 stopifnot(!any(is.na(the_matrix$drugname_typaslab)))

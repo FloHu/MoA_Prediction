@@ -133,10 +133,12 @@ Similar to the one above but for the anlysis based on the matrix using 2 dosages
 
 ```{r reading_in_new, message = FALSE}
 
+matrix_container_new = readRDS(file = "data/matrix_container_new.rds")
+
 if (file.exists("./data/matrix_container_new_withextractions.rds")) {
    matrix_container_new <- readRDS("./data/matrix_container_new_withextractions.rds")
 } else {
-   matrix_container_new$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
+   matrix_container_new$hyperparam_grid_name <- names(matrix_container_new$hyperparam_grid)
    matrix_container_new$ThreshVsPerfData <- list(NA)
    matrix_container_new$PredData <- list(NA)
 }
@@ -181,6 +183,7 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
    pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
    matrix_container_new$PredData[[rownum]] <- pred_data
    rm(resultsobj)
+   gc()
 }
 
 #  update
