@@ -27,7 +27,7 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
+matrix_container = readRDS("./data/matrix_container_withextractions.rds")
 ipak(plotmo)
 ipak(reshape2)
 ipak(gplots)
@@ -163,8 +163,9 @@ ggsave(p, file = "./plots/PCA_plots.pdf")
 
 ```
 
+## Plots for presentations/posters
 
-## Nice ROC curve for presentation purposes
+### ROC curve
 
 Not nice in the sense of perfect but of colour scheme etc.
 
@@ -187,6 +188,87 @@ ggplot(tmp, aes(x = fpr_mean, y = tpr_mean)) +
    labs(title = "ROC curve for random forests", x = "False positive rate", y = "True positive rate") + 
    geom_abline(intercept = 0, slope = 1, linetype = "dotted")
 ggsave("./plots/ROC_curve_flashtalk.pdf", width = 3.8, height = 3.8)
+
+```
+
+### S-score distribution
+
+```{r}
+the_matrix_melted_moainfo <- readRDS("./data/the_matrix_melted_moainfo.rds")
+
+tmp <- 
+   filter(the_matrix_melted_moainfo, gene_synonym == "RECA") %>%
+   mutate(is_dna = process_broad == "dna") %>%
+   arrange(s_score)
+
+ggplot(tmp, aes(x = s_score)) + 
+   geom_histogram(aes(fill = is_dna), binwidth = 0.3) + 
+   theme_bw() + 
+   labs(x = "Relative fitness score", y = "Count", 
+        title = "Relative fitness scores for recA mutant\nacross >300 drug-concentration combinations") + 
+   scale_fill_manual("Cellular target", values = c("#999999", "#ef8a62"), labels = c("Other", "DNA")) + 
+   theme(text = element_text(size = 18))
+
+ggsave(filename = "./plots/POSTER_sscores.pdf", width = 7.5, height = 5)
+```
+
+
+### General statistics
+
+```{r}
+library(forcats)
+matrix_container_with_extractions <- readRDS("./data/matrix_container_withextractions.rds")
+
+drug_feat_mat <- matrix_container_with_extractions$drug_feature_matrices[[1]]
+unique(drug_feat_mat$process_broad)
+
+tmp <- drug_feat_mat[, c("drugname_typaslab", "process_broad", "conc")]
+tmp <- group_by(tmp, drugname_typaslab) %>%
+   mutate(conc_rank = rank(conc)) %>%
+   ungroup()
+
+tmp$process_broad <- 
+   fct_recode(tmp$process_broad, 
+              "Cell Wall" = "cell_wall", 
+              "Protein Synthesis" = "protein_synthesis", 
+              "Membrane Stress" = "membrane_stress", 
+              "DNA" = "dna", 
+              "Other" = "oxidative_stress", 
+              "Other" = "pmf", 
+              "Other" = "protein_qc")
+
+# plot both the number of drugs per mode of action and the number of dosages per drug per MoA
+
+tmp$process_broad <- fct_relevel(tmp$process_broad, "Other", after = Inf)
+
+tmp2 <- 
+   group_by(tmp, drugname_typaslab) %>%
+   slice(1) %>%
+   ungroup() %>%
+   count(process_broad)
+
+ggplot(tmp2, aes(x = process_broad, y = n)) + 
+   geom_bar(aes(fill = process_broad), stat = "identity") + 
+   scale_fill_discrete("Cellular target") + 
+   theme_bw() + 
+   theme(text = element_text(size = 18), legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) + 
+   labs(x = "", y = "Count", title = "Number of observations per MoA")
+
+ggsave("./plots/POSTER_drugs_per_moa.pdf", width = 5, height = 6)
+
+# more detailed view
+(tmp3 <- count(tmp, drugname_typaslab, process_broad))
+
+ggplot(tmp3, aes(x = n)) + 
+   geom_bar(aes(fill = process_broad)) + 
+   labs(x = "Number of concentrations measured", y = "Number of drugs", 
+        title = "Number of drugs vs. number of concentrations measured") + 
+   scale_fill_discrete("Cellular target") + 
+   scale_x_continuous(breaks = c(1, 2, 3, 4, 5, 6)) + 
+   theme_bw() + 
+   theme(text = element_text(size = 18))
+
+ggsave("./plots/POSTER_conc_per_drug.pdf", width = 6, height = 6)
 
 ```
 
@@ -333,7 +415,7 @@ Heatmap(my_test, col = colorRamp2(c(-3, -2.999, 0, 2.999, 3), c("#7b3294", "#ccc
 Let's plot a few subheatmaps:
 
 ```{r}
-pdf("./plots/bla.pdf")
+pdf("./plots/NEW_heatmap_test_SDS_allgenes.pdf")
 my_subheatmap(tmp_m, drugs = c("SDS"), genes = colnames(tmp_m))
 dev.off()
 ```

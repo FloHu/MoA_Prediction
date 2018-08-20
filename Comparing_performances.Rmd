@@ -423,23 +423,6 @@ foo <-
    select(-one_of("PredData", "prob.moa_stabilities")) %>%
    unnest()
 
-plot_auc_vs_moa <- function(dataset, xaxis, yaxis, colourvar, 
-                            facet_expr = quote(facet_grid(fitted_model ~ .)), 
-                            additional_info, showPlot = TRUE) {
-   p <- 
-      ggplot(dataset, aes_string(x = xaxis, y = yaxis, colour = colourvar)) + 
-      geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
-      geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1, alpha = 0.5) + 
-      eval(facet_expr) + 
-      labs(x = "Mode of action modelled", y = paste0(yaxis, "(one dot per repeat of nested CV)"), 
-           title = paste0("Performances of MoA predictions\n", additional_info)) + 
-      theme_bw() + 
-      theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(size = 18))
-   
-   if (showPlot) print(p)
-   invisible(p)
-}
-
 plot_auc_vs_moa(foo, xaxis = "moa_modelled", y = "auc", colourvar = "feat_preselect", 
                 additional_info = "(no chem. feats, most_interactions)")
 # sanity check - just to show that aucs vom results objects are the same 
@@ -494,6 +477,51 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "drug_dosa
                 additional_info = "(no chem. feats)")
 
 # ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", width = 16, height = 10)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+# this is just for the poster
+foo <- 
+   filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
+
+foo$moa_modelled <- 
+   fct_recode(foo$moa_modelled, 
+              "Cell Wall" = "cell_wall", 
+              "Protein Synthesis" = "protein_synthesis", 
+              "Membrane Stress" = "membrane_stress", 
+              "DNA" = "dna", 
+              "Other" = "oxidative_stress", 
+              "Other" = "pmf", 
+              "Other" = "protein_qc")
+
+foo$fitted_model <- 
+   fct_recode(foo$fitted_model, 
+              "Random forests" = "classif.randomForest", 
+              "Lasso" = "classif.glmnet")
+
+# foofilt <- filter(foo, fitted_model == "Lasso", moa_modelled == "DNA")
+foo_by_repndosg <- 
+   group_by(foo, fitted_model, moa_modelled, drug_dosages, feat_preselect) %>%
+   summarise(median_auc = median(auc), 
+             lower = boxplot.stats(auc)$stats[2], 
+             upper = boxplot.stats(auc)$stats[4])
+foo_by_repndosg
+
+ggplot(foo, aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
+   # geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
+   # geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1, alpha = 0.5) + 
+   geom_pointrange(data = foo_by_repndosg, aes(y = median_auc, ymin = lower, ymax = upper), fatten = 1) + 
+   geom_line(data = foo_by_repndosg, aes(y = median_auc, group = drug_dosages)) + 
+   # stat_summary(geom = "line", group = "drug_dosages", fun.y = "median") + # this doesn't work, it will not draw separate line per drug_dosages - why?
+   facet_grid(fitted_model ~ moa_modelled) + 
+   labs(x = "Subset of features kept", y = "AUC", title = "Performances of MoA predictions", 
+        subtitle = "Medians +- IQR across CV repeats indicated") + 
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
+   scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
+                       labels = c("All measured", "Conc. with \nmost interactions"))
+
+ggsave("./plots/POSTER_performance_comp.pdf", width = 9, height = 5)
 ```
 
 Conclusions: RF: most_interactions performs a bit better for cell_wall and dna, all dosages 
@@ -648,6 +676,50 @@ plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd", colourvar =
 #ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
 ```
 
+```{r, eval = FALSE, echo = FALSE}
+# just for the poster
+foo <- 
+   stability_assessment %>%
+   filter(chemical_feats == FALSE) %>%
+   select(-one_of("PredData", "auc_stabilities", "auc_stabilities_new")) %>%
+   unnest() %>%
+   filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), moa_modelled_is_truth, 
+          drug_dosages == "all")
+
+foo$process_broad <- 
+   fct_recode(foo$process_broad, 
+              "Cell Wall" = "cell_wall", 
+              "Protein Synthesis" = "protein_synthesis", 
+              "Membrane Stress" = "membrane_stress", 
+              "DNA" = "dna", 
+              "Other" = "oxidative_stress", 
+              "Other" = "pmf", 
+              "Other" = "protein_qc")
+
+foo$fitted_model <- 
+   fct_recode(foo$fitted_model, 
+              "Random forests" = "classif.randomForest", 
+              "Lasso" = "classif.glmnet")
+
+ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = drug_dosages)) + 
+   stat_summary(geom = "pointrange", group = "drug_dosages", fun.y = "median", fatten = 1, 
+                fun.ymin = function(x) {fivenum(x)[2]}, 
+                fun.ymax = function(x) {fivenum(x)[4]}) + 
+   stat_summary(geom = "line", fun.y = median, group = "drug_dosages") + 
+   facet_grid(fitted_model ~ process_broad) + 
+   labs(x = "Subset of features kept", y = "Median s.d. of prediction probability", 
+        title = "Stabilities of MoA prediction probabilities", 
+        subtitle = "Indicates s.d. of probabilities across nested CV repeats") + 
+   theme_bw() + 
+   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
+   scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
+                       labels = c("All measured", "Conc. with \nmost interactions"))
+
+ggsave("./plots/POSTER_stability_comp.pdf", width = 9, height = 5)
+
+```
+
+
 Conclusion: No apparent correlation between feat_preselect and stabilities of probabilities. 
 Random forests is the most stable model, lasso the least stable one although the latter 
 has a big difference between individual drugs: some of them are as stable as with RF. These trends 
@@ -743,6 +815,15 @@ tmp <- filter(matrix_container,
 
 plot_ROC_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
 plot_ROC_from_container(tmp[tmp$fitted_model == "classif.glmnet", ])
+
+
+tmp <- filter(matrix_container, 
+              fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+              feat_preselect %in% c("top25pct", "keepall"), 
+              ! chemical_feats, 
+              drug_dosages == "all")
+
+plot_ROC_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
 
 # # check if AUCs are correct:
 # stability_assessment %>% 

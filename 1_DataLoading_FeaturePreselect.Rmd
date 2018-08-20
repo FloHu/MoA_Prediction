@@ -307,6 +307,10 @@ the_matrix_melted <-
    the_matrix %>% 
    gather(-one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "s_score")
 
+the_matrix_melted_moainfo <- 
+   left_join(the_matrix_melted, drugs_full[, c("drugname_typaslab", "process_broad")])
+saveRDS(object = the_matrix_melted_moainfo, file = "./data/the_matrix_melted_moainfo.rds")
+
 NAs_by_mutant <- 
    group_by(the_matrix_melted, gene_synonym) %>%
    summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score)))
@@ -337,6 +341,38 @@ ggplot(NAs_by_drugndosg, aes(x = "", y = total_conds_NA)) +
 
 ggsave("./plots/NEW_NA_mutants_per_condition.pdf")
 ```
+
+
+#### Significant values
+
+How often are very low/very high s-scores significant?
+
+Are NAs enriched at very low/high s_scores? Would probably have to look at s-score vs. concentration 
+and see if NAs often occur after high/low s_scores. 
+
+```{r}
+the_matrix_signifs_melted <- 
+   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "significant")
+
+the_matrix_melted <- 
+   left_join(the_matrix_melted, the_matrix_signifs_melted)
+
+# 925 NA values in total
+sum(is.na(the_matrix_melted$s_score))
+
+the_matrix_melted <- the_matrix_melted[complete.cases(the_matrix_melted), ]
+
+quantile(the_matrix_melted$s_score, probs = c(0.05, 0.995), na.rm = TRUE)
+
+ggplot(the_matrix_melted, aes(x = s_score)) + 
+   geom_histogram(aes(fill = significant), binwidth = 0.1, position = "identity") + 
+   geom_vline(xintercept = c(-4, -3, 3, 4), linetype = "dotted") + 
+   coord_cartesian(xlim = c(-4.5, 4.5)) + 
+   scale_x_continuous(breaks = seq(from = -4, to = 4, by = 1))
+
+ggsave("./plots/NEW_relative_fractions_signif.pdf")
+```
+
 
 
 ### Imputing NA values
