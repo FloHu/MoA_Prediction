@@ -18,8 +18,7 @@ corr_feat_selection = function(data, thres = NULL){
     #pair_corr= as.tbl(pair_corr)
     pair_corr$cor = abs(pair_corr$cor)
    
-    
-    
+
     if(is.null(thres)){
         corr_values = sort(abs(pair_corr$cor))
         thres = findElbow(y = corr_values)
@@ -44,7 +43,6 @@ corr_feat_selection = function(data, thres = NULL){
         # Put this output in a file
         print(pair_corr[max, ])
         # Put this output in a file
-        
         
         a = pair_corr[max, ]$featA
         b = pair_corr[max, ]$featB

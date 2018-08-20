@@ -109,19 +109,24 @@ plot_ROC_from_container = function(containerObj, moa = "all", by = NULL){
             
             AUCdata = round(computeAUC(plotData), digits = 3)
             
+            # plotData$run_name  = paste(containerObj[containerRow, ]$fitted_model,
+            #                    containerObj[containerRow, ]$drug_dosages,
+            #                    containerObj[containerRow, ]$feat_preselect,
+            #                    containerObj[containerRow, ]$chemical_feats,
+            #                    "AUC", AUCdata, sep="_")
             plotData$run_name  = paste(containerObj[containerRow, ]$fitted_model,
-                               containerObj[containerRow, ]$drug_dosages,
-                               containerObj[containerRow, ]$feat_preselect,
-                               containerObj[containerRow, ]$chemical_feats,
-                               "AUC", AUCdata, sep="_")
+                                       containerObj[containerRow, ]$feat_preselect,
+                                       "AUC", AUCdata, sep="_")
+            
             plotDataMoa = rbind(plotDataMoa, plotData)
         }
         ggplot(plotDataMoa, aes(x = fpr, y = tpr, colour = run_name)) +
             geom_path(size = 1.5) +
             scale_color_manual(values = rainbow(nrow(containerObj))) +
             geom_abline(aes(intercept = 0, slope = 1), linetype = "dashed", alpha = 0.5) +
-            labs(x = "False positive rate", y = "True positive rate", colour = paste0("Model used _ MoA : ", moa )) +
-            theme_bw()
+            labs(x = "False positive rate", y = "True positive rate", colour = "Model") +
+            ggtitle(paste0("MoA Predicted : ", moa)) +
+            theme_bw() + theme(legend.text = element_text(size = 15), plot.title = element_text(size = 20))
         
     }
 
