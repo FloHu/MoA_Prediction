@@ -29,6 +29,7 @@ source("./setup.R")
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 # matrix_container = readRDS("/Volumes/typas/Florian/MoA_prediction_data/matrix_container_withextractions.rds")
+matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
 matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
 
 ipak(plotmo)
@@ -117,7 +118,9 @@ Overview of the analysis :
 ```{r}
 lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
 
-model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", pdf_filename = "model_explanation_cell_wall.pdf", model_type = "lasso")
+model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], 
+               matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", 
+               pdf_filename = "model_explanation_cell_wall.pdf", model_type = "lasso")
 ```
 
 We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and MRCB
@@ -180,8 +183,11 @@ bestRF_membrane_stress = readRDS("run_results_from_server/matrix_container_resul
 bestRF_protein_synthesis = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_TRUE.rds")
 
 
-model_analysis(res_obj = bestRF_dna, matrix_container_line = matrix_container[18, ], matrix_container_line_noChemFeat = matrix_container[17, ], moa = "dna",
-               pdf_filename = "model_explanation_RF_dna.pdf", model_type = "tree", feat_imp_thres = 0.9)
+model_analysis(res_obj = bestRF_dna, matrix_container_line = matrix_container[18, ], 
+               matrix_container_line_noChemFeat = matrix_container[17, ], moa = "dna",
+               pdf_filename = "model_explanation_RF_dna.pdf", model_type = "tree", 
+               feat_imp_thres = 0.9)
+
 model_analysis(res_obj = bestRF_cell_wall, matrix_container_line = matrix_container[24, ], matrix_container_line_noChemFeat = matrix_container[23, ], moa = "cell_wall",
                pdf_filename = "model_explanation_RF_cell_wall.pdf", model_type = "tree", feat_imp_thres = 0.9)
 model_analysis(res_obj = bestRF_membrane_stress, matrix_container_line = matrix_container[6, ], matrix_container_line_noChemFeat = matrix_container[5, ], moa = "membrane_stress",
@@ -254,7 +260,8 @@ Each time, the focus is put on the model with the highest AUC, if several AUC ar
 ```{r}
 # Best model (highest AUC)
 res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], moa = "dna", pdf_filename = "new_matrix_container_results/best_dna_results.pdf",
+model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], 
+               moa = "dna", pdf_filename = "best_dna_results.pdf",
                model_type = "tree", feat_imp_thres = 1)
 rm(res_best_dna)
 gc()
@@ -394,11 +401,13 @@ Screens possibilities : output is the "Xmas tree plot"
 
 ```{r}
 # DNA Model
-cut_DNA = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-                                  model_type = "tree", moa = "dna", mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
+cut_DNA = screening_heatmap_cuts(
+   res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
+   model_type = "tree", moa = "dna", mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
 gc()
-cut_DNA_corr = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-                                  model_type = "tree", moa = "dna", mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]], dist_method = "correlation_based")
+cut_DNA_corr = screening_heatmap_cuts(
+   res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
+   model_type = "tree", moa = "dna", mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]], dist_method = "correlation_based")
 gc()
 # Cell Wall
 cut_WALL = screening_heatmap_cuts(res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
@@ -459,8 +468,66 @@ grid.arrange(p1,p2, p3, p4, nrow = 2)
 
 Then use best cuttting scheme and generate plots for each MoA using **ComplexHeatmap** package which appears as one of the best package for nice Heatmap representation
 
+
+```{r for_poster, eval = F, echo = F}
+# use_corr_result <- TRUE
+# # cut_DNA_corr contains the results of the "screen":
+# cut_plan <- 
+#    filter(cut_DNA_corr, recall >= 0.75, ppv >= 0.75) %>%
+#    arrange(nbGene) %>%
+#    slice(1)
+# cut_plan
+# 
+# res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
+# featImp = plot_top_feat_importance(resObj = res_obj, moa = "dna", main= deparse(substitute(resObj)), 
+#                                    thres = cut_plan$threshold, return_obj = T, model_type = "tree")  
+# rm(res_obj)
+# gc()
+# 
+# cluster_matrix = matrix_container_new[7, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, conc, names(featImp))
+# 
+# cluster_matrix = as.data.frame(cluster_matrix)
+# rownames(cluster_matrix) = paste(cluster_matrix$drugname_typaslab, cluster_matrix$conc, sep = "_")
+# annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
+# rownames(annot) = rownames(cluster_matrix)
+# cluster_matrix = cluster_matrix %>% select(-drugname_typaslab, -conc)
+# 
+# if(use_corr_result){
+#     dist_corr = sqrt(2*(1 - cor(cluster_matrix %>% select(-"process_broad"))))
+#     genes_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nGeneCut )
+# }else{
+#     genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-"process_broad") ))), k = cut_plan$nGeneCut )
+# }
+# for (i in 1:cut_plan$nGeneCut){
+#     mats_subGene = cluster_matrix[, names(genes_grp[genes_grp == i])]
+#     if(use_corr_result){
+#         dist_corr = sqrt(2*(1 - cor(t(mats_subGene))))
+#         drugs_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nDrugsCut)
+#     }else{
+#         drugs_grp = cutree(hclust(dist(mats_subGene )), k = cut_plan$nDrugsCut)
+#     }
+#     assign(x = paste0("h", as.character(i)),
+#            value = Heatmap(matrix = mats_subGene, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
+#                         gap = unit(10, "mm"), split = drugs_grp, row_names_gp = gpar(fontsize = 6), column_title_gp = gpar(fontsize = 30),
+#                         heatmap_legend_param = list(title = "Color scale"))
+#            )
+# }
+# ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+# 
+# if(use_corr_result) {
+#     pdf(file = "plots/HMcut_dna_corr.pdf", height = 15, width = 15)
+# }else{
+#     pdf(file = "plots/HMcut_dna.pdf", height = 15, width = 15)
+# }
+# h1  + ha_row
+# dev.off()
+# 
+
+```
+
+
 ```{r}
-use_corr_result = F
+use_corr_result = T
 
 if(use_corr_result){
     cut_plan = arrange(cut_DNA_corr %>% filter(recall >= 0.75 & ppv >= 0.75), nbGene)
@@ -469,8 +536,43 @@ if(use_corr_result){
 }
 cut_plan = cut_plan[1, ]
 res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_obj,
-                                   moa = "dna", main= deparse(substitute(resObj)) , thres = cut_plan$threshold, return_obj = T, model_type = "tree")  
+featImp = plot_top_feat_importance(resObj = res_obj, moa = "dna", main= deparse(substitute(resObj)), 
+                                   thres = cut_plan$threshold, return_obj = T, model_type = "tree")  
+
+# for poster:
+featImp_poster <- tibble(feature = names(featImp), 
+                         values = featImp)
+
+featImp_poster$in_how_many_models <- round(lengths(featImp_poster$values) / 80, digits = 4) * 100
+featImp_poster$medians <- sapply(featImp_poster$values, median)
+featImp_poster$ranks <- order(featImp_poster$in_how_many_models, 
+                              sapply(featImp_poster$values, median))
+
+### ???? why does neither of the following work?
+# featImp_poster <- 
+#    mutate(featImp_poster, 
+#           feature3 = forcats::fct_reorder2(feature, in_how_many_models, medians, function(.x, .y) order(order(.x, .y))), 
+#           feature2 = forcats::fct_reorder2(feature, in_how_many_models, medians, 
+#                                           .fun = function(.x, .y) {
+#                                              final_ranking <- order(order(.x, .y))
+#                                              return(final_ranking)
+#                                           }))
+
+featImp_poster$feature <- forcats::fct_reorder(featImp_poster$feature, featImp_poster$ranks)
+featImp_poster <- unnest(featImp_poster)
+
+ggplot(featImp_poster, aes(x = feature, y = values, fill = factor(in_how_many_models))) + 
+   geom_boxplot(outlier.size = 1) + 
+   coord_flip() + 
+   scale_fill_manual("Present in %\nof models", values = c("#bdbdbd", "#636363")) + 
+   labs(title = "Feature importance across\nnested CV repeats", x = "Mean decrease in Gini impurity", y = "") + 
+   theme_bw() + 
+   theme(text = element_text(size = 16), legend.position = c(0.75, 0.2))
+
+ggsave(filename = "./plots/POSTER_featImp.pdf", width = 4.8, height = 5.5)
+
+#
+
 rm(res_obj)
 gc()
 cluster_matrix = matrix_container_new[7, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, conc, names(featImp))
@@ -495,28 +597,41 @@ for (i in 1:cut_plan$nGeneCut){
     }else{
         drugs_grp = cutree(hclust(dist(mats_subGene )), k = cut_plan$nDrugsCut)
     }
+    # ncolors <- 40
+    # my_cols <- viridis::cividis(ncolors)
     assign(x = paste0("h", as.character(i)),
            value = Heatmap(matrix = mats_subGene, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
-                        gap = unit(10, "mm"), split = drugs_grp, row_names_gp = gpar(fontsize = 6), column_title_gp = gpar(fontsize = 30),
+           # value = Heatmap(matrix = mats_subGene, col = colorRamp2(seq(from = -4, to = 4, length.out = ncolors), my_cols),
+                        gap = unit(5, "mm"), split = drugs_grp, row_names_gp = gpar(fontsize = 3), column_title_gp = gpar(fontsize = 20),
                         heatmap_legend_param = list(title = "Color scale"))
            )
 }
+
+# different colours for poster:
+colMap = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+#
+
 ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
 
 if(use_corr_result) {
-    pdf(file = "plots/HMcut_dna_corr.pdf", height = 15, width = 15)
+    pdf(file = "plots/HMcut_dna_corr.pdf", height = 10, width = 10)
 }else{
-    pdf(file = "plots/HMcut_dna.pdf", height = 15, width = 15)
+    pdf(file = "plots/HMcut_dna.pdf", height = 10, width = 10)
 }
 h1  + ha_row
 dev.off()
 
+# reconstitute old colours:
+colMap = rainbow(4)
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+#
 
 chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h3@matrix) )
 ```
 
 ```{r}
-use_corr_result = F
+use_corr_result = T
 
 if(use_corr_result){
     cut_plan = arrange(cut_PROT_corr, distToOptPoint, nbGene)
@@ -575,7 +690,7 @@ chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h3@matrix) )
 ```
 
 ```{r}
-use_corr_result = F
+use_corr_result = T
 
 if(use_corr_result){
     cut_plan = arrange(cut_MEMBRANE_corr, distToOptPoint)
@@ -631,7 +746,7 @@ chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h3@matrix) )
 ```
 
 ```{r}
-use_corr_result = F
+use_corr_result = T
 
 if(use_corr_result){
     cut_plan = arrange(cut_WALL_corr %>% filter(recall >= 0.7 & ppv >= 0.7), nbGene)
@@ -722,7 +837,8 @@ chemogeno_fingerprint = c('RECC_RECB', 'RECG', 'RECA', 'TPX', 'XERC_XERD', 'LOLB
 # Here we also build a matrix containing a few unknown drug to see where they will be in the t-SNE
 matrix_allDrugs = readRDS(file = "data/matrix_2mostia_allDrugs.rds")
 full_mat = matrix_allDrugs %>% 
-            filter(process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis") | drugname_typaslab %in% c("UV", "BILE", "PEROXIDE", "NIGERICIN"))
+            filter(process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis") | 
+                      drugname_typaslab %in% c("UV", "BILE", "PEROXIDE", "NIGERICIN"))
 
 # full_mat = left_join(x = matrix_container_new[1, ]$drug_feature_matrices[[1]],
 #                       y = matrix_container_new[7, ]$drug_feature_matrices[[1]]) 
@@ -739,12 +855,21 @@ chemGeno_mat = chemGeno_mat %>% select(-"process_broad", -"conc", -"drugname_typ
 dist_corr = sqrt(2*(1 - cor(t(chemGeno_mat ))))
 drugs_grp = cutree(hclust(as.dist(dist_corr)), k = 8 )
 
+## need to redefine colours
+unique(annot$MoA)
+colMap = c(rainbow(4), rep("#636363", 3))
+names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis", "unknown", "pmf", "oxidative_stress")
+##
+
+pdf("./plots/Full_fingerprint_matrix.pdf", width = 10, height = 10)
 Heatmap(matrix = chemGeno_mat, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")), row_names_gp = gpar(fontsize = 6),
                     clustering_distance_rows = "pearson", clustering_distance_columns = "pearson", split = drugs_grp,
                     gap = unit(10, "mm")) + rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
+dev.off()
 
 # =========================== KMEANS ==========================================
 
+# not working - uses another matrix
 res = kmeans(chemGeno_mat %>% select(-process_broad), centers = 4, nstart = 100)
 chemGeno_mat$clust = res$cluster
 table(chemGeno_mat[, c("clust", "process_broad")])

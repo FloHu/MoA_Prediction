@@ -62,7 +62,7 @@ drugs_pred_prob_by_dosage = function(pred_data, moa, order = median){
     names(grp_pred) = lapply(str_split(names(grp_pred), pattern = "_"), function(x){x[1]})
 
     ggplot(data = pred_data, aes(x = conc, y = prob.moa )) + geom_boxplot() + 
-        facet_wrap(~drugname_typaslab, scales = "free_y",nrow =18, ncol = 4 ) + 
+        facet_wrap(~drugname_typaslab, scales = "free_y",nrow = 20, ncol = 4 ) + 
         coord_flip() + 
         theme_bw()
     

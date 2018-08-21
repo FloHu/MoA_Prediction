@@ -92,7 +92,8 @@ oobperf = makeMeasure("oobperf", minimize = TRUE, properties = c("classif", "cla
 Building chunk
 
 ```{r}
-for (moa in c("dna", "cell_wall", "protein_synthesis", "membrane_stress")) {
+if (!file.exists("./data/models_trainOnAll.RData")) {
+   for (moa in c("dna", "cell_wall", "protein_synthesis", "membrane_stress")) {
     moa_mat = get(paste0("retraining_", moa))$drug_feature_matrices[[1]]
     moa_mat$process_broad = ifelse(moa_mat$process_broad == moa, yes = moa, no = paste0("not_", moa))
     
@@ -111,16 +112,14 @@ for (moa in c("dna", "cell_wall", "protein_synthesis", "membrane_stress")) {
     lrn = setHyperPars( makeLearner(cl = get(paste0("retraining_", moa))$fitted_model, predict.type = "prob"), par.vals = res_tuning$x)
     
     assign(x = paste0("model_", moa),  value = train(learner = lrn, task = moa_task) )
+   }
+   save(model_dna, model_cell_wall, model_membrane_stress, model_protein_synthesis, file = "data/models_trainOnAll.RData")   
+} else {
+   load(file = "data/models_trainOnAll.RData")
 }
 
-save(model_dna, model_cell_wall, model_membrane_stress, model_protein_synthesis, file = "data/models_trainOnAll.RData")
-
 ```
 
-
-```{r}
-load(file = "data/models_trainOnAll.RData")
-```
 
 
 ## Features importance extracted from model
@@ -170,6 +169,12 @@ p2 = ggplot() + geom_text(data = featImp[f, ], aes(x=V1,y=V2,label=rownames(feat
         labs(x= "Mean decrease in Gini impurity")
 
 grid.arrange(p1, p2, nrow =2)
+
+coeffs = coeffs[f]
+# Barplot can be a nice visualization of not too many 
+par(mar = c(5.1, 12, 3, 2.1))
+barplot(coeffs[order(coeffs)], horiz = T, las = 2, xlab = "Coefficient value", cex.names = 0.7, col = plasma(length(coeffs)))
+par(mar = c(5.1, 4.1, 4.1, 2.1))
 
 ```
 
@@ -292,9 +297,9 @@ Aim is twofolds :
 
 #Choose model
 moa = "cell_wall"
-moa = "dna"
 moa = "membrane_stress"
 moa = "protein_synthesis"
+moa = "dna"
 
 
 model = get(paste0("model_", moa))
@@ -339,6 +344,7 @@ a = a[ ,apply(a, 2, sum) != 0]
 
 # DNA or other MoA, keep most important genes
 a  = a[, sig_DNA ]
+
 
 # What is really interresting is the shift of feature use compared to the model trained on all, otherwise the weight is almost put on the most important drugs because of higher values
 a = t(apply(a, 1, function(x){x - a["ALL", ]}))

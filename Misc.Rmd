@@ -181,13 +181,13 @@ ggplot(tmp, aes(x = fpr_mean, y = tpr_mean)) +
    geom_line(aes(colour = moa_modelled), size = 1.5) + 
    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
          panel.background = element_rect(fill = "white", colour = "black"), 
-         axis.text = element_text(size = 9), axis.title = element_text(size = 12), 
+         text = element_text(size = 14), 
          legend.position = c(0.95, 0.05), legend.justification = c("right", "bottom")) + 
    scale_colour_manual("Mode of action", labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
-                       values = c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c")) + 
+                       values = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")) + 
    labs(title = "ROC curve for random forests", x = "False positive rate", y = "True positive rate") + 
    geom_abline(intercept = 0, slope = 1, linetype = "dotted")
-ggsave("./plots/ROC_curve_flashtalk.pdf", width = 3.8, height = 3.8)
+ggsave("./plots/ROC_curve_flashtalk.pdf", width = 5, height = 5)
 
 ```
 
@@ -206,7 +206,7 @@ ggplot(tmp, aes(x = s_score)) +
    theme_bw() + 
    labs(x = "Relative fitness score", y = "Count", 
         title = "Relative fitness scores for recA mutant\nacross >300 drug-concentration combinations") + 
-   scale_fill_manual("Cellular target", values = c("#999999", "#ef8a62"), labels = c("Other", "DNA")) + 
+   scale_fill_manual("Cellular target", values = c("#bababa", "#fdb863"), labels = c("Other", "DNA")) + 
    theme(text = element_text(size = 18))
 
 ggsave(filename = "./plots/POSTER_sscores.pdf", width = 7.5, height = 5)
@@ -252,7 +252,8 @@ ggplot(tmp2, aes(x = process_broad, y = n)) +
    scale_fill_discrete("Cellular target") + 
    theme_bw() + 
    theme(text = element_text(size = 18), legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) + 
-   labs(x = "", y = "Count", title = "Number of observations per MoA")
+   labs(x = "", y = "Count", title = "N observations per MoA") + 
+   scale_fill_manual(values = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99", "#bababa"))
 
 ggsave("./plots/POSTER_drugs_per_moa.pdf", width = 5, height = 6)
 
@@ -262,13 +263,14 @@ ggsave("./plots/POSTER_drugs_per_moa.pdf", width = 5, height = 6)
 ggplot(tmp3, aes(x = n)) + 
    geom_bar(aes(fill = process_broad)) + 
    labs(x = "Number of concentrations measured", y = "Number of drugs", 
-        title = "Number of drugs vs. number of concentrations measured") + 
+        title = "Number of concentrations\nmeasured per drug") + 
    scale_fill_discrete("Cellular target") + 
    scale_x_continuous(breaks = c(1, 2, 3, 4, 5, 6)) + 
    theme_bw() + 
-   theme(text = element_text(size = 18))
+   theme(text = element_text(size = 18)) + 
+   scale_fill_manual("Cellular target", values = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99", "#bababa"))
 
-ggsave("./plots/POSTER_conc_per_drug.pdf", width = 6, height = 6)
+ggsave("./plots/POSTER_conc_per_drug.pdf", width = 6.5, height = 4.8)
 
 ```
 
