@@ -122,7 +122,7 @@ instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInne
 
 ## Creation of repeated CV instance - NEW LABELS
 
-Creation of instances based on Nassos correction from 05/08/2018
+Creation of instances based on Nassos correction from 08/05/2018
 
 ```{r echo = F }
 

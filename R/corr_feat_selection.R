@@ -1,5 +1,3 @@
-
-
 corr_feat_selection = function(data, thres = NULL){
     
     if(!require(Hmisc)){
@@ -59,8 +57,6 @@ corr_feat_selection = function(data, thres = NULL){
     toKeep = unique(c(pair_corr$featA, pair_corr$featB))
     return(data[, toKeep])
 }
-
-
 
 # To get a matrix of corr coef AND p values :
 # ipak(Hmisc)

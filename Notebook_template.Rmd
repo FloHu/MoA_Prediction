@@ -18,10 +18,9 @@ output:
 This part is the general setup, whichever model we are using.
 
 ```{r setup}
+rm(list = ls())
 # function to check if a package is installed, if so, load it, else install and then load it
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-# custom functions
-walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```

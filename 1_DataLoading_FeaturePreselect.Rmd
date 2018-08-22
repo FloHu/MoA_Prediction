@@ -23,9 +23,6 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-
-# custom functions
-walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 
@@ -69,16 +66,34 @@ the_matrix <-
 the_matrix$significant <- the_matrix$qvalue <= 0.05
 ```
 
-Join drug tables with mode of action information.
+Join drug tables with mode of action information. 
+
+drug_moa table on Google docs has 89 drugs. 
+
+Of those 89 drugs there are missing in `drugs_full`: epinephrine, norepinephrine, glufosfomycin, UV, 
+bile. 
+
+In `the_matrix` there are missing EGCG, epinephrine, norepinephrine. 
+
+So by keeping only the drugs in the_matrix which are also in `drugs_full` we lose 6 drugs (EGCG, 
+epinephrine, norepinoephrine, glufosfomycin, UV, bile) and are left with 83 drugs. 
 
 ```{r}
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
    select(-moa_id)
 
+# exclude drugs that are not drugs_full - as those don't have chemical features
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
 ```
 
-If a gene doesn't interact with any drug, exclude it.
+We save this as `the_matrix_complete_nochanges`:
+
+```{r}
+saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_nochanges.rds")
+```
+
+If a gene doesn't interact with any drug, exclude it. This reduces the number of genes from 3921 to 
+1711. 
 
 ```{r}
 the_matrix <- the_matrix %>%
@@ -98,12 +113,18 @@ sum(t == 0) / (nrow(t) * ncol(t))
 For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
 them: always the one with most phenotypes over all conditions.
 
+We will save this as `the_matrix_complete_strainsgenesremoved.rds`. This is the the_matrix version 
+with (almost) all drugs and after hypomorphic mutant selection and removing genes not interacting 
+with anything. Still possible to characterise the data set completely, change NA imputation, dosage 
+selection, drug selection procedure. 
+
 ```{r}
 the_matrix <- 
    group_by(the_matrix, gene_synonym) %>%
    do(select_mutant(.))
 
-saveRDS(the_matrix, file = "./data/the_matrix_after_select_mutant.rds")
+# saveRDS(the_matrix, file = "./data/the_matrix_after_select_mutant.rds")
+saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
 
 tmp <- group_by(the_matrix, gene_synonym) %>% 
    mutate(n = length(unique(strain))) %>%
@@ -127,288 +148,16 @@ the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, value = sig
 ```
 
 
-### *NEW CHUNK* 2018-08-10: inspecting data
-One should probably check a bit the behaviour of our variables: how skewed are the distributions, 
-are certain drugs or conditions far off, are NA values clustered in certain genes/drugs?
-
-
-#### Predictor skewness
-
-Let's check skewness of predictors first.
-
-```{r}
-skewness_vals <- sapply(the_matrix[, 3:ncol(the_matrix)], e1071::skewness, na.rm = TRUE)
-skewness_vals <- data.frame(gene_synonym = names(skewness_vals), 
-                            skewness = skewness_vals, 
-                            stringsAsFactors = FALSE)
-
-# indicate outlier boundaries using boxplot.stats
-my_boundaries <- get_outlier_boundaries(skewness_vals$skewness)
-skewness_vals$is_outlier <- 
-   skewness_vals$skewness <= my_boundaries$lower_bound | 
-   skewness_vals$skewness >= my_boundaries$upper_bound
-
-my_lower <- my_boundaries$lower_bound
-my_upper <- my_boundaries$upper_bound
-
-ggplot(skewness_vals, aes(x = skewness)) + 
-   geom_histogram(binwidth = 0.1) + 
-   geom_vline(xintercept = c(my_lower, my_upper), linetype = "dotted") + 
-   labs(title = "Skewness of predictors (mutants) across conditions\n(outliers indicated acc. to boxplot.stats())")
-
-ggsave(filename = "./plots/NEW_predictor_skewness_distribution.pdf")
-```
-
-We have a number of predictors that are more skewed than the others: indicated by their skewness 
-values again being outliers in the skewness distribution of all predictors.
-
-```{r}
-# skewness values are mostly negative, which makes sense, considering the nature of our data
-# but there are 130 outliers
-filter(skewness_vals, is_outlier) %>%
-   arrange(skewness)
-```
-
-PLDA has the most negative skewness value, let's have a look:
-
-```{r}
-# a few seem to be quite bad, e.g. "PLDA"
-hist(the_matrix$PLDA, breaks = 100, main = "Histogram of s-scores for PLDA")
-
-pdf("./plots/NEW_PLDA_sscore_dist.pdf")
-hist(the_matrix$PLDA, breaks = 100, main = "Histogram of s-scores for PLDA")
-dev.off()
-```
-
-So actually it looks like a handful of genes with very low s-scores are responsible for the 
-"skewness" of the distribution:
-
-```{r}
-e1071::skewness(the_matrix$PLDA)
-my_boundaries <- get_outlier_boundaries(the_matrix$PLDA)
-# skewness metric without outliers
-e1071::skewness(my_boundaries$input_data_noout)
-```
-
-Interestingly, delta-PLDA seems to selectively interact with CHIR090. 3/4 of those interactions are 
-statistically significant. Probably skewness is just one way of finding such "selective" genes. 
-
-```{r}
-dplyr::select(the_matrix, drugname_typaslab, conc, PLDA) %>%
-   filter(PLDA <= my_boundaries$lower_bound)
-
-# significant interactions:
-dplyr::select(the_matrix_signifs, drugname_typaslab, conc, PLDA) %>%
-   filter(PLDA)
-```
-
-Removing the outliers (according to `boxplot.stats()`) from each predictor makes the skewness 
-distribution a lot more "normal":
-
-```{r}
-# what if we remove the outliers everywhere? 
-skewness_vals$skewness_vals_noout <- 
-   sapply(colnames(the_matrix[, 3:ncol(the_matrix)]), function(x) {
-      noout <- get_outlier_boundaries(the_matrix[[x]])$input_data_noout
-      return(e1071::skewness(noout, na.rm = TRUE))
-})
-
-my_boundaries <- get_outlier_boundaries(skewness_vals$skewness_vals_noout)
-my_lower_new <- my_boundaries$lower_bound
-my_upper_new <- my_boundaries$upper_bound
-
-ggplot(skewness_vals, aes(x = skewness_vals_noout)) + 
-   geom_histogram(binwidth = 0.1) + 
-   geom_vline(xintercept = c(my_lower, my_upper), linetype = "dotted") + 
-   geom_vline(xintercept = c(my_lower_new, my_upper_new), linetype = "dashed") + 
-   labs(title = "Skewness of predictors (mutants) across conditions:
-        \n(this time with outliers removed, dashed lines = new boundaries)")
-
-ggsave("./plots/NEW_predictor_skewness_distribution_noout.pdf")
-# seems like there are a few outliers left, perhaps worth checking them:
-sort(boxplot.stats(skewness_vals$skewness_vals_noout)$out)
-
-# let's have a look at the respective s-score histograms/boxplots, indicating the outliers
-# skewness_vals$to_check <- skewness_vals$skewness_vals_noout < -1 | skewness_vals$skewness_vals_noout > 1
-skewness_vals$to_check <- 
-   skewness_vals$skewness_vals_noout <= my_lower_new | 
-   skewness_vals$skewness_vals_noout >= my_upper_new
-
-genes_to_check <- skewness_vals$gene_synonym[skewness_vals$to_check]
-skewness_vals_melted <- 
-   dplyr::select(the_matrix, drugname_typaslab, conc, genes_to_check) %>%
-   gather(genes_to_check, key = "gene_synonym", value = "s_score") %>%
-   left_join(skewness_vals[, c("gene_synonym", "skewness", "skewness_vals_noout")])
-
-# add information about MoA:
-moa_info <- drugs_full[, c("drugname_typaslab", "process_broad")]
-moa_info$process_broad <- 
-   ifelse(moa_info$process_broad %in% c("cell_wall", "dna", "protein_synthesis", "membrane_stress"), 
-          moa_info$process_broad, 
-          "other")
-
-skewness_vals_melted <- left_join(skewness_vals_melted, moa_info)
-
-annot_helper <- skewness_vals_melted %>%
-   group_by(gene_synonym) %>%
-   summarise(x = 0, y = 40, skewness = mean(skewness), skewness_vals_noout = mean(skewness_vals_noout))
-```
-
-These are the most skewed distributions after outlier removal. Some of them are really messed up, 
-for example OXYR. 
-
-```{r}
-ggplot(skewness_vals_melted, aes(x = s_score)) + 
-   geom_histogram() + 
-   facet_wrap( ~ gene_synonym, scales = "free") + 
-   geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), x = x, y = y), color = "blue", size = 3)
-
-ggsave(filename = "./plots/NEW_sscore_dists_skewed_features.pdf")
-```
-
-Pair plots of sscores of the skewed features. 
-
-```{r}
-all_by_all <- 
-   full_join(skewness_vals_melted, skewness_vals_melted, 
-             by = c("drugname_typaslab" = "drugname_typaslab", "conc" = "conc", "process_broad" = "process_broad"))
-
-# plot_pairplots takes the data frame above and plots all by all combinations of the genes of 
-# interest
-
-plot_pairplots(c("PURD", "PURM"))
-plot_pairplots(c("PURD", "PURM", "PYRE"))
-```
-
-Perhaps these are features that can be used to isolate certain (sub)groups of drugs? - would be 
-interesting to test. Another interesting observation: s-scores can fluctuate a lot such as ACRA and 
-novobiocin - why does conc = 6 suddenly have an s-score of 3.98? Is there a better way to select 
-dosages than just highest concentrations or "most interactions"? In general, my impression was that 
-s-scores _do_ go down with higher concentrations even though in an earlier analysis I couldn't see 
-a clear trend. 
-
-```{r}
-filter(skewness_vals_melted, gene_synonym == "ACRA", drugname_typaslab == "NOVOBIOCIN")
-dplyr::select(the_matrix_signifs, drugname_typaslab, conc, ACRA) %>%
-   filter(drugname_typaslab == "NOVOBIOCIN", ACRA)
-```
-
-
-#### NA values
-
-Are there drug-dosage combinations or mutants with an exceptional high number of NA values? 
-
-Here, we can see that some genes have a high number of NA values. Perhaps they should be excluded. 
-Not surprisingly, they are also all part of the "top10pct variance". Should probably fix in the 
-future.
-
-```{r}
-the_matrix_melted <- 
-   the_matrix %>% 
-   gather(-one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "s_score")
-
-the_matrix_melted_moainfo <- 
-   left_join(the_matrix_melted, drugs_full[, c("drugname_typaslab", "process_broad")])
-saveRDS(object = the_matrix_melted_moainfo, file = "./data/the_matrix_melted_moainfo.rds")
-
-NAs_by_mutant <- 
-   group_by(the_matrix_melted, gene_synonym) %>%
-   summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score)))
-
-# and now the respective genes (seed arguments don't work)
-set.seed(9)
-ggplot(NAs_by_mutant, aes(x = "", y = total_conds_NA)) + 
-   geom_text(aes(label = gene_synonym), size = 3, position = position_jitter(width = 0.3, height = 0)) + 
-   geom_hline(yintercept = c(0, 5, 10, 15, 20, 30, 40), linetype = "dotted") + 
-   theme_classic() + 
-   scale_y_continuous(breaks = c(0, 5, 10, 15, 20, 30, 40)) + 
-   labs(title = "Number of conditions with 'NA' per mutant.\n(total number of conds = 256)")
-
-ggsave("./plots/NEW_NA_conditions_per_mutant.pdf")
-```
-
-There are also some drug-dosage combinations with many NA values:
-
-```{r}
-NAs_by_drugndosg <- 
-   group_by(the_matrix_melted, drugname_typaslab, conc) %>%
-   summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score)))
-
-NAs_by_drugndosg$label <- paste(NAs_by_drugndosg$drugname_typaslab, NAs_by_drugndosg$conc, sep = "_")
-ggplot(NAs_by_drugndosg, aes(x = "", y = total_conds_NA)) + 
-   geom_text(aes(label = label), size = 3, position = position_jitter(width = 0.3)) + 
-   labs(title = "Number of mutants with 'NA' per drug-dosage combination\n(total number of mutants = 1711)")
-
-ggsave("./plots/NEW_NA_mutants_per_condition.pdf")
-```
-
-
-#### Significant values
-
-How often are very low/very high s-scores significant?
-
-Are NAs enriched at very low/high s_scores? Would probably have to look at s-score vs. concentration 
-and see if NAs often occur after high/low s_scores. 
-
-```{r}
-the_matrix_signifs_melted <- 
-   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "significant")
-
-the_matrix_melted <- 
-   left_join(the_matrix_melted, the_matrix_signifs_melted)
-
-# 925 NA values in total
-sum(is.na(the_matrix_melted$s_score))
-
-the_matrix_melted <- the_matrix_melted[complete.cases(the_matrix_melted), ]
-
-quantile(the_matrix_melted$s_score, probs = c(0.05, 0.995), na.rm = TRUE)
-
-ggplot(the_matrix_melted, aes(x = s_score)) + 
-   geom_histogram(aes(fill = significant), binwidth = 0.1, position = "identity") + 
-   geom_vline(xintercept = c(-4, -3, 3, 4), linetype = "dotted") + 
-   coord_cartesian(xlim = c(-4.5, 4.5)) + 
-   scale_x_continuous(breaks = seq(from = -4, to = 4, by = 1))
-
-ggsave("./plots/NEW_relative_fractions_signif.pdf")
-```
-
-
-
 ### Imputing NA values
 
 We replace all NA values with the median of all s-scores over all conditions for a particular 
-mutant. `the_matrix` now contains all drug dosages and all mutants from nichols_2011 and forms the 
-basis for all other derived matrices. 
-
-
-
-```{r}
-# Few lines added to check the impact of replacing NA value and also their distribution across drugs dosages
-
-the_matrix$nb_NA = apply(the_matrix, 1, function(x){sum(is.na(x))})
-counting_NA = the_matrix %>% select(drugname_typaslab, conc, nb_NA)
-counting_NA = counting_NA %>%  mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
-
-matrix_container = readRDS(file = "data/matrix_container_new.rds")
-dosages_used = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc)
-dosages_used = dosages_used %>% mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
-
-counting_NA$used = counting_NA$uniqueDrug %in% dosages_used$uniqueDrug
-counting_NA = counting_NA %>% select(-uniqueDrug)
-
-boxplot(counting_NA$nb_NA ~ counting_NA$used)
-# Not any significant difference
-
-the_matrix = the_matrix %>% select(-nb_NA)
-```
-
+mutant. 
 
 ```{r}
 # check if all drug names are defined 
 stopifnot(!any(is.na(the_matrix$drugname_typaslab)))
-sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab|conc")
 
+sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab|conc")
 the_matrix[, -sel] <- lapply(the_matrix[, -sel], function(x) {
    x[is.na(x)] <- median(x, na.rm = T)
    return(x)
@@ -417,6 +166,12 @@ the_matrix[, -sel] <- lapply(the_matrix[, -sel], function(x) {
 if (any(sapply(the_matrix, is.na))) {
    stop("Undefined values present in the_matrix.")
 }
+```
+
+We save again this version of the matrix:
+
+```{r}
+saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strainsgenesremoved_NAsimputed_wideformat.rds")
 ```
 
 
@@ -439,6 +194,7 @@ selector <-
    ungroup() %>%
    pull(selector)
 
+# the warning messages come from the 8 drugs where there is just one dosage
 selector_2dosages <- 
    the_matrix_signifs %>%
    group_by(drugname_typaslab) %>%
@@ -458,7 +214,7 @@ the_matrix_mostias_nochemfeats_2dosages <- the_matrix[selector_2dosages, ]
 ```
 
 
-## Collecting data in a data frame with list columns
+## Collecting data in a data frame with list columns - matrix_container
 
 ```{r}
 matrix_container <- 
@@ -473,8 +229,6 @@ matrix_container <-
 ## Feature selection and transformation procedures
 
 ### Selecting features with the highest variance
-
-#### Top x per cent features
 
 Sort features (i.e. mutants = genes here) by variance and select top x %. 
 
@@ -540,6 +294,8 @@ matrix_container <-
 
 ## Adding drug classification = mode of action information, generate dfr with list columns
 
+Remove drugs with label "unknown", reducing the number of drugs from 83 to 78. 
+
 ```{r}
 my_labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
 my_labels_knowndrugs <- my_labels[my_labels$process_broad != "unknown", ]
@@ -568,8 +324,10 @@ matrix_container.bak <- matrix_container
 matrix_container_tmp <- matrix_container
 
 # stuff common to all: tuning measures, CV instances
-load("./data/Rep_Nest_CV_instance_newDrugs.RData") # normal instanced repeated stratified CV
-load("./data/Rep_Nest_CV_instance_allDosage.RData") # as above but with dosages blocked together
+# normal instanced repeated stratified CV 
+load("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData") 
+# as above but with dosages blocked together
+load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData") 
 
 matrix_container$tuning_measure <- list("auc" = list(auc, mmce, ppv))
 matrix_container$resamp_instance <- 
@@ -668,55 +426,96 @@ hyperparam_container <-
 # dplyr functions remove names of list columns with map_dfr - so go back to good old do.call + rbind
 matrix_container <- do.call(rbind, map(hyperparam_container, ~bind_cols(matrix_container, .x)))
 
-save(matrix_container, file = "./data/matrix_container.RData")
+saveRDS(matrix_container, file = "./data/programmatic_output/matrix_container.rds")
+```
+
+For convenience, save one copy of the_matrix with all dosages and one with most interactions (and 
+keeping all genes = 'keepall', and no chemical features).
+
+```{r}
+tmp <- matrix_container$drug_feature_matrices[[1]]
+saveRDS(object = tmp, file = "./data/programmatic_output/the_matrix_matrixcontainer_alldosg.rds")
+
+tmp <- matrix_container$drug_feature_matrices[[91]]
+saveRDS(object = tmp, file = "./data/programmatic_output/the_matrix_matrixcontainer_mostinteractions.rds")
 ```
 
 
 # New small matrix container - 10/07/2018
 
 Do the same with matrix with 2 dosages with most significant phenotypes. 
-And also get rid of the "other" MoA (different from cell_wall, dna, membrane_stress, protein_synthesis)
+And also get rid of the "other" MoA (different from cell_wall, dna, membrane_stress, 
+protein_synthesis), reducing the number of drugs from 78 to 67 (5x pmf, 5x oxidative_stress, 1x 
+protein_qc). 
 
 ```{r}
+# continuing from line 213
+the_matrix_mostias_nochemfeats_2dosages <- 
+   left_join(the_matrix_mostias_nochemfeats_2dosages, my_labels_knowndrugs)
 
-the_matrix_mostias_nochemfeats_2dosages = left_join(the_matrix_mostias_nochemfeats_2dosages, my_labels_knowndrugs)
-the_matrix_mostias_nochemfeats_2dosages = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, everything())
-the_matrix_mostias_nochemfeats_2dosages = the_matrix_mostias_nochemfeats_2dosages %>% filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
+the_matrix_mostias_nochemfeats_2dosages <- 
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   select(drugname_typaslab, conc, process_broad, everything())
 
-saveRDS(object = the_matrix_mostias_nochemfeats_2dosages, file = "data/matrix_2mostia_mainMoA.rds")
+the_matrix_mostias_nochemfeats_2dosages <- 
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
 
+saveRDS(object = the_matrix_mostias_nochemfeats_2dosages, file = "data/programmatic_output/matrix_2mostia_mainMoA.rds")
 ```
 
-The saved matrix can be used (loaded) to run a resampling instance creation with the appropriate notebook.
-Once generated, the resampling object need to be loaded
+The saved matrix can be used (loaded) to run a resampling instance creation with the appropriate 
+notebook. Once generated, the resampling object need to be loaded.
 
+Edit the data matrices with the right filtering.
 
-Edit the data matrices with the right filtering
+First correlation based feature preselection.
 
-First correlation based feature preselection
 ```{r}
-mat_corr07 = corr_feat_selection(data = the_matrix_mostias_nochemfeats_2dosages %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.7)
-mat_corr07 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corr07))
+mat_corr07 <-  
+   corr_feat_selection(data = 
+                          the_matrix_mostias_nochemfeats_2dosages %>% 
+                          select(-drugname_typaslab, -conc, -process_broad), 
+                       thres = 0.7)
+mat_corr07 <-  
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   select(drugname_typaslab, conc, process_broad, colnames(mat_corr07))
 
-mat_corr06 = corr_feat_selection(data = mat_corr07 %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.6)
-mat_corr06 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corr06))
+mat_corr06 <-  
+   corr_feat_selection(data = 
+                          mat_corr07 %>% 
+                          select(-drugname_typaslab, -conc, -process_broad), 
+                       thres = 0.6)
+mat_corr06 <-  
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   select(drugname_typaslab, conc, process_broad, colnames(mat_corr06))
 
-mat_corrBonf01 = corr_feat_selection(data = the_matrix_mostias_nochemfeats_2dosages %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf01")
-mat_corrBonf01 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf01))
+mat_corrBonf01 <- 
+   corr_feat_selection(data = 
+                          the_matrix_mostias_nochemfeats_2dosages %>% 
+                          select(-drugname_typaslab, -conc, -process_broad), 
+                       thres = "bonf01")
+mat_corrBonf01 <- 
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf01))
 
-mat_corrBonf05 = corr_feat_selection(data = mat_corrBonf01 %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf05")
-mat_corrBonf05 = the_matrix_mostias_nochemfeats_2dosages %>% select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf05))
-
+mat_corrBonf05 <- 
+   corr_feat_selection(data = 
+                          mat_corrBonf01 %>% 
+                          select(-drugname_typaslab, -conc, -process_broad), 
+                       thres = "bonf05")
+mat_corrBonf05 <- 
+   the_matrix_mostias_nochemfeats_2dosages %>% 
+   select(drugname_typaslab, conc, process_broad, colnames(mat_corrBonf05))
 ```
 
-Then based on protein complexes from the EcoCyc database. The average signal for a complex is computed and defined as a new feature
+Then based on protein complexes from the EcoCyc database. The average signal for a complex is 
+computed and defined as a new feature.
 
 ```{r}
-
 cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
 load("../dbsetup/data/genesWithEG_ID.RData")
 gene_synonyms$synonym = toupper(gene_synonyms$synonym)
-
 
 genes_cmplx = lapply(cmplx$`Genes of polypeptide, complex, or RNA`,
         FUN = function(x){
@@ -743,25 +542,28 @@ for (g in genes_cmplx) {
     }
 }
 
-mat_cmplx = mat_cmplx %>% mutate("drugname_typaslab" = the_matrix_mostias_nochemfeats_2dosages$drugname_typaslab,
-                   "conc" = the_matrix_mostias_nochemfeats_2dosages$conc, 
-                   "process_broad" = the_matrix_mostias_nochemfeats_2dosages$process_broad) 
+mat_cmplx = 
+   mat_cmplx %>% 
+   mutate("drugname_typaslab" = the_matrix_mostias_nochemfeats_2dosages$drugname_typaslab, 
+          "conc" = the_matrix_mostias_nochemfeats_2dosages$conc, 
+          "process_broad" = the_matrix_mostias_nochemfeats_2dosages$process_broad)
 
 mat_cmplx = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, everything())
-
 ```
 
-Extreme features selection : First take the Protein complexes matrix, and apply the correlation based selection with 0.6 or 0.7 cutoff. Than look at the variance across all drugs. 
-By boxploting these variances, one can extract the outlier individuals (based on some distribution and IQR, outlier are individuals with values above (median + 1.5 * IQR)). It is similar in a way to the top 10% or top 15% of individuals with the highest variance but it make more sense to define the cutoff that way. It is in this case kind of a data-dependant cutoff.
+Extreme feature selection : First take the Protein complexes matrix, and apply the correlation based 
+selection with 0.6 or 0.7 cutoff. Then look at the variance across all drugs. 
+By boxploting these variances, one can extract the outlier individuals (based on some distribution 
+and IQR, outlier are individuals with values above (median + 1.5 * IQR)). It is similar in a way to 
+the top 10% or top 15% of individuals with the highest variance but it make more sense to define the 
+cutoff that way. It is in this case a kind of data-dependent cutoff.
 
 
 ```{r}
-
 mat_cmplx_corr07 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.7)
 var_all = unlist(apply(mat_cmplx_corr07, 2, var))
 out_ind = boxplot.stats(var_all)$out
 mat_cmplx_corr07 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
-
 
 mat_cmplx_Bonf01 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = "bonf01")
 var_all = unlist(apply(mat_cmplx_Bonf01, 2, var))
@@ -773,21 +575,17 @@ var_all = unlist(apply(mat_cmplx_Bonf05, 2, var))
 out_ind = boxplot.stats(var_all)$out
 mat_cmplx_Bonf05 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
 
-
 mat_cmplx_corr06 = corr_feat_selection(data = mat_cmplx %>% select(-drugname_typaslab, -conc, -process_broad), thres = 0.6)
 var_all = unlist(apply(mat_cmplx_corr06, 2, var))
 out_ind = boxplot.stats(var_all)$out
 mat_cmplx_corr06 = mat_cmplx %>% select(drugname_typaslab, conc, process_broad, names(out_ind))
-
-
 ```
 
 
 Building the new matrix container
 
 ```{r}
-
-instance_2mostia_mainMoA = readRDS(file = "data/RNCV_instance_2mostia_mainMoa.rds")
+instance_2mostia_mainMoA = readRDS(file = "data/programmatic_output/RNCV_instance_2mostia_mainMoa.rds")
 
 tmp = list()
 tmp = list(the_matrix_mostias_nochemfeats_2dosages, the_matrix_mostias_nochemfeats_2dosages,
@@ -806,7 +604,7 @@ matrix_container_new <-
 matrix_container_new$tuning_measure <- list("meas" = list(auc, mmce, ppv))
 matrix_container_new$resamp_instance <- list(instance_2mostia_mainMoA)
 
-el_net_hyp_param <- makeParamSet( makeDiscreteParam("alpha", values = c(0,0.25,0.5,0.75,1)), 
+el_net_hyp_param <- makeParamSet(makeDiscreteParam("alpha", values = c(0,0.25,0.5,0.75,1)), 
                     makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 100)))
 
 
@@ -824,9 +622,7 @@ matrix_container_new$fitted_model = rep(c("classif.glmnet", "classif.randomFores
 
 matrix_container_new[matrix_container_new$fitted_model == "classif.glmnet", ]$hyperparam_grid = list("classif.elastic_net" = el_net_hyp_param)
 
-
-saveRDS(object = matrix_container_new, file = "data/matrix_container_new.rds")
-
+saveRDS(object = matrix_container_new, file = "data/programmatic_output/matrix_container_new.rds")
 ```
 
 

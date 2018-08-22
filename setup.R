@@ -14,8 +14,8 @@ ipak(parallel)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 # dynamically assign number of processors
-if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
-   parallelStartMulticore(cpus = 10)
-} else {
-   parallelStartMulticore(cpus = detectCores() - 1)
-}
+# if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
+#    parallelStartMulticore(cpus = 10)
+# } else {
+#    parallelStartMulticore(cpus = detectCores() - 1)
+# }
