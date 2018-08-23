@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup, library loading
@@ -26,16 +28,33 @@ source("./setup.R")
 ```
 
 
-### *NEW CHUNK* 2018-08-10: inspecting data
+# Understanding the data
+
 One should probably check a bit the behaviour of our variables: how skewed are the distributions, 
 are certain drugs or conditions far off, are NA values clustered in certain genes/drugs?
 
+We will take the matrix after hypomorphic mutant selection and after removal of genes not 
+interacting with any drug but before NA imputation, with all dosages, and before removal of 
+different drugs.
 
-#### Predictor skewness
+```{r}
+the_matrix <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
+drugs_full <- readRDS("./data/programmatic_output/drugs_full.rds")
+```
+
+## Predictor skewness
 
 Let's check skewness of predictors first.
 
 ```{r}
+the_matrix_signifs <- 
+   select(the_matrix, gene_synonym, drugname_typaslab, conc, significant) %>%
+   spread(key = gene_synonym, value = significant)
+
+the_matrix <- 
+   select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore) %>%
+   spread(key = gene_synonym, value = sscore)
+
 skewness_vals <- sapply(the_matrix[, 3:ncol(the_matrix)], e1071::skewness, na.rm = TRUE)
 skewness_vals <- data.frame(gene_synonym = names(skewness_vals), 
                             skewness = skewness_vals, 
@@ -55,7 +74,7 @@ ggplot(skewness_vals, aes(x = skewness)) +
    geom_vline(xintercept = c(my_lower, my_upper), linetype = "dotted") + 
    labs(title = "Skewness of predictors (mutants) across conditions\n(outliers indicated acc. to boxplot.stats())")
 
-ggsave(filename = "./plots/NEW_predictor_skewness_distribution.pdf")
+ggsave(filename = "./plots/Predictor_skewness_distribution.pdf")
 ```
 
 We have a number of predictors that are more skewed than the others: indicated by their skewness 
@@ -63,7 +82,7 @@ values again being outliers in the skewness distribution of all predictors.
 
 ```{r}
 # skewness values are mostly negative, which makes sense, considering the nature of our data
-# but there are 130 outliers
+# but there are 141 outliers
 filter(skewness_vals, is_outlier) %>%
    arrange(skewness)
 ```
@@ -123,7 +142,7 @@ ggplot(skewness_vals, aes(x = skewness_vals_noout)) +
    labs(title = "Skewness of predictors (mutants) across conditions:
         \n(this time with outliers removed, dashed lines = new boundaries)")
 
-ggsave("./plots/NEW_predictor_skewness_distribution_noout.pdf")
+ggsave("./plots/Predictor_skewness_distribution_noout.pdf")
 # seems like there are a few outliers left, perhaps worth checking them:
 sort(boxplot.stats(skewness_vals$skewness_vals_noout)$out)
 
@@ -162,7 +181,7 @@ ggplot(skewness_vals_melted, aes(x = s_score)) +
    facet_wrap( ~ gene_synonym, scales = "free") + 
    geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), x = x, y = y), color = "blue", size = 3)
 
-ggsave(filename = "./plots/NEW_sscore_dists_skewed_features.pdf")
+ggsave(filename = "./plots/Sscore_dists_skewed_features.pdf", width = 12, height = 12)
 ```
 
 Pair plots of sscores of the skewed features. 
@@ -208,7 +227,7 @@ the_matrix_melted <-
 
 the_matrix_melted_moainfo <- 
    left_join(the_matrix_melted, drugs_full[, c("drugname_typaslab", "process_broad")])
-saveRDS(object = the_matrix_melted_moainfo, file = "./data/the_matrix_melted_moainfo.rds")
+saveRDS(object = the_matrix_melted_moainfo, file = "./data/programmatic_output/the_matrix_melted_moainfo.rds")
 
 NAs_by_mutant <- 
    group_by(the_matrix_melted, gene_synonym) %>%
@@ -223,7 +242,7 @@ ggplot(NAs_by_mutant, aes(x = "", y = total_conds_NA)) +
    scale_y_continuous(breaks = c(0, 5, 10, 15, 20, 30, 40)) + 
    labs(title = "Number of conditions with 'NA' per mutant.\n(total number of conds = 256)")
 
-ggsave("./plots/NEW_NA_conditions_per_mutant.pdf")
+ggsave("./plots/NA_conditions_per_mutant.pdf")
 ```
 
 There are also some drug-dosage combinations with many NA values:
@@ -238,7 +257,7 @@ ggplot(NAs_by_drugndosg, aes(x = "", y = total_conds_NA)) +
    geom_text(aes(label = label), size = 3, position = position_jitter(width = 0.3)) + 
    labs(title = "Number of mutants with 'NA' per drug-dosage combination\n(total number of mutants = 1711)")
 
-ggsave("./plots/NEW_NA_mutants_per_condition.pdf")
+ggsave("./plots/NA_mutants_per_condition.pdf")
 ```
 
 
@@ -264,31 +283,30 @@ the_matrix_melted <- the_matrix_melted[complete.cases(the_matrix_melted), ]
 quantile(the_matrix_melted$s_score, probs = c(0.05, 0.995), na.rm = TRUE)
 
 ggplot(the_matrix_melted, aes(x = s_score)) + 
-   geom_histogram(aes(fill = significant), binwidth = 0.1, position = "identity") + 
+   geom_histogram(aes(fill = significant), binwidth = 0.1, position = "stack") + 
    geom_vline(xintercept = c(-4, -3, 3, 4), linetype = "dotted") + 
    coord_cartesian(xlim = c(-4.5, 4.5)) + 
    scale_x_continuous(breaks = seq(from = -4, to = 4, by = 1))
 
-ggsave("./plots/NEW_relative_fractions_signif.pdf")
+ggsave("./plots/Relative_fractions_signif.pdf")
 ```
 
 
 ```{r}
-# Few lines added to check the impact of replacing NA value and also their distribution across drugs dosages
-
+# check if there is a bias of NA values being more present in the dosage used by 'most interactions'
 the_matrix$nb_NA = apply(the_matrix, 1, function(x){sum(is.na(x))})
-counting_NA = the_matrix %>% select(drugname_typaslab, conc, nb_NA)
-counting_NA = counting_NA %>%  mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
+counting_NA = 
+   select(the_matrix, drugname_typaslab, conc, nb_NA) %>% 
+   mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
 
-matrix_container = readRDS(file = "data/matrix_container_new.rds")
-dosages_used = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc)
-dosages_used = dosages_used %>% mutate(uniqueDrug = paste(drugname_typaslab, conc, sep = "_"))
+matrix_container <- readRDS(file = "./data/programmatic_output/matrix_container.rds")
+tmp <- 
+   filter(matrix_container, drug_dosages == "most_interactions", feat_preselect == "keepall", 
+          fitted_model == "classif.randomForest", !chemical_feats)[["drug_feature_matrices"]][[1]]
+counting_NA$is_most_ia <- counting_NA$uniqueDrug %in% paste(tmp$drugname_typaslab, tmp$conc, sep = "_")
 
-counting_NA$used = counting_NA$uniqueDrug %in% dosages_used$uniqueDrug
-counting_NA = counting_NA %>% select(-uniqueDrug)
+ggplot(counting_NA, aes(x = nb_NA)) + 
+   geom_histogram(aes(fill = is_most_ia, y = ..density..), position = "identity", alpha = 0.5, binwidth = 1)
 
-boxplot(counting_NA$nb_NA ~ counting_NA$used)
-# Not any significant difference
-
-the_matrix = the_matrix %>% select(-nb_NA)
+# so there seems to be a slight trend but probably not important
 ```

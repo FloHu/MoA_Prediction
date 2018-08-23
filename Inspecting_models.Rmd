@@ -25,12 +25,11 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-# custom functions
-walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-# matrix_container = readRDS("/Volumes/typas/Florian/MoA_prediction_data/matrix_container_withextractions.rds")
-matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
-matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
+# matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
+# matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
+matrix_container_new = readRDS("data/programmatic_output/matrix_container_new_withextractions.rds")
 
 ipak(plotmo)
 ipak(reshape2)

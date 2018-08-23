@@ -82,6 +82,8 @@ epinephrine, norepinoephrine, glufosfomycin, UV, bile) and are left with 83 drug
 drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
    select(-moa_id)
 
+saveRDS(drugs_full, file = "./data/programmatic_output/drugs_full.rds")
+
 # exclude drugs that are not drugs_full - as those don't have chemical features
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
 ```
