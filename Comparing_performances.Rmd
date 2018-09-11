@@ -31,7 +31,7 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 Modify some options for knitr. 
 
 ```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = TRUE)
+knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = FALSE)
 theme_set(theme_bw())
 theme_update(text = element_text(size = 16))
 ```
@@ -47,7 +47,7 @@ of models, feature preselections etc and was saved in a separate results object
 putting them into `matrix_container` we will add new columns just containing the parts we are 
 interested in. 
 
-```{r reading_in, cache = TRUE, message = FALSE}
+```{r reading_in, message = FALSE}
 # old matrix_container object
 load("./data/matrix_container.RData")
 matrix_container_old <- matrix_container
@@ -114,7 +114,7 @@ for (rownum in seq_len(nrow(matrix_container))) {
 }
 
 #  update
-saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
+#saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
 
 # to get an example of a results object
 my_row <- matrix_container[1, ]
@@ -186,7 +186,7 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
 }
 
 #  update
-saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
+#saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
 ```
 
 
@@ -196,7 +196,7 @@ Add information about MoA for each drug and which dosage is the dosage with most
 Replace all MoAs not being one of dna, membrane_stress, protein_synthesis, and cell_wall with 
 "other". Results in object `matrix_container_ext`. 
 
-```{r cache = TRUE, matrix_container_ext}
+```{r matrix_container_ext}
 # remove NA rows
 matrix_container_ext <- matrix_container[!is.na(matrix_container$PredData), ]
 
@@ -232,22 +232,26 @@ most_interactions <- drug_feature_matrix[, c("drugname_typaslab", "conc")]
 # also, replace moas not being "dna", "cell_wall", "membrane_stress", or "protein_synthesis" with "other"
 matrix_container_ext$PredData <- 
    map(matrix_container_ext$PredData, function(.x) {
-      # make vector indicating if the current concentration is the one with most interactions by temporary joining with our reference data frame
+      # make vector indicating if the current concentration is the one with most interactions by 
+      # temporary joining with our reference data frame
       conc_mostias <- 
          select(.x, drugname_typaslab, conc) %>%
-         left_join(most_interactions, by = c("drugname_typaslab" = "drugname_typaslab"), suffix = c(".origin", ".mostias")) %>%
+         left_join(most_interactions, by = c("drugname_typaslab" = "drugname_typaslab"), 
+                   suffix = c(".origin", ".mostias")) %>%
          mutate(conc.origin.is.mostias = (conc.origin == conc.mostias)) %>%
          pull(conc.origin.is.mostias)
       .x$conc_mostias <- conc_mostias
-      .x$process_broad <- ifelse(.x$process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), 
-                                 .x$process_broad, 
-                                 "other")
+      .x$process_broad <- 
+         ifelse(.x$process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), 
+                .x$process_broad, 
+                "other")
       return(.x)
    })
 
 # sanity check: is there just one concentration with most interactions per drug? 
 # 40: because of 10 repeats and each drug being part of 4 models (one for each MoA)
-stopifnot(length(unique(matrix_container_ext$PredData[[1]]$drugname_typaslab)) == sum(matrix_container_ext$PredData[[1]]$conc_mostias)/40)
+stopifnot(length(unique(matrix_container_ext$PredData[[1]]$drugname_typaslab)) == 
+             sum(matrix_container_ext$PredData[[1]]$conc_mostias)/40)
 ```
 
 For each model, each drug is predicted to have a certain probability to belong to each MoA. Since 
@@ -399,11 +403,11 @@ plot_auc_vs_moa(foo, xaxis = "moa_modelled", y = "auc", colourvar = "feat_presel
 Conclusions: it depends on the MoA:
 
 - `cell_wall` performs best overall and is relatively stable. top15pct seems to be better for RF 
-whereas top5pct is best for lasso. For lasso performance seems to drop slightly with the higher number of 
-features that are kept. 
-- `dna` also has a decent performance (a bit better for RF) which is again quite stable. For lasso again the performance 
-seems to drop slightly with the increasing number of features. But perhaps it also just reflects the 
-instability of the lasso model as performance goes up again later on. 
+whereas top5pct is best for lasso. For lasso performance seems to drop slightly with the higher 
+number of features that are kept. 
+- `dna` also has a decent performance (a bit better for RF) which is again quite stable. For lasso 
+again the performance seems to drop slightly with the increasing number of features. But perhaps 
+it also just reflects the instability of the lasso model as performance goes up again later on. 
 - `membrane_stress` has overall the worst performance and is also the least stable. 
 - `protein_synthesis` performs poorly for RF and lasso with top5 and top10pct but performance goes 
 up with top15pct (RF) and top20pct (lasso), respectively. 
@@ -439,10 +443,13 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "drug_dosa
                 facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
                 additional_info = "(no chem. feats)")
 
-# ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", width = 16, height = 10)
+# ggsave(plot = p, filename = "./plots/AUC_stabilities_alldosages_vs_mostinteractions.pdf", 
+# width = 16, height = 10)
 ```
 
-```{r, echo = FALSE, eval = FALSE}
+For the poster:
+
+```{r}
 # this is just for the poster
 foo <- 
    filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
@@ -523,7 +530,8 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "c
                 facet_expr = quote(facet_grid(fitted_model ~ moa_modelled1)), 
                 additional_info = "(all dosages)")
 
-# ggsave(plot = p, filename = "./plots/AUC_stabilities_plusminus_chemical_feats.pdf", width = 16, height = 10)
+# ggsave(plot = p, filename = "./plots/AUC_stabilities_plusminus_chemical_feats.pdf", width = 16, 
+# height = 10)
 ```
 
 Conclusions: chemical features bring big improvement in performance for protein_synthesis and, 
@@ -558,8 +566,8 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "c
 But caution: physicochemical features may not be truly predictive - compare file 
 drug_drug_similarities_RDKit.pdf. 
 
-From the plots above we would probably say: take all dosages, with chemical features, top20pct/top25pct, 
-slight preference for RF. 
+From the plots above we would probably say: take all dosages, with chemical features, top20pct/
+top25pct, slight preference for RF. 
 
 
 ## Model stabilities (of probabilities)
@@ -638,7 +646,9 @@ plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd", colourvar =
 #ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
 ```
 
-```{r, eval = FALSE, echo = FALSE}
+Again, for the poster :)
+
+```{r}
 # just for the poster
 foo <- 
    stability_assessment %>%
@@ -848,7 +858,7 @@ plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "part_auc_01", colourvar = 
 ### Distributions of dosages among drugs
 
 It looks like using all dosages is better than most_interactions. At the same time, it seems 
-plausible that some dosages will be "wrong" in terms of having a too low drug dosages. Moreover, 
+plausible that some dosages will be "wrong" in terms of having a too low drug dosage. Moreover, 
 some drugs were tested with only 1 dosage, others with 6, which would lead to an overweighting of 
 the latter drugs. Perhaps there is a compromise such as using the 2 dosages with most interactions? 
 Also, it'd be interesting to see if there is a correlation of the number of interactions and 

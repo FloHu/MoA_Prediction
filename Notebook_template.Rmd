@@ -1,6 +1,6 @@
 ---
 title: ""
-author: "Florian Huber, Leonard Dubois"
+author: "Florian Huber"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup, library loading

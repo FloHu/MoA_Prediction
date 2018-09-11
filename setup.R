@@ -9,6 +9,14 @@ ipak(tidyverse)
 ipak(mlr)
 ipak(parallelMap)
 ipak(parallel)
+# newly added 2018-09-05:
+ipak(plotmo)
+ipak(reshape2)
+ipak(gplots)
+ipak(gridExtra)
+ipak(plotly)
+ipak(ComplexHeatmap)
+ipak(circlize)
 
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)

@@ -1,0 +1,278 @@
+---
+title: "Retrain, predict, and compare"
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+rm(list = ls())
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+
+theme_set(theme_bw())
+```
+
+
+To recapitulate from "Comparing_performances.Rmd": random forests was better than lasso because of 
+model stabilities. Top20pct of features seems to have worked best. Only for protein synthesis the 
+lasso seems to have done fairly well. Let's have a look at the ROC and precision recall curves 
+again.
+
+```{r}
+matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
+stability_assessment <- readRDS("./data/stability_assessment.rds")
+
+# this should become the standard colour code for the MoAs:
+moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+
+sub_matrix_container <- 
+   filter(matrix_container, 
+          fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+          feat_preselect %in% c("top25pct", "keepall"), 
+          ! chemical_feats, 
+          drug_dosages == "all")
+
+# remember: this still contains all the drugs, also the ones not belonging to 
+# one of the main MoAs:
+(unique(sub_matrix_container$drug_feature_matrices[[1]]$process_broad))
+
+#### TO DO: fix this function (gives wrong AUCs, colours, layout etc. - see below) #### 
+plot_ROC_from_container(
+   sub_matrix_container[sub_matrix_container$fitted_model == "classif.randomForest", ], 
+   by = c("feat_preselect"))
+
+# almost no difference but 25 pct is more sparse and performs a bit better for membrane_stress
+
+plot_ROC_from_container(
+   sub_matrix_container[sub_matrix_container$fitted_model == "classif.glmnet", ], 
+   by = "feat_preselect")
+
+# again, 25 pct better - we'd probably have to argue that lasso is better for membrane stress and 
+# protein_synthesis but as we know: problem with stabilities
+# what about partial aucs? 
+# check first the numbers
+
+sub_stability_assessment <- 
+   filter(stability_assessment, 
+          fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+          feat_preselect %in% c("top25pct", "keepall"), 
+          ! chemical_feats, 
+          drug_dosages == "all")
+
+tmp <- 
+   sub_stability_assessment %>%
+   select(-one_of("PredData", "prob.moa_stabilities", "auc_stabilities")) %>%
+   unnest() %>%
+   group_by(feat_preselect, fitted_model, moa_modelled) %>%
+   summarise(median_auc = round(median(auc), digits = 3), 
+             median_part_auc = round(median(part_auc_01), digits = 3))
+View(tmp)
+# conclusions from this table: top25pct is almost always better than keepall
+# random forests is better for DNA and cell_wall, lasso is better for membrane stress and 
+# protein synthesis 
+# these trends are also true for partial AUCs, sometimes the improvement is even more dramatic
+
+# check again with this ROC curve:
+plot_ROC_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ], 
+                        by = "fitted_model")
+plot_precRecall_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ], 
+                               by = "fitted_model")
+
+containerObj <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ]
+
+plot_perf_from_container <- 
+   function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
+            what = c("ROC", "prec-recall"), show_repeats = FALSE, by_row = NULL, 
+            by_col = NULL) {
+      #### TO DO: get correct AUC calculation
+      moa <- match.arg(moa, several.ok = TRUE)
+      what <- match.arg(what)
+      
+      containerObj <- 
+         select(containerObj, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
+                ThreshVsPerfData) %>%
+         unnest() %>%
+         filter(moa_modelled %in% moa)
+      
+      containerObj_averaged <- 
+         group_by(containerObj, moa_modelled, threshold) %>%
+         summarise(fpr = mean(fpr), tpr = mean(tpr), ppv = mean(ppv)) %>%
+         ungroup() %>%
+         mutate(moa_modelled = factor(moa_modelled, levels = moa))
+      
+      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+      names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+
+      # the following step is necessary because we don't want to get a separate ROC curve for each 
+      filter(containerObj, cvrep == "Nested CV 1", threshold > 0.99) %>%
+         arrange(fold, desc(threshold))
+      # training/test set split
+      containerObj <- 
+         group_by(containerObj, moa_modelled, cvrep, threshold) %>%
+         summarise(fpr = mean(fpr), tpr = mean(tpr), ppv = mean(ppv))
+      containerObj$group <- interaction(containerObj$moa_modelled, containerObj$cvrep)
+      
+      p <- ggplot(containerObj_averaged, 
+                  aes(x = if(what == "ROC") fpr else tpr, 
+                      y = if(what == "ROC") tpr else ppv, 
+                      group = moa_modelled, colour = moa_modelled))
+      p <- p + geom_path(aes(colour = moa_modelled), size = 0.75)
+      if (show_repeats) {
+         p <- p + geom_path(data = containerObj, aes(group = group), alpha = 0.2)
+      }
+      p <- p + 
+         scale_colour_manual("MoA", labels = names(my_colours), values = my_colours) + 
+         coord_cartesian(ylim = c(0, 1), xlim = c(0, 1))
+      p
+   }
+
+plot_perf_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ], 
+                         moa = "cell_wall", what = "prec-recall", show_repeats = TRUE)
+
+
+# something strange is going on here
+ppv_strangeness <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ]$ThreshVsPerfData[[1]]
+filter(ppv_strangeness, moa_modelled == "dna", cvrep == "Nested CV 2", threshold == 1)
+
+hmm <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ]$PredData[[1]]
+filter(hmm, cvrep == "Nested CV 2", prob.moa >= 0.4, moa_modelled == "dna") %>%
+   arrange(desc(prob.moa))
+
+```
+
+So if we concentrate now on random forests, all dosages, no chemical features, top25pct variance: 
+what prediction probabilities do we get, how are the feature importances distributed? 
+
+More importantly, should this be done on a retrained model? And should we retrain this new model 
+with a different feature set, different dosages (perhaps even the reduced feature set?) 
+
+```{r}
+# plot prediction probabilities, feature importances
+# not sure about heatmap split - is it a good idea? 
+# use Leonard's function
+
+chosen_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
+(the_line <- which(matrix_container$fitted_model == "classif.randomForest" &
+                     matrix_container$feat_preselect == "top25pct" & 
+                     ! matrix_container$chemical_feats & 
+                     matrix_container$drug_dosages == "all"))
+my_moa <- "cell_wall"
+
+stopifnot(length(the_line) == 1)
+
+#### TO DO: what does it mean for RF that it's present in x% of models? ####
+# shouldn't we rather care about feature importance? 
+# compare with the bad features 
+# etc. 
+model_analysis(res_obj = chosen_res, matrix_container_line = matrix_container[the_line, ], 
+               moa = my_moa, 
+               model_type = "tree", 
+               feat_imp_thres = 1, # else we get way too many features
+               pdf_filename = "./plots/the_chosen_ model_explanation_cell_wall.pdf")
+
+drugs_pred_prob_from_container(pred_data = matrix_container[the_line, ]$PredData[[1]], 
+                               moa = my_moa, 
+                               main = "Hello world", xlab = "Probability prediction")
+
+
+
+```
+
+
+
+```{r plot_ROC_from_container_new}
+pred_data <- matrix_container$PredData[[the_line]]
+thresh_vs_perf_data <- matrix_container$ThreshVsPerfData[[the_line]]
+moa <- "cell_wall"
+# thresh_vs_perf_data <- 
+#    filter(thresh_vs_perf_data, moa_modelled == moa) %>%
+#    group_by(threshold) %>%
+#    summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
+# View(thresh_vs_perf_data)
+# 
+# target_fpr <- 0.1
+# # get threshold which is closest to an fpr of 0.1:
+# thresh_vs_perf_data$diff <- abs(target_fpr - thresh_vs_perf_data$mean_fpr)
+# (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
+
+plot_prediction_probabilities <- 
+   function(pred_data, thresh_vs_perf_data, moa, fileprefix, fpr_cutoff = 0.1) {
+   # take a pred_data object (= from matrix_container, the PredData column) 
+   # and plot prediction probabilities as a boxplot 
+   # also add a thresh_vs_perf_data object to indicate the fpr cutoff 
+   pred_data <- 
+      filter(pred_data, moa_modelled == moa) %>% 
+      select(prob.moa, drugname_typaslab, truth, conc)
+
+   thresh_vs_perf_data <- 
+      filter(thresh_vs_perf_data, moa_modelled == moa) %>%
+      group_by(threshold) %>%
+      summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
+   
+   # get threshold which is closest to an fpr of 0.1:
+   thresh_vs_perf_data$diff <- abs(fpr_cutoff - thresh_vs_perf_data$mean_fpr)
+   (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
+
+   pred_data$drugndosg <- paste(pred_data$drugname_typaslab, pred_data$conc, sep = "_")
+   pred_data$drugndosg <- fct_reorder(pred_data$drugndosg, .x = pred_data$prob.moa)
+   
+   selector <- 
+      group_by(pred_data, drugname_typaslab, conc, drugndosg) %>%
+      summarise(median_prob.moa = median(prob.moa)) %>%
+      ungroup() %>%
+      group_by(drugname_typaslab) %>%
+      top_n(1, median_prob.moa) %>%
+      pull(drugndosg)
+   
+   p <- ggplot(pred_data[pred_data$drugndosg %in% selector, ], aes(x = drugndosg, y = prob.moa)) + 
+      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
+      geom_hline(yintercept = thresh, colour = "red") + 
+      geom_hline(yintercept = 0.5, linetype = "dotted") + 
+      coord_flip(ylim = c(0, 1)) + 
+      theme_bw()
+   ggsave(filename = paste0("./plots/", fileprefix, "_onedosg.pdf"), plot = p, width = 10, height = 15)
+   
+   # showing everything
+   p <- ggplot(pred_data, aes(x = drugndosg, y = prob.moa)) + 
+      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
+      geom_hline(yintercept = thresh, colour = "red") + 
+      geom_hline(yintercept = 0.5, linetype = "dotted") + 
+      coord_flip(ylim = c(0, 1)) + 
+      theme_bw()
+   ggsave(filename = paste0("./plots/", fileprefix, ".pdf"), plot = p, width = 10, height = 40)
+}
+
+moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+pwalk(list(moa = moas, fileprefix = paste0(moas, "_probs")), 
+      plot_prediction_probabilities, 
+      pred_data = pred_data, thresh_vs_perf_data = thresh_vs_perf_data)
+```
+
+
+
+
+
+
+
+
+
+
+
+

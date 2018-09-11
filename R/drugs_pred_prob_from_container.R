@@ -1,9 +1,6 @@
-
-
-
-# Take prediction data from contaimer matrix
-# plot drug probabilities repartition across repetitions
 drugs_pred_prob_from_container = function(pred_data, moa, order = median, ...){
+   # Take prediction data from contaimer matrix
+   # plot drug probabilities repartition across repetitions
 
     pred_data = pred_data %>% filter(moa_modelled == moa) %>% select(prob.moa, drugname_typaslab, truth)
     mean_pred = by(data = pred_data$prob.moa, pred_data$drugname_typaslab, FUN = order)

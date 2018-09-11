@@ -26,22 +26,24 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 
-# matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
-# matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
-matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
-matrix_container_new = readRDS("data/programmatic_output/matrix_container_new_withextractions.rds")
+matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
+matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
+# matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
+# matrix_container_new = readRDS("data/programmatic_output/matrix_container_new_withextractions.rds")
 
 ipak(plotmo)
 ipak(reshape2)
 ipak(gplots)
-ipak("gridExtra")
-ipak("plotly")
-library(ComplexHeatmap)
-ipak("circlize")
+ipak(gridExtra)
+ipak(plotly)
+ipak(ComplexHeatmap)
+ipak(circlize)
 ```
 
 
-Aim of this notebook is to have a deeper look at all the different results from the matrix container and understand which features are used, for what, which of them help us defining groups based on MoA.
+Aim of this notebook is to have a deeper look at all the different results from the matrix 
+container and understand which features are used, for what, which of them help us defining groups 
+based on MoA.
 
 For keeping the same color code for MoA in all kind of plots 
 
@@ -53,56 +55,35 @@ names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 
 # Lasso model regularization paths
 
-First, we have a look at the regularization path of a LASSO model, which is the evolution of the coefficient for one feature depending on the value of the regularization parameter lambda. 
+First, we have a look at the regularization path of a LASSO model, which is the evolution of the 
+coefficient for one feature depending on the value of the regularization parameter lambda. 
+
 Regularization path are contained in a matrix in lasso model objects build with glmnet.
 
-Main problem here is that it exist 80 slightly different regularization path in one run : one for each outer fold times the number of repetitions
+Main problem here is that there are 80 slightly different regularization paths per run: one for each 
+outer fold times the number of repetitions.
 
 It would be great to find a way to average all of this...
 
 ```{r}
 # Result object to test
-resObj = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
-
-#   par(mfrow = c(4,2))
-#   for(i in 1:8){plot_glmnet(resObj$`Nested CV 1`[[paste0("Outer fold ", i)]]$model_dna$learner.model)}
-
+resObj <- readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
 
 # For a given model, example with NCV 1, Outer fold 1 DNA MoA
 modelInstance = resObj$`Nested CV 1`$`Outer fold 1`$model_dna
 
-# I write my own function for the plot_glmnet one form the plotmo package is not that great.
-
-plot_reg_path = function(modelInstance){
-    lambda_for_pred = modelInstance$learner$par.vals$s
-    # Get the index of the lambda used in model building which is the closest to s, the lambda used for testing
-    closest_lambda_index = which.min(abs(lambda_for_pred - modelInstance$learner.model$lambda))
-    
-    coeffs = as.matrix(modelInstance$learner.model$beta[, 1:closest_lambda_index])
-    coeffs = coeffs[ rowSums(coeffs)!=0, ] 
-    coeffs = as.data.frame(coeffs)
-    colnames(coeffs) = seq(1:ncol(coeffs))
-    coeffs$feat = rownames(coeffs)
-    
-    coeffs_plotable = melt(coeffs, id.vars = "feat")
-    coeffs_plotable$variable = as.numeric(coeffs_plotable$variable)
-    ggplot() + geom_path(data = coeffs_plotable, mapping = aes(x = variable, y = value, group = feat)) +
-            geom_hline(yintercept = 0, linetype="dashed") +
-            annotate("text", x = ncol(coeffs), y = coeffs[, ncol(coeffs)-1], label = coeffs$feat) +
-            theme_bw() + xlim(0,ncol(coeffs)+5)
-}
-
+# I wrote my own function for the plot_glmnet one form the plotmo package is not that great.
 dna11 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 1`$model_dna)
 dna12 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 2`$model_dna)
 dna13 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 3`$model_dna)
 dna14 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 4`$model_dna)
 
 grid.arrange(dna11, dna12, dna13, dna14, nrow = 2)
-
+rm(resObj)
 ```
 
 
-# Model exploration of features importance
+# Model exploration of feature importance
 
 Overview of the analysis :
 
@@ -119,10 +100,11 @@ lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_
 
 model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], 
                matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", 
-               pdf_filename = "model_explanation_cell_wall.pdf", model_type = "lasso")
+               pdf_filename = "./plots/model_explanation_cell_wall.pdf", model_type = "lasso")
 ```
 
-We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and MRCB
+We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and 
+MRCB.
 
 
 ## PROTEIN SYNTHESIS
@@ -130,15 +112,19 @@ We can see on the Heatmap that a robust and pure cluster of cell wall drug is "d
 ```{r}
 lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
 
-model_analysis(res_obj = lasso_5pc_most, matrix_container_line = matrix_container[180, ], matrix_container_line_noChemFeat = matrix_container[179, ] , moa = "protein_synthesis", pdf_filename = "model_explanation_protein_synthesis.pdf", model_type = "lasso")
+model_analysis(res_obj = lasso_5pc_most, 
+               matrix_container_line = matrix_container[180, ], 
+               matrix_container_line_noChemFeat = matrix_container[179, ] , 
+               moa = "protein_synthesis", 
+               pdf_filename = "./plot/smodel_explanation_protein_synthesis.pdf", 
+               model_type = "lasso")
 ```
 
+Here it is not really clear which features are driving the clusterization.
 
-Here it is not really clear which features are driving the clusterization
+Potentialy ASMA and GLMS, maybe RFAE and ACRA.
 
-Potentialy ASMA and GLMS, maybe RFAE and ACRA
-
-The result also depends on the threshold used (% of models with a given feature)
+The result also depends on the threshold used (% of models with a given feature).
 
 
 ## MEMBRANE STRESS
@@ -146,10 +132,14 @@ The result also depends on the threshold used (% of models with a given feature)
 ```{r}
 lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
 
-model_analysis(res_obj = lasso_25pc_all, matrix_container_line = matrix_container[154, ], matrix_container_line_noChemFeat = matrix_container[153, ],  moa = "membrane_stress", pdf_filename = "model_explanation_membrane_stress.pdf", model_type = "lasso")
+model_analysis(res_obj = lasso_25pc_all, 
+               matrix_container_line = matrix_container[154, ], 
+               matrix_container_line_noChemFeat = matrix_container[153, ], 
+               moa = "membrane_stress", 
+               pdf_filename = "./plots/model_explanation_membrane_stress.pdf", model_type = "lasso")
 ```
 
-Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe HFQ, SlogP
+Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe HFQ, SlogP.
 
 
 ## DNA
@@ -157,13 +147,16 @@ Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe 
 ```{r}
 lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
 
-model_analysis(res_obj = lasso_10pc_most, matrix_container_line = matrix_container[165, ], matrix_container_line_noChemFeat = matrix_container[166, ], moa = "dna", pdf_filename = "model_explanation_dna.pdf", model_type = "lasso")
+model_analysis(res_obj = lasso_10pc_most, 
+               matrix_container_line = matrix_container[165, ], 
+               matrix_container_line_noChemFeat = matrix_container[166, ], 
+               moa = "dna", pdf_filename = "./plots/model_explanation_dna.pdf", model_type = "lasso")
 ```
 
+DNA drugs cluster easily with RECC and RECA values.
 
-DNA drugs cluster easily with RECC and RECA values
-
-Somehow NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (subclasses ?) or help seperating it from other MoA
+Somehow, NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (subclasses ?) or help 
+separating it from other MoA.
 
 
 # Run of model analysis using best RF models
@@ -171,7 +164,6 @@ Somehow NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (sub
 Focusing only on RF models
 
 ```{r}
-
 # Line 18 corresp 17
 bestRF_dna = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top5pct_TRUE.rds")
 #Line 24 corresp 23
@@ -181,31 +173,49 @@ bestRF_membrane_stress = readRDS("run_results_from_server/matrix_container_resul
 #Line 10 corresp 9
 bestRF_protein_synthesis = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_TRUE.rds")
 
-
-model_analysis(res_obj = bestRF_dna, matrix_container_line = matrix_container[18, ], 
-               matrix_container_line_noChemFeat = matrix_container[17, ], moa = "dna",
-               pdf_filename = "model_explanation_RF_dna.pdf", model_type = "tree", 
+model_analysis(res_obj = bestRF_dna, 
+               matrix_container_line = matrix_container[18, ], 
+               matrix_container_line_noChemFeat = matrix_container[17, ], 
+               moa = "dna",
+               pdf_filename = "./plots/model_explanation_RF_dna.pdf", model_type = "tree", 
                feat_imp_thres = 0.9)
 
-model_analysis(res_obj = bestRF_cell_wall, matrix_container_line = matrix_container[24, ], matrix_container_line_noChemFeat = matrix_container[23, ], moa = "cell_wall",
-               pdf_filename = "model_explanation_RF_cell_wall.pdf", model_type = "tree", feat_imp_thres = 0.9)
-model_analysis(res_obj = bestRF_membrane_stress, matrix_container_line = matrix_container[6, ], matrix_container_line_noChemFeat = matrix_container[5, ], moa = "membrane_stress",
-               pdf_filename = "model_explanation_RF_membrane_stress.pdf", model_type = "tree", feat_imp_thres = 0.99)
-model_analysis(res_obj = bestRF_protein_synthesis, matrix_container_line = matrix_container[10, ], matrix_container_line_noChemFeat = matrix_container[9, ], moa = "protein_synthesis",
-               pdf_filename = "model_explanation_RF_protein_synthesis.pdf", model_type = "tree", feat_imp_thres = 0.95)
+model_analysis(res_obj = bestRF_cell_wall, 
+               matrix_container_line = matrix_container[24, ], 
+               matrix_container_line_noChemFeat = matrix_container[23, ], 
+               moa = "cell_wall",
+               pdf_filename = "./plots/model_explanation_RF_cell_wall.pdf", model_type = "tree", 
+               feat_imp_thres = 0.9)
+
+model_analysis(res_obj = bestRF_membrane_stress, 
+               matrix_container_line = matrix_container[6, ], 
+               matrix_container_line_noChemFeat = matrix_container[5, ], 
+               moa = "membrane_stress",
+               pdf_filename = "./plots/model_explanation_RF_membrane_stress.pdf", model_type = "tree", 
+               feat_imp_thres = 0.99)
+
+model_analysis(res_obj = bestRF_protein_synthesis, 
+               matrix_container_line = matrix_container[10, ], 
+               matrix_container_line_noChemFeat = matrix_container[9, ], 
+               moa = "protein_synthesis",
+               pdf_filename = "./plots/model_explanation_RF_protein_synthesis.pdf", model_type = "tree", 
+               feat_imp_thres = 0.95)
 ```
 
-Random Forest is really worse in feature selection and even if one select only features found in all the models, it still is too much. Threshold are quite high here, but otherwise pdf file are too big
+Random Forest is really worse in feature selection and even if one select only features found in all 
+the models, it is still is too much. Thresholds are quite high here, but otherwise pdf file are too big.
 
 
 # Run of model analysis - New matrix container
 
-Same thing as above, but using the new matrix container which is smaller, use only 2 dosages per drug (thus reducing the representation bias) and not using the chemical features, way too much correlated among themselves
+Same thing as above, but using the new matrix container which is smaller, use only 2 dosages per 
+drug (thus reducing the representation bias) and not using the chemical features, way too much 
+correlated among themselves.
 
 ## Total overview
 
 ```{r}
-pdf(file= "new_matrix_container_results/matrix_container_new_allROC.pdf", height = 32, width = 17)
+pdf(file= "./plots/matrix_container_new_allROC.pdf", height = 32, width = 17)
 plot_ROC_from_container(containerObj = matrix_container_new, moa = "all", by = c("feat_preselect", "fitted_model"))
 dev.off()
 ```
@@ -213,7 +223,7 @@ dev.off()
 ## Overview by Model type and MoA
 
 ```{r}
-pdf(file = "new_matrix_container_results/EN_overview.pdf", width = 24, height = 15)
+pdf(file = "./plots/EN_overview.pdf", width = 24, height = 15)
 p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "dna")
 p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "cell_wall")
 p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "membrane_stress")
@@ -221,180 +231,205 @@ p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitt
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 dev.off()
 
-pdf(file = "new_matrix_container_results/RF_overview.pdf", width = 24, height = 15)
+pdf(file = "./plots/RF_overview.pdf", width = 24, height = 15)
 p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "dna")
 p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "cell_wall")
 p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "membrane_stress")
 p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "protein_synthesis")
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 dev.off()
-
 ```
 
 **DNA** : 
-- Random Forest model displays good performances with all feat (AUC 0.853), corr 0.7 (AUC 0.85) or protein complexes (AUC 0.851)
-- Elastic net has better AUC with complexes_corrBonf preselction methods (AUC 0.874 and 0.843) but the partial AUC is slightly worse
+- Random Forest model displays good performances with all feat (AUC 0.853), corr 0.7 (AUC 0.85) or protein complexes (AUC 0.851).
+- Elastic net has better AUC with complexes_corrBonf preselction methods (AUC 0.874 and 0.843) but the partial AUC is slightly worse.
 
 **CELL WALL** : 
-- Random Forest displays always a bigger AUC than EN (at least 0.04). Moreover it is highly robust and a lot of model reach an AUC of 0.9
-Protein complexes preselection displays the best partial AUC
+- Random Forest displays always a bigger AUC than EN (at least 0.04). Moreover it is highly robust and a lot of model reach an AUC of 0.9.
+Protein complexes preselection displays the best partial AUC.
 
 **PROTEIN SYNTHESIS** :
-- EN is better (it is obviously seen with th shape of the ROC curve). But be careful for EN models for Protein_synthesis MoA tend to use a lot of features (regularization not so efficient) 
-Best models are corr 0.7 (AUC 0.895), all (AUC 0.894), corr 0.6 (AUC 0.887) and protein_complexes (AUC 0.87)
+- EN is better (it is obviously seen with th shape of the ROC curve). But be careful for EN models for Protein_synthesis MoA tend to use a lot of features (regularization not so efficient).
+Best models are corr 0.7 (AUC 0.895), all (AUC 0.894), corr 0.6 (AUC 0.887) and protein_complexes (AUC 0.87).
 
 **MEMBRANE STRESS** :
-- Both type of model are equivalent in terms of AUC (which is always lower than other MoA). However partial AUC is better in EN models, in particular for preselection complexes_corr_outlier (AUC 0.821) and corr 0.6 (AUC 0.774)
+- Both type of model are equivalent in terms of AUC (which is always lower than other MoA). However,  
+partial AUC is better in EN models, in particular for preselection complexes_corr_outlier (AUC 0.821) 
+and corr 0.6 (AUC 0.774)
 
 
-Analysis of these plots allows to decide which models should we focus on.
-Since multiple models display similar perfromances, one should look for interpretability
+Analysis of these plots allows to decide which models should we focus on. Since multiple models 
+display similar perfromances, one should look for interpretability
+
 
 ## In depth analysis
 
-The aim is to identify a group of gene in a model which is driving the clusterization. We can easily visualize it with the dendrogramm from the heatmap function. However, whether it is really obvious depends mainly on the threshold one choose : in how many models is a feature used ? (Most of the time it's between 90 and 100% )
+The aim is to identify a group of gene in a model which is driving the clusterization. We can easily 
+visualize it with the dendrogramm from the heatmap function. However, whether it is really obvious 
+depends mainly on the threshold one choose : in how many models is a feature used ? (Most of the 
+time it's between 90 and 100% )
 
-Each time, the focus is put on the model with the highest AUC, if several AUC are really similar, the model displaying the most stringent features preselection and/or the best partial AUC is chosen.  
+Each time, the focus is put on the model with the highest AUC, if several AUC are really similar, 
+the model displaying the most stringent features preselection and/or the best partial AUC is chosen.  
 
 ```{r}
+rm(lasso_10pc_most, lasso_25pc_all, lasso_30pc_all, lasso_5pc_most, 
+   bestRF_cell_wall, bestRF_dna, bestRF_membrane_stress, bestRF_protein_synthesis)
+
 # Best model (highest AUC)
 res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
 model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], 
-               moa = "dna", pdf_filename = "best_dna_results.pdf",
+               moa = "dna", pdf_filename = "./plots/best_dna_results.pdf",
                model_type = "tree", feat_imp_thres = 1)
 rm(res_best_dna)
 gc()
 
 # test of best EN model because of the end of the roc curve
 res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corrBonf_outlier01_FALSE.rds")
-model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], moa = "dna", pdf_filename = "new_matrix_container_results/best_dna_results2.pdf",
+model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], 
+               moa = "dna", pdf_filename = "./plots/best_dna_results2.pdf",
                model_type = "lasso", feat_imp_thres = 1)
 rm(res_best_dna)
 gc()
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], moa = "membrane_stress", pdf_filename = "new_matrix_container_results/best_membrane_stress_results.pdf",
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], 
+               moa = "membrane_stress", pdf_filename = "./plots/best_membrane_stress_results.pdf",
                model_type = "lasso", feat_imp_thres = 1, model_name_title = "Membrane stress prediction using EN with Complexes Correlation + outlier")
 rm(res_best)
 gc()
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], moa = "protein_synthesis", pdf_filename = "new_matrix_container_results/best_protein_synthesis_results.pdf",
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], 
+               moa = "protein_synthesis", pdf_filename = "./plots/best_protein_synthesis_results.pdf",
                model_type = "lasso", feat_imp_thres = 1)
 rm(res_best)
 gc()
 
 #Only to assess if there's a difference
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_all_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], moa = "protein_synthesis", pdf_filename = "new_matrix_container_results/best_protein_synthesis_results2.pdf",
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], 
+               moa = "protein_synthesis", pdf_filename = "./plots/best_protein_synthesis_results2.pdf",
                model_type = "lasso", feat_imp_thres = 1)
 rm(res_best)
 gc()
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], moa = "cell_wall", pdf_filename = "new_matrix_container_results/best_cell_wall_results.pdf",
+model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], 
+               moa = "cell_wall", pdf_filename = "./plots/best_cell_wall_results.pdf",
                model_type = "tree", feat_imp_thres =1)
 rm(res_best)
 gc()
-
 ```
 
-Try to obtain a nice representation showing the group of features driving a pure cluster of the targeted MoA
+Try to obtain a nice representation showing the group of features driving a pure cluster of the 
+targeted MoA.
 
-testing the very simplest thing : Features used in all the 80 models (10 repetitions * 8 outer fold of the Nested CV)
-(At the moment it is the signature that gives the best results in a t-SNE map, I guess it's because of a limited amount a dimensions and not too much noise)
+Testing the simplest thing : Features used in all the 80 models (10 repetitions * 8 outer fold of 
+the Nested CV). (At the moment it is the signature that gives the best results in a t-SNE map, I 
+guess it's because of a limited amount a dimensions and not too much noise.)
 
 ```{r}
 final_res = c()
-
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_all_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best,
-                                   moa = "dna", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "tree")  
-rm(res_obj)
+featImp = plot_top_feat_importance(resObj = res_best, moa = "dna", main= deparse(substitute(resObj)), 
+                                   thres = 1, return_obj = T, model_type = "tree")  
+rm(res_best)
 gc()
 final_res = c(final_res, names(featImp))
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best,
-                                   moa = "membrane_stress", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "lasso")  
-rm(res_obj)
+featImp = plot_top_feat_importance(resObj = res_best, moa = "membrane_stress", main= deparse(substitute(resObj)), 
+                                   thres = 1, return_obj = T, model_type = "lasso")  
+rm(res_best)
 gc()
 final_res = c(final_res, names(featImp))
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best,
-                                   moa = "protein_synthesis", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "lasso")  
-rm(res_obj)
+featImp = plot_top_feat_importance(resObj = res_best, moa = "protein_synthesis", main= deparse(substitute(resObj)), 
+                                   thres = 1, return_obj = T, model_type = "lasso")  
+rm(res_best)
 gc()
 final_res = c(final_res, names(featImp))
 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best,
-                                   moa = "cell_wall", main= deparse(substitute(resObj)) , thres = 1, return_obj = T, model_type = "tree")  
-rm(res_obj)
+featImp = plot_top_feat_importance(resObj = res_best, moa = "cell_wall", main= deparse(substitute(resObj)), 
+                                   thres = 1, return_obj = T, model_type = "tree")  
+rm(res_best)
 gc()
 final_res = c(final_res, names(featImp))
 final_res = unique(final_res)
-
 ```
 
 
 ## Visualizing features importance
 
-Just some geom_point of the features importance. For RF model it's mean decrease in Gini impurity, for EN coefficients value or abolute value. 
-Features are not extracted with the same function, for RF it is easy, for EN you have to find according to the tuned lambda (*s* parameter in glmnet) which lambda tested in the model
-is the closest one from *s* so as to get the corresponding coefficients.
+Just some geom_point of the features importance. For RF model it's mean decrease in Gini impurity, 
+for EN coefficients value or abolute value. Features are not extracted with the same function, for 
+RF it is easy, for EN you have to find according to the tuned lambda (*s* parameter in glmnet) which 
+lambda tested in the model is the closest one from *s* so as to get the corresponding coefficients.
 
 ```{r}
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "dna", main= deparse(substitute(resObj)) , thres = 0, return_obj = T, model_type = "tree") 
+featImp = plot_top_feat_importance(resObj = res_best, moa = "dna", main= deparse(substitute(resObj)), 
+                                   thres = 0, return_obj = T, model_type = "tree") 
 # OR
-featImp = plot_top_feat_importance(resObj = res_best, moa = "cell_wall", main= deparse(substitute(resObj)) , thres = 0, return_obj = T, model_type = "tree") 
+featImp = plot_top_feat_importance(resObj = res_best, moa = "cell_wall", main= deparse(substitute(resObj)), 
+                                   thres = 0, return_obj = T, model_type = "tree") 
 
 rm(res_best)
 gc()
  
-featImp = lapply(featImp, function(x){c(median(x), length(x))} )
+featImp = lapply(featImp, function(x){c(median(x), length(x))})
 plotData = matrix(unlist(featImp), ncol = 2, byrow = T)
 colnames(plotData) = c("medianImp", "modelFreq")
 rownames(plotData) = names(featImp)
 
-ggplot(data = as.data.frame(plotData)) + geom_point(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + theme_bw() + ggtitle()
-ggplot(data = as.data.frame(plotData)) + geom_jitter(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + theme_bw() 
-stripchart(plotData[,"medianImp"], pch  =21, bg = "orange", method = "jitter")
-```
+ggplot(data = as.data.frame(plotData)) + 
+   geom_jitter(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + 
+   theme_bw()
 
-```{r}
+stripchart(plotData[,"medianImp"], pch  =21, bg = "orange", method = "jitter")
+
+
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "protein_synthesis", main= deparse(substitute(resObj)) , thres = 0, return_obj = T, model_type = "lasso") 
+featImp = plot_top_feat_importance(resObj = res_best, moa = "protein_synthesis", main= deparse(substitute(resObj)), 
+                                   thres = 0, return_obj = T, model_type = "lasso") 
 rm(res_best)
 gc()
 # OR 
 res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "membrane_stress", main= deparse(substitute(resObj)) , thres = 0, return_obj = T, model_type = "lasso") 
+featImp = plot_top_feat_importance(resObj = res_best, moa = "membrane_stress", main= deparse(substitute(resObj)), 
+                                   thres = 0, return_obj = T, model_type = "lasso") 
 rm(res_best)
 gc()
 
-featImp = lapply(featImp, function(x){c(median(abs(x)), length(x))} )
+featImp = lapply(featImp, function(x){c(median(abs(x)), length(x))})
 plotData = matrix(unlist(featImp), ncol = 2, byrow = T)
 colnames(plotData) = c("medianImp", "modelFreq")
 rownames(plotData) = names(featImp)
 
-ggplot(data = as.data.frame(plotData)) + geom_point(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + theme_bw() + ggtitle()
-ggplot(data = as.data.frame(plotData)) + geom_jitter(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + theme_bw() 
-stripchart(plotData[,"medianImp"], pch  =21, bg = "orange", method = "jitter")
+ggplot(data = as.data.frame(plotData)) + 
+   geom_jitter(mapping = aes(x = medianImp, y = modelFreq), alpha = 0.4) + 
+   theme_bw() 
+stripchart(plotData[,"medianImp"], pch = 21, bg = "orange", method = "jitter")
 ```
-
 
 
 
 ## Screening Heatmap cutting schemes
 
 Old method to assess if one subset of feature can be enough to predict most of a targeted MoA.
-Testing different way of grouping drugs and features, splitting them based on some HCA (Hierarchical cluster analysis aka tree) (1 to 6 groups for feat/genes, 2 to 6 for drugs). 
+Testing different way of grouping drugs and features, splitting them based on some HCA (Hierarchical 
+cluster analysis aka tree: 1 to 6 groups for feat/genes, 2 to 6 for drugs).
+
 Then assessing precision and recall for the targeted MoA in the defined clusters of drugs.
-Main problem here is that such a screen can be made for each model (result file), for each threshold (in how many model features are used), using several distance metrics (euclidean or 1 - pearson correlation). 
-There is way too much combinaisons and the chances of finding something at random because of lots of repeated sampling possibilities is high (similar to multiple testing problems in a way)
+Main problem here is that such a screen can be made for each model (result file), for each threshold 
+(in how many model features are used), using several distance metrics (euclidean or 1 - pearson 
+correlation).
+
+There is way too much combinations and the chances of finding something at random because of lots of 
+repeated sampling possibilities is high (similar to multiple testing problems in a way).
 
 Screens possibilities : output is the "Xmas tree plot"
 
