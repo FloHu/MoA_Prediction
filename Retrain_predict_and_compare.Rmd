@@ -266,6 +266,379 @@ pwalk(list(moa = moas, fileprefix = paste0(moas, "_probs")),
 ```
 
 
+# Retraining models and trying out some stuff
+
+## Retraining random forests with top25pct variance, only the main groups, rest = "test set"
+
+And try here to find best hyperparameters as this makes later retrainings easier, where we can just 
+use the OOB error so we can more easily handle small groups. 
+
+Compare OOB error with CV error. 
+
+If this works might also wanna retrain with reduced feature set.
+
+```{r}
+# first try to figure out which values were used for mtry and ntree in our favourite result
+# we can get the optimal hyperparameters using getLearnerModel():
+getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)
+# to access directly:
+getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)$learner.model$ntree
+getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)$learner.model$mtry
+
+# little reminder of which row we are talking about 
+matrix_container[the_line, ]
+matrix_container$fitted_model[[the_line]]
+matrix_container$hyperparam_grid[[the_line]]
+dim(matrix_container$drug_feature_matrices[[the_line]])
+
+# let's see what were typically optimal parameters so we don't have to do nested resampling since 
+# we save ourselves the work of tuning - will make the model fittings below much easier
+# we have 10 * 8 optimal hyperparameters per MoA
+(ntrees <- map_dbl(chosen_res, ~ getLearnerModel(.x[["Outer fold 1"]][["model_dna"]])$learner.model$ntree))
+
+extract_params_from_resultsobj <- 
+   function(resobj, moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), param = c("ntree", "mtry")) {
+      # takes a result object from matrix_container and extracts all the ntree/mtry values used 
+      # across all folds and repeats
+      moa <- match.arg(moa)
+      param <- match.arg(param)
+      
+      get_param <- function(fold_contents, moa, param) {
+         # each fold of each repeat contains model and prediction objects from which we 
+         # can extract the corresponding hyperparameters
+         getLearnerModel(fold_contents[[paste0("model_", moa)]])[["learner.model"]][[param]]
+      }
+      
+      access_all_folds <- function(cvrepeat, FUN, ...) {
+         # takes a cvrepeat and accesses all the folds using FUN
+         # ... = additional arguments passed to FUN
+         map(cvrepeat, FUN, ...)
+      }
+      
+      # so what happens here?
+      # the first call to map accesses all slots of the resobj, which are the nested CV repeats 
+      # this accessing is done using access_all_folds + a function: access_all_folds will again 
+      # call map so it will pass all the folds (hence the name) to FUN, which can then access 
+      # the desired values
+      params <- unlist(map(resobj, access_all_folds, FUN = get_param, param = param, moa = moa))
+      return(params)
+   }
+
+# for ntree it seems like only 200 or 500 trees were used:
+moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+all_ntrees <- sapply(moas, extract_params_from_resultsobj, resobj = chosen_res, param = "ntree", 
+                     simplify = FALSE, USE.NAMES = TRUE)
+# this is funny - perhaps we should have tried different numbers of trees? 
+# anyway, I would see we use 500 from now on - or perhaps even go to 1000
+lapply(all_ntrees, table)
+
+all_mtrys <- sapply(moas, extract_params_from_resultsobj, resobj = chosen_res, param = "mtry", 
+                    simplify = FALSE, USE.NAMES = TRUE)
+lapply(all_mtrys, table)
+matrix_container$hyperparam_grid[[the_line]]
+dim(matrix_container$drug_feature_matrices[[the_line]])
+# dna and cell_wall clearly favour 106, membrane_stress and protein_synthesis: less clear, but 
+# the tendency there is more towards 200
+# let's settle for 150, which is around a third of the observations, like it is recommended for 
+# regression trees in Kuhn et al.
+```
+
+So now we're ready to retrain models, we will use ntree = 1000 (immune to overfitting) and 
+mtry = 150. 
+
+First, let's go through the procedure and compare CV with OOB error.
+
+```{r}
+my_ntree <- 1000
+my_mtry <- 150
+(my_data <- matrix_container$drug_feature_matrices[[the_line]])
+length(unique(my_data$drugname_typaslab))
+moas
+
+# these we wanna predict later:
+my_data_test <- my_data[!my_data$process_broad %in% moas, ]
+length(unique(my_data_test$drugname_typaslab))
+unique(my_data_test$drugname_typaslab)
+# however, a few drugs are missing:
+complete_data <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved_NAsimputed_wideformat.rds")
+drug_info <- readRDS("./data/programmatic_output/drugs_full.rds")
+drug_info <- drug_info[, c("drugname_typaslab", "process_broad")]
+complete_data <- left_join(complete_data, drug_info)
+complete_data <- select(complete_data, drugname_typaslab, conc, process_broad, everything())
+complete_data <- complete_data[, colnames(complete_data) %in% colnames(my_data_test)] # filter
+complete_data <- complete_data[, colnames(my_data_test)] # sort
+my_data_test <- bind_rows(my_data_test, 
+                          filter(complete_data, drugname_typaslab %in% 
+                                    c("CHLOROPROMAZINE", "EPINEPHRINE", "NOREPINEPHRINE")))
+unique(my_data_test$drugname_typaslab)
+table(my_data_test$process_broad)
+
+# and with these we wanna learn:
+my_data <- my_data[my_data$process_broad %in% moas, ]
+# so we are left with 67 drugs
+length(unique(my_data$drugname_typaslab))
+table(my_data$process_broad)
+
+#### TO DO: FIX ####
+# another thing we will do is to exclude genes with lots of NA values
+# since NA values here were already imputed, need to specify this by hand
+to_exclude <- c("OXYR", "IMP", "ATPC", "GUAB", "YFCA", "PSTA", "GMHB", "RFAP", "LIPA", "YDJI", "FLDA")
+to_exclude %in% colnames(my_data)
+my_data <- select(my_data, -one_of(to_exclude))
+my_data_test <- select(my_data_test, -one_of(to_exclude))
+
+##### GENERATING THE TABLE #####
+# this one we need for prediction:
+(my_data_mainmoas <- select(my_data, -one_of(c("conc", "drugname_typaslab")))) # keep drugname information? 
+# go for cell_wall first
+my_target <- "cell_wall"
+my_data_mainmoas$process_broad <- ifelse(my_data_mainmoas$process_broad == my_target, 
+                                         my_target, 
+                                         paste0("not_", my_target))
+
+#(pos_weight <- round(table(my_data_mainmoas$process_broad)[paste0("not_", my_target)] / 
+#                        table(my_data_mainmoas$process_broad)[my_target], digits = 2))
+
+# my_weights <- ifelse(my_data_mainmoas$process_broad == my_target, 
+#                      pos_weight, 
+#                      1)
+
+##### MAKING TASK AND LEARNER #####
+
+# same dosages belong together
+# can easily done by blocking argument, construct levels using rle() but first make sure that 
+# different dosages of the same drug haven't been torn apart
+(my_rle <- rle(my_data$drugname_typaslab))
+stopifnot(length(unique(my_data$drugname_typaslab)) == length(my_rle$values))
+my_blocks <- factor(rep(seq_along(my_rle$values), my_rle$lengths))
+levels(my_blocks)
+
+(rf.task <- makeClassifTask(data = my_data_mainmoas, target = "process_broad", 
+                            positive = my_target, blocking = my_blocks))
+
+(rf.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+                           par.vals = list(ntree = 1000, mtry = 150)))
+
+# check https://mlr-org.github.io/mlr/articles/cost_sensitive_classif.html
+# negative class automatically receives weight 1
+# so I assume the positive weight should get this:
+# but doesn't change anything - supported by the learner? 
+# rf.learn <- makeWeightedClassesWrapper(rf.learner, wcw.weight = pos_weight)
+
+# before we go on to resampling we will "retrain"
+##### RETRAIN #####
+(rf.model <- train(rf.learner, rf.task))
+# class(rf.model)
+getLearnerModel(rf.model)
+# we again have this phenomenon of the negative class being favoured - can we fix this using one of 
+# the strategies dealing with imbalanced classes? 
+
+##### RESAMPLING #####
+# doing resampling
+(my_measures <- matrix_container$tuning_measure[[the_line]])
+# not sure why 4th slot = 1st slot
+my_measures[[4]] <- NULL
+
+rf.rdesc <- makeResampleDesc("CV", iters = 8) # predict = "test" ("both") argument goes here 
+rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, # extract argument!
+                               resampling = rf.rdesc)
+# blocking + stratification not allowed - our 'old' problem
+class(rf.resample_result)
+
+rf.resample_result
+rf.resample_result$aggr
+rf.resample_result$measures.test
+
+getRRPredictions(rf.resample_result)
+class(getRRPredictions(rf.resample_result))
+
+# this is what we need
+generateThreshVsPerfData(rf.resample_result, measures = list(tpr, fpr, ppv))
+plotROCCurves(generateThreshVsPerfData(rf.resample_result, measures = list(fpr, tpr)))
+
+
+#### MAKING RESAMPLING INSTANCES EMPIRICALLY ####
+# on the one hand: blocking + stratification not possible
+# but also don't wanna bother around with manually tuning, fitting etc.
+# way out: use instances
+# simply write a function that tests if an instance is more or less stratified
+# if it is, keep it, otherwise try again
+
+# here's how it works in principle (blocking is considered but stratification we will have to do 
+# ourselves):
+(rin <- makeResampleInstance(rf.rdesc, rf.task))
+(rep_rin <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), rf.task))
+# we could pass this to resample()
+resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rin)
+
+rin$train.inds
+rin$test.inds
+arrange(my_data[rin$train.inds[[1]], ], drugname_typaslab)
+
+# OK so let's try to find good instances
+# consider stratification of all classes to accommodate multi-class model
+# for subgroups we probably have to change strategies? 
+# approach: we already have a repeated CV instance (rep_rin) but will not be properly stratified 
+# so what we will do is to keep trying until we find in total 10 good CV instances and then we 
+# simply replace the indices
+table(my_data$process_broad)
+table(my_data$process_broad) / length(my_data$process_broad)
+
+table(my_data$process_broad[rin$train.inds[[1]]])
+table(my_data$process_broad[rin$train.inds[[1]]]) / length(rin$train.inds[[1]])
+
+table(my_data$process_broad[rin$test.inds[[1]]])
+table(my_data$process_broad[rin$test.inds[[1]]]) / length(rin$test.inds[[1]])
+
+# actually, it's enough if only the training set is stratified - we just want to be balanced in 
+# learning; the test sets are anyway concatenated at the end
+# however, to be able to calculate all performance measures we require at least one 
+# sample from each class to be in each test fold
+
+(ref_fracs <- table(my_data$process_broad) / length(my_data$process_broad))
+
+cv_instances <- list()
+counter <- 0
+max_deviance <- 0.05
+
+while (length(cv_instances) < 10) {
+   rin <- makeResampleInstance(rf.rdesc, rf.task)
+   counter <- counter + 1 # to keep track of how often we had to try :)
+   for (split in c(1:8)) {
+      train_fracs <- table(my_data$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
+      # we don't want any "empty" classes in the test set:
+      if (length(table(my_data$process_broad[rin$test.inds[[split]]])) != length(moas)) {
+         break
+      }
+      # and relative fractions of classes shouldn't differ too much in the training set
+      if (any(abs(ref_fracs - train_fracs) > max_deviance)) {
+         break
+      }
+      # only happens upon success
+      if (split == 8) {
+         cat("Success at attempt ", counter, "! - ", date(), " (maximum deviance was ", round(max(abs(ref_fracs - train_fracs)), digits = 3), ")\n")
+         cv_instances <- c(cv_instances, list(rin))
+      }
+   }
+}
+
+#  I somehow can't believe it, let's resample with the list:
+# for (inst in cv_instances[8]) {
+#    r1 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = inst)
+# }
+
+# what happens actually with the original CV instance? 
+# interestingly, the repeat of the CV is not encoded
+r2 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rep_rin, 
+               models = TRUE)
+
+## COOL!!! ##
+# so now let's replace the slots in the repeated CV instance above
+my_backup <- list(rep_rin, cv_instances)
+
+rep_rin$train.inds <- flatten(map(cv_instances, "train.inds"))
+rep_rin$test.inds <- flatten(map(cv_instances, "test.inds"))
+
+r2_correct <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+                       resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+
+r2_correct$pred
+getRRPredictions(r2_correct)
+
+# this corresponds almost perfectly to the original curves that we got
+r2_correct_threshdata <- generateThreshVsPerfData(r2_correct, measures = list(fpr, tpr, ppv, tnr, mmce))
+plotROCCurves(r2_correct_threshdata)
+plotThreshVsPerf(r2_correct_threshdata) # very useful :)
+
+#####################################################
+#### RETRAINING AND PREDICTING LEFT OUT DRUGS :) ####
+#####################################################
+
+(retrained_rf <- train(learner = rf.learner, task = rf.task))
+getLearnerModel(retrained_rf)
+
+myhead(my_data_test)
+#(my_data_test_fortask <- my_data_test[, -c(1, 2)])
+# my_data_test_fortask$process_broad <- ifelse(my_data_test_fortask$process_broad == my_target, 
+#                                             my_target, 
+#                                             paste0("not_", my_target))
+
+pr <- predict(retrained_rf, newdata = my_data_test)
+```
+
+What about multi-class? Alternatively: train a fifth model for 'other'
+
+```{r}
+# my_data as it is after line 389
+length(unique(my_data$drugname_typaslab))
+unique(my_data$process_broad)
+(my_data_multiclass <- select(my_data, -one_of(c("conc", "drugname_typaslab")))) # keep drugname information? 
+
+(rf_multi.task <- makeClassifTask(data = my_data_multiclass, target = "process_broad"))
+(rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+                           par.vals = list(ntree = 1000, mtry = 150)))
+
+# most measures won't work anymore - multiclass problem! - take mmce
+resampled_multiclass <- resample(learner = rf_multi.learner, task = rf_multi.task, measures = mmce, 
+                                 resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+# so mmce is ~ 33%
+# with cell-wall model above it was ~ 7.5%
+# but not clear what kind of misclassification error we would get with our five models
+
+# so let's check, for each drug and dosage, the probabilities that it gets
+(resampled_multiclass_pred <- resampled_multiclass$pred$data)
+
+# merge with original information:
+resampled_multiclass_pred <- bind_cols(my_data[resampled_multiclass_pred$id, c(1, 2)], resampled_multiclass_pred)
+resampled_multiclass_pred <- arrange(resampled_multiclass_pred, drugname_typaslab, iter, conc)
+head(resampled_multiclass_pred)
+
+a22 <- filter(resampled_multiclass_pred, drugname_typaslab == "A22")
+(a22 <- gather(a22, prob.cell_wall:prob.protein_synthesis, key = "class", value = "probability"))
+a22$repetition <- cut(a22$iter, breaks = seq(from = 0.5, by = 8, length.out = 11), 
+                      labels = as.character(1:10))
+
+ggplot(a22[a22$repetition == "1", ], aes(x = class, y = probability, shape = factor(conc), colour = repetition)) + 
+#   geom_boxplot() + 
+   geom_point() + 
+   geom_line(aes(group = interaction(conc, repetition)))
+
+```
+
+
+
+## Which performance do we get with one multi-class RF model?
+
+First try and compare with same data set as above. 
+
+Then rerun with more drugs, including subgroups.
+
+```{r}
+
+```
+
+
+## RF with binary predictors
+
+Depending on above results. Might be more robust when extending to new data sets.
+
+```{r}
+
+```
+
+
+## Comparing this with a very naive model: KNN
+
+Has certain advantages: less black and white; assumption matches intuition that similar MoA = close 
+in chemical genomics space. Will fail however when other features are included. 
+
+```{r}
+
+```
+
+
+
+
 
 
 

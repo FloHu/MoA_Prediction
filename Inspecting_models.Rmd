@@ -944,6 +944,9 @@ p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, colors 
                         yaxis = list(title = 'tSNE2'),
                         zaxis = list(title = 'tSNE3')))
 p
+
+save(p, file = "tSNE.RData")
+
 # =====================================================
 
 #tsne_res = Rtsne(X = mat[, -1], dims = 2, pca = F)
