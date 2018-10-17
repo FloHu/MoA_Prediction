@@ -9,9 +9,9 @@
 <meta name="generator" content="pandoc" />
 
 
-<meta name="author" content="Florian Huber, Léonard Dubois" />
+<meta name="author" content="Florian Huber, Leonard Dubois" />
 
-<meta name="date" content="2018-04-03" />
+<meta name="date" content="2018-10-17" />
 
 <title>Predicting drug mode of action: loading data and preselecting features</title>
 
@@ -1348,6 +1348,9 @@ img {
 .tabbed-pane {
   padding-top: 12px;
 }
+.html-widget {
+  margin-bottom: 20px;
+}
 button.code-folding-btn:focus {
   outline: none;
 }
@@ -1471,40 +1474,25 @@ div.tocify {
 
 
 <h1 class="title toc-ignore">Predicting drug mode of action: loading data and preselecting features</h1>
-<h4 class="author"><em>Florian Huber, Léonard Dubois</em></h4>
-<h4 class="date"><em>2018-04-03</em></h4>
+<h4 class="author"><em>Florian Huber, Leonard Dubois</em></h4>
+<h4 class="date"><em>2018-10-17</em></h4>
 
 </div>
 
 
 <div id="setup-library-loading" class="section level1">
 <h1><span class="header-section-number">1</span> Setup, library loading</h1>
-<pre class="r"><code>knitr::opts_chunk$set(echo = T)
-knitr::opts_chunk$set(message = T)
-knitr::opts_chunk$set(warning = F)
-knitr::opts_chunk$set(error = T)
-knitr::opts_chunk$set(cache = T)
-Sys.setlocale(&quot;LC_ALL&quot;, &quot;en_IE.UTF-8&quot;)</code></pre>
-<pre><code>## [1] &quot;en_IE.UTF-8/en_IE.UTF-8/en_IE.UTF-8/C/en_IE.UTF-8/en_IE.UTF-8&quot;</code></pre>
-<pre class="r"><code>library(tidyverse)</code></pre>
-<pre><code>## ── Attaching packages ───────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse 1.2.1 ──</code></pre>
-<pre><code>## ✔ ggplot2 2.2.1     ✔ purrr   0.2.4
-## ✔ tibble  1.4.2     ✔ dplyr   0.7.4
-## ✔ tidyr   0.8.0     ✔ stringr 1.3.0
-## ✔ readr   1.1.1     ✔ forcats 0.3.0</code></pre>
-<pre><code>## ── Conflicts ──────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse_conflicts() ──
-## ✖ dplyr::filter() masks stats::filter()
-## ✖ dplyr::lag()    masks stats::lag()</code></pre>
-<pre class="r"><code>library(mlr)</code></pre>
-<pre><code>## Loading required package: ParamHelpers</code></pre>
-<pre><code>## Warning: replacing previous import 'BBmisc::isFALSE' by
-## 'backports::isFALSE' when loading 'mlr'</code></pre>
-<pre class="r"><code>walk(list.files(&quot;./R&quot;, pattern = &quot;*.R&quot;, full.names = T), source)</code></pre>
+<pre class="r"><code>rm(list = ls())
+# function to check if a package is installed, if so, load it, else install and then load it
+source(&quot;./R/ipak.R&quot;)
+# set chunk options and load libraries
+source(&quot;./setup.R&quot;)</code></pre>
 </div>
 <div id="loading-and-merging-data" class="section level1">
 <h1><span class="header-section-number">2</span> Loading and merging data</h1>
-<div id="read-in-tables-join-them" class="section level2">
-<h2><span class="header-section-number">2.1</span> Read in tables, join them</h2>
+<p>In all subsequent cases, the final goal is to have a matrix with the drugs in the rows and the features in the columns. We will refer to such a matrix as a <code>drug_feature_matrix</code>. In the next section we will generate different “versions” of this matrix, differing, for example, in the number of drugs or features selected or whether features were transformed in some way.</p>
+<div id="reading-in-and-joining-of-tables-common-preprocessing-operations" class="section level2">
+<h2><span class="header-section-number">2.1</span> Reading in and joining of tables, common preprocessing operations</h2>
 <pre class="r"><code>nichols_2011 &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/nichols_2011.csv&quot;, header = T, 
                            sep = &quot;;&quot;, stringsAsFactors = F)
 strains &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/strains.csv&quot;, header = T, 
@@ -1513,9 +1501,9 @@ strains_has_genes &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/s
                                 header = T, sep = &quot;;&quot;, stringsAsFactors = F)
 genes &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/genes.csv&quot;, header = T, sep = &quot;;&quot;, 
                     stringsAsFactors = F)
-# KNIME table
-drugs_full &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/drugs_full.csv&quot;, header = T, 
-                         sep = &quot;;&quot;, stringsAsFactors = F, dec = &quot;,&quot;)
+# generated in project dbsetup using KNIME
+drugs_full &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/drugs.csv&quot;, header = T, 
+                         sep = &quot;;&quot;, stringsAsFactors = F, dec = &quot;.&quot;)
 drugs_full$X &lt;- NULL
 mode_of_action &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/mode_of_action.csv&quot;, 
                              header = T, sep = &quot;;&quot;, stringsAsFactors = F)</code></pre>
@@ -1525,52 +1513,65 @@ mode_of_action &lt;- read.table(&quot;/Volumes/typas/Florian/dbsetup_tables/mode
    left_join(strains[, c(&quot;strain&quot;), drop = F]) %&gt;%
    left_join(strains_has_genes[, c(&quot;strain&quot;, &quot;ugi&quot;)]) %&gt;%
    left_join(genes[, c(&quot;ugi&quot;, &quot;gene_synonym&quot;)]) %&gt;%
-   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain)</code></pre>
+   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain) </code></pre>
 <pre><code>## Joining, by = &quot;strain&quot;
 ## Joining, by = &quot;strain&quot;</code></pre>
 <pre><code>## Joining, by = &quot;ugi&quot;</code></pre>
 <pre class="r"><code>the_matrix$significant &lt;- the_matrix$qvalue &lt;= 0.05</code></pre>
-<p>Join drug tables with mode of action information. We only keep drugs which target ‘cell_wall’, ‘dna’, ‘protein_synthesis’ and ‘membrane_stress’ because the other MoAs don’t have enough class members for predictions. Exclude the respective drugs from <code>the_matrix</code>.</p>
-<pre class="r"><code>moas_to_keep &lt;- c(&quot;cell_wall&quot;, &quot;dna&quot;, &quot;protein_synthesis&quot;, &quot;membrane_stress&quot;)
-
-drugs_full &lt;- left_join(drugs_full, mode_of_action[, c(&quot;moa_id&quot;, &quot;process_broad&quot;)]) %&gt;%
-   select(-moa_id) %&gt;% 
-   filter(process_broad %in% moas_to_keep)</code></pre>
+<p>Join drug tables with mode of action information.</p>
+<p>drug_moa table on Google docs has 89 drugs.</p>
+<p>Of those 89 drugs there are missing in <code>drugs_full</code>: epinephrine, norepinephrine, glufosfomycin, UV, bile.</p>
+<p>In <code>the_matrix</code> there are missing EGCG, epinephrine, norepinephrine.</p>
+<p>So by keeping only the drugs in the_matrix which are also in <code>drugs_full</code> we lose 6 drugs (EGCG, epinephrine, norepinoephrine, glufosfomycin, UV, bile) and are left with 83 drugs.</p>
+<pre class="r"><code>drugs_full &lt;- left_join(drugs_full, mode_of_action[, c(&quot;moa_id&quot;, &quot;process_broad&quot;)]) %&gt;%
+   select(-moa_id)</code></pre>
 <pre><code>## Joining, by = &quot;moa_id&quot;</code></pre>
-<pre class="r"><code>the_matrix &lt;- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)</code></pre>
-<p>For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of them: the one with most phenotypes over all conditions.</p>
+<pre class="r"><code>saveRDS(drugs_full, file = &quot;./data/programmatic_output/drugs_full.rds&quot;)
+
+# exclude drugs that are not drugs_full - as those don't have chemical features
+the_matrix &lt;- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)</code></pre>
+<p>We save this as <code>the_matrix_complete_nochanges</code>:</p>
+<pre class="r"><code>saveRDS(the_matrix, file = &quot;./data/programmatic_output/the_matrix_complete_nochanges.rds&quot;)</code></pre>
+<p>If a gene doesn’t interact with any drug, exclude it. This reduces the number of genes from 3921 to 1711.</p>
+<pre class="r"><code>the_matrix &lt;- the_matrix %&gt;%
+   group_by(gene_synonym) %&gt;% 
+   filter(any(significant)) %&gt;%
+   ungroup()</code></pre>
+<p>This leaves us with 1711 genes. Only a very small fraction of gene drug combinations are missing (less than 0.1%):</p>
+<pre class="r"><code>t &lt;- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
+sum(t == 0) / (nrow(t) * ncol(t))</code></pre>
+<pre><code>## [1] 0.0005140374</code></pre>
+<p>For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of them: always the one with most phenotypes over all conditions.</p>
+<p>We will save this as <code>the_matrix_complete_strainsgenesremoved.rds</code>. This is the the_matrix version with (almost) all drugs and after hypomorphic mutant selection and removing genes not interacting with anything. Still possible to characterise the data set completely, change NA imputation, dosage selection, drug selection procedure.</p>
 <pre class="r"><code>the_matrix &lt;- 
    group_by(the_matrix, gene_synonym) %&gt;%
    do(select_mutant(.))
 
-tmp &lt;- group_by(the_matrix, gene_synonym) %&gt;% 
-   mutate(n = length(unique(strain)))
-stopifnot(all(tmp$n == 1))</code></pre>
-<p>Select drug dosages: if one of the dosages is significant, keep that one, if none or all are, keep the highest dosage.</p>
-<pre class="r"><code>the_matrix &lt;- the_matrix %&gt;%
-   group_by(gene_synonym, drugname_typaslab) %&gt;%
-   do(select_dosage(.)) %&gt;%
-   ungroup()</code></pre>
-<p>If a gene doesn’t interact with any drug, exclude it.</p>
-<pre class="r"><code>the_matrix &lt;- the_matrix %&gt;%
-   group_by(gene_synonym) %&gt;% 
-   mutate(significant_any = any(significant)) %&gt;%
-   ungroup()
+# saveRDS(the_matrix, file = &quot;./data/the_matrix_after_select_mutant.rds&quot;)
+saveRDS(the_matrix, file = &quot;./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds&quot;)
 
-the_matrix &lt;- the_matrix[the_matrix$significant_any, ]</code></pre>
-<p>This leaves us with 1603 genes. Only a very small fraction of gene drug combinations are missing (less than 0.1%):</p>
-<pre class="r"><code>t &lt;- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
-stopifnot(all(t &lt; 2))
-sum(t == 0) / sum(t &lt; 2)</code></pre>
-<pre><code>## [1] 0.0005805088</code></pre>
-<p>Now we can start constructing the final matrix.</p>
-<pre class="r"><code>the_matrix &lt;- select(the_matrix, gene_synonym, drugname_typaslab, sscore)
-the_matrix &lt;- spread(the_matrix, key = gene_synonym, value = sscore)</code></pre>
+tmp &lt;- group_by(the_matrix, gene_synonym) %&gt;% 
+   mutate(n = length(unique(strain))) %&gt;%
+   ungroup() %&gt;%
+   select(n)
+stopifnot(all(tmp$n == 1))
+rm(tmp)</code></pre>
+<p>Restructure the matrix to put drugs into rows, genes into columns.</p>
+<pre class="r"><code># we need a matrix just indicating the significant s-scores for later on
+the_matrix_signifs &lt;- the_matrix
+
+the_matrix &lt;- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
+the_matrix &lt;- spread(the_matrix, key = gene_synonym, value = sscore)
+
+the_matrix_signifs &lt;- select(the_matrix_signifs, gene_synonym, drugname_typaslab, conc, significant)
+the_matrix_signifs &lt;- spread(the_matrix_signifs, key = gene_synonym, value = significant, fill = FALSE)</code></pre>
+<div id="imputing-na-values" class="section level3">
+<h3><span class="header-section-number">2.1.1</span> Imputing NA values</h3>
 <p>We replace all NA values with the median of all s-scores over all conditions for a particular mutant.</p>
 <pre class="r"><code># check if all drug names are defined 
 stopifnot(!any(is.na(the_matrix$drugname_typaslab)))
-sel &lt;- grep(colnames(the_matrix), pattern = &quot;drugname_typaslab&quot;)
 
+sel &lt;- grep(colnames(the_matrix), pattern = &quot;drugname_typaslab|conc&quot;)
 the_matrix[, -sel] &lt;- lapply(the_matrix[, -sel], function(x) {
    x[is.na(x)] &lt;- median(x, na.rm = T)
    return(x)
@@ -1579,30 +1580,383 @@ the_matrix[, -sel] &lt;- lapply(the_matrix[, -sel], function(x) {
 if (any(sapply(the_matrix, is.na))) {
    stop(&quot;Undefined values present in the_matrix.&quot;)
 }</code></pre>
-<p>Merge <code>the_matrix</code> with drug features. Make table <code>labels</code> containing the correct MoA classifications.</p>
-<pre class="r"><code>stopifnot(all(the_matrix$drugname_typaslab %in% drugs_full$drugname_typaslab))
+<p>We save again this version of the matrix:</p>
+<pre class="r"><code>saveRDS(the_matrix, file = &quot;./data/programmatic_output/the_matrix_complete_strainsgenesremoved_NAsimputed_wideformat.rds&quot;)</code></pre>
+</div>
+</div>
+</div>
+<div id="generating-different-versions-of-our-matrix" class="section level1">
+<h1><span class="header-section-number">3</span> Generating different ‘versions’ of our matrix</h1>
+<div id="drug-selection-and-drug-classification-procedures" class="section level2">
+<h2><span class="header-section-number">3.1</span> Drug selection and drug classification procedures</h2>
+<div id="dosage-selection" class="section level3">
+<h3><span class="header-section-number">3.1.1</span> Dosage selection</h3>
+<div id="approach-1-most_interactions" class="section level4">
+<h4><span class="header-section-number">3.1.1.1</span> Approach 1: “<code>most_interactions</code>”</h4>
+<p>Selects for each drug the one dosages with the highest number of significant interactions. If none or all are, keep the highest dosage.</p>
+<pre class="r"><code>selector &lt;- 
+   the_matrix_signifs %&gt;%
+   group_by(drugname_typaslab) %&gt;%
+   arrange(conc, .by_group = TRUE) %&gt;%
+   do(select_dosage_most_ias(.)) %&gt;%
+   ungroup() %&gt;%
+   pull(selector)
+
+# the warning messages come from the 8 drugs where there is just one dosage
+selector_2dosages &lt;- 
+   the_matrix_signifs %&gt;%
+   group_by(drugname_typaslab) %&gt;%
+   arrange(conc, .by_group = TRUE) %&gt;%
+   do(select_dosage_most_ias_2(.)) %&gt;%
+   ungroup() %&gt;%
+   pull(selector)
+
+the_matrix &lt;- the_matrix %&gt;%
+   group_by(drugname_typaslab) %&gt;%
+   arrange(conc, .by_group = TRUE) %&gt;%
+   ungroup()
+
+the_matrix_alldosgs_nochemfeats &lt;- the_matrix
+the_matrix_mostias_nochemfeats &lt;- the_matrix[selector, ]
+the_matrix_mostias_nochemfeats_2dosages &lt;- the_matrix[selector_2dosages, ]</code></pre>
+</div>
+</div>
+</div>
+<div id="collecting-data-in-a-data-frame-with-list-columns---matrix_container" class="section level2">
+<h2><span class="header-section-number">3.2</span> Collecting data in a data frame with list columns - matrix_container</h2>
+<pre class="r"><code>matrix_container &lt;- 
+   tibble(datasets_included = list(&quot;nichols_2011&quot;, &quot;nichols_2011&quot;), 
+          drug_dosages = c(&quot;all&quot;, &quot;most_interactions&quot;), 
+          feat_preselect = c(&quot;keepall&quot;, &quot;keepall&quot;), 
+          chemical_feats = c(FALSE, FALSE), 
+          drug_feature_matrices = list(the_matrix_alldosgs_nochemfeats, the_matrix_mostias_nochemfeats))</code></pre>
+</div>
+<div id="feature-selection-and-transformation-procedures" class="section level2">
+<h2><span class="header-section-number">3.3</span> Feature selection and transformation procedures</h2>
+<div id="selecting-features-with-the-highest-variance" class="section level3">
+<h3><span class="header-section-number">3.3.1</span> Selecting features with the highest variance</h3>
+<p>Sort features (i.e. mutants = genes here) by variance and select top x %.</p>
+<pre class="r"><code>variances_to_select &lt;- c(5, 10, 15, 20, 25, 30, 40, 50)
+
+# add some datasets to our matrix_container: for the table using all dosages, we want to select 
+# the genes which have the highest variance (top x%)
+targetrow &lt;- match(&quot;all&quot;, matrix_container$drug_dosages)
+for (v in variances_to_select) {
+   tmp_row &lt;- matrix_container[targetrow, ] # = row containing matrix with all drug dosages =&gt; let's do feature preselection
+   tmp_mat &lt;- tmp_row$drug_feature_matrices[[1]]
+   tmp_mat &lt;- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
+   tmp_row$drug_feature_matrices[[1]] &lt;- tmp_mat # replace the matrix
+   tmp_row$feat_preselect &lt;- paste0(&quot;top&quot;, v, &quot;pct&quot;) # update metadata
+   matrix_container &lt;- bind_rows(matrix_container, tmp_row) # and update our data container
+}
+
+# repeat the same thing with the table that doesn't have all dosages but only those dosages with 
+# most interactions in the chemical genomics data
+# I know, code repetition - shame! but I really want to be explicit here
+(targetrow &lt;- match(&quot;most_interactions&quot;, matrix_container$drug_dosages))</code></pre>
+<pre><code>## [1] 2</code></pre>
+<pre class="r"><code>for (v in variances_to_select) {
+   tmp_row &lt;- matrix_container[targetrow, ] # = row containing matrix with all drug dosages =&gt; let's do feature preselection
+   tmp_mat &lt;- tmp_row$drug_feature_matrices[[1]]
+   tmp_mat &lt;- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
+   tmp_row$drug_feature_matrices[[1]] &lt;- tmp_mat # replace the matrix
+   tmp_row$feat_preselect &lt;- paste0(&quot;top&quot;, v, &quot;pct&quot;) # update metadata
+   matrix_container &lt;- bind_rows(matrix_container, tmp_row) # and update our data container
+}</code></pre>
+</div>
+<div id="adding-chemical-features" class="section level3">
+<h3><span class="header-section-number">3.3.2</span> Adding chemical features</h3>
+<p>Don’t use all chemical features from KNIME. Make tables with and without chemical features</p>
+<pre class="r"><code># check if all drugs in all tables are in our 'drugs_full' table
+stopifnot(
+   all(
+      unique(flatten_chr(map(matrix_container$drug_feature_matrices, &quot;drugname_typaslab&quot;)))
+      %in%
+      drugs_full$drugname_typaslab
+   )
+)
 
 drugs_full_selected_features &lt;- drugs_full[, c(&quot;drugname_typaslab&quot;, &quot;SlogP&quot;, &quot;LabuteASA&quot;, &quot;TPSA&quot;, 
                                                &quot;ExactMW&quot;, &quot;NumLipinskiHBA&quot;, &quot;NumLipinskiHBD&quot;, 
-                                               &quot;NumRotatableBonds&quot;, &quot;NumAmideBonds&quot;, &quot;NumHeteroAtoms&quot;, 
-                                               &quot;NumHeavyAtoms&quot;, &quot;NumAtoms&quot;, &quot;NumStereocenters&quot;, 
-                                               &quot;NumUnspecifiedStereocenters&quot;, &quot;NumRings&quot;, 
-                                               &quot;NumAromaticRings&quot;, &quot;NumSaturatedRings&quot;, 
+                                               &quot;NumRotatableBonds&quot;, &quot;NumAmideBonds&quot;, 
+                                               &quot;NumRings&quot;, &quot;NumAromaticRings&quot;, &quot;NumSaturatedRings&quot;, 
                                                &quot;NumAliphaticRings&quot;, &quot;data_effective_rotor_count&quot;)]
 
-the_matrix &lt;- left_join(the_matrix, drugs_full_selected_features)</code></pre>
-<pre><code>## Joining, by = &quot;drugname_typaslab&quot;</code></pre>
-<pre class="r"><code>labels &lt;- drugs_full[, c(&quot;drugname_typaslab&quot;, &quot;process_broad&quot;)]</code></pre>
-<p>Done.</p>
-<pre class="r"><code>save(&quot;the_matrix&quot;, file = &quot;the_matrix.RData&quot;)</code></pre>
+# take whole matrix_container, add chemical features, update metadata and rbind to old container
+matrix_container &lt;- 
+   matrix_container %&gt;%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, drugs_full_selected_features), 
+          chemical_feats = TRUE, 
+          datasets_included = map(datasets_included, append, &quot;knime&quot;)) %&gt;%
+   bind_rows(matrix_container) %&gt;%
+   arrange(drug_dosages, feat_preselect, chemical_feats)</code></pre>
+<pre><code>## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;</code></pre>
 </div>
-<div id="do-further-feature-preselection-anova-sorting-by-variance" class="section level2">
-<h2><span class="header-section-number">2.2</span> Do further feature preselection (ANOVA, sorting by variance, …)</h2>
-<p>…</p>
+</div>
+<div id="adding-drug-classification-mode-of-action-information-generate-dfr-with-list-columns" class="section level2">
+<h2><span class="header-section-number">3.4</span> Adding drug classification = mode of action information, generate dfr with list columns</h2>
+<p>Remove drugs with label “unknown”, reducing the number of drugs from 83 to 78.</p>
+<pre class="r"><code>my_labels &lt;- drugs_full[, c(&quot;drugname_typaslab&quot;, &quot;process_broad&quot;)]
+my_labels_knowndrugs &lt;- my_labels[my_labels$process_broad != &quot;unknown&quot;, ]
+
+# remove unknown drugs, then add MoA information
+matrix_container &lt;- 
+   matrix_container %&gt;%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, semi_join, my_labels_knowndrugs)) %&gt;%
+   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, my_labels))</code></pre>
+<pre><code>## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;
+## Joining, by = &quot;drugname_typaslab&quot;</code></pre>
+<pre class="r"><code># arrange rows nicely
+matrix_container$drug_feature_matrices &lt;- 
+   map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())</code></pre>
+</div>
+<div id="adding-model-and-hyperparameter-specifications" class="section level2">
+<h2><span class="header-section-number">3.5</span> Adding model and hyperparameter specifications</h2>
+<p>For all of the above drug-feature matrices we want to run the following: - random forests with a number of trees and mtry values - boosted trees in 3 flavours: (i) ‘normal’ parameters changed, (ii) testing regularisation, (iii) trying out subsample parameters - lasso regression</p>
+<pre class="r"><code>matrix_container.bak &lt;- matrix_container
+matrix_container_tmp &lt;- matrix_container
+
+# stuff common to all: tuning measures, CV instances
+# normal instanced repeated stratified CV 
+load(&quot;./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData&quot;) 
+# as above but with dosages blocked together
+load(&quot;./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData&quot;) 
+
+matrix_container$tuning_measure &lt;- list(&quot;auc&quot; = list(auc, mmce, ppv))
+matrix_container$resamp_instance &lt;- 
+   ifelse(matrix_container$drug_dosages == &quot;all&quot;, 
+          list(Rep_Nest_CV_instance_allDosage), 
+          list(Rep_Nest_CV_instance_newDrugs))
+
+names(matrix_container$resamp_instance) &lt;- # as ifelse ignores names
+   ifelse(matrix_container$drug_dosages == &quot;all&quot;, 
+          &quot;Rep_Nest_CV_instance_allDosage&quot;, 
+          &quot;Rep_Nest_CV_instance_newDrugs&quot;)
+
+
+#####################################
+## SPECIFYING HYPERPARAMETER GRIDS ##
+#####################################
+# specify hyperparameter grids, put them into lists with the fitted model as the names of the 
+# elements
+# lists should have same lengths as matrix_container since the whole matrix_container should be 
+# processed once for each hyperparameter grid
+# then apply some map magic to collect everything into a big data frame
+
+#### step (1): specifying the hyperparameter grids
+
+# RANDOM FORESTS:
+rf_hyp_param &lt;- 
+   lapply(
+      map_dbl(matrix_container$drug_feature_matrices, ncol), 
+      function(x) {
+         x &lt;- x - 3 # to account for drugname, process_broad, conc
+         makeParamSet(
+            makeDiscreteParam(&quot;ntree&quot;, values = c(200, 500)), 
+            makeDiscreteParam(&quot;mtry&quot;, values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
+         )
+      }
+   )
+names(rf_hyp_param) &lt;- rep_len(&quot;rf_hyp_param&quot;, length(rf_hyp_param))
+
+# XGBOOST:
+# (a) 'standard' approach, tuning just most common parameters
+xgboost_hyp_param_std &lt;- 
+   makeParamSet(
+    makeDiscreteParam(&quot;nrounds&quot;, values = c(200,500)), # number of trees
+    makeDiscreteParam(&quot;max_depth&quot;, values = c(1,2,3, 6)), 
+    makeDiscreteParam(&quot;eta&quot;, values = c(0.01,0.1,0.3)) 
+    )
+xgboost_hyp_param_std &lt;- rep(list(&quot;xgboost_hyp_param_std&quot; = xgboost_hyp_param_std), nrow(matrix_container))
+
+# (b) play around with regularisations
+xgboost_hyp_param_reg &lt;- 
+   makeParamSet(
+    makeDiscreteParam(&quot;nrounds&quot;, values = c(200,500)), # number of trees
+    makeDiscreteParam(&quot;max_depth&quot;, values = c(1,2,3, 6)), 
+    makeDiscreteParam(&quot;eta&quot;, values = c(0.01,0.1,0.3)), 
+    makeDiscreteParam(&quot;lambda&quot;, values = c(1, 10, 100, 1000)), 
+    makeDiscreteParam(&quot;alpha&quot;, values = c(0, 0.5, 1))
+    )
+xgboost_hyp_param_reg &lt;- rep(list(&quot;xgboost_hyp_param_reg&quot; = xgboost_hyp_param_reg), nrow(matrix_container))
+
+# (c) play around with subsampling functions
+xgboost_hyp_param_subsmp &lt;- 
+   makeParamSet(
+    makeDiscreteParam(&quot;nrounds&quot;, values = c(200,500)), # number of trees
+    makeDiscreteParam(&quot;max_depth&quot;, values = c(1,2,3, 6)), 
+    makeDiscreteParam(&quot;eta&quot;, values = c(0.01,0.1,0.3)), 
+    makeDiscreteParam(&quot;subsample&quot;, values = c(0.5, 0.8, 1)), 
+    makeDiscreteParam(&quot;colsample_bytree&quot;, values = c(0.5, 0.8, 1))
+    )
+xgboost_hyp_param_subsmp &lt;- rep(list(&quot;xgboost_hyp_param_subsmp&quot; = xgboost_hyp_param_subsmp), nrow(matrix_container))
+
+# LASSO:
+lasso_hyp_param &lt;- 
+   makeParamSet(
+      makeDiscreteParam(&quot;alpha&quot;, 1), 
+      makeDiscreteParam(&quot;s&quot;, values = seq(from = 0.01, to = 10, length.out = 200))
+   )
+lasso_hyp_param &lt;- rep(list(&quot;lasso_hyp_param&quot; = lasso_hyp_param), nrow(matrix_container))
+
+
+#### step (2): merging hyperparameter grids + model information with matrix_container
+
+# add here the information about the model that is fitted
+hyperparam_container &lt;- 
+   list(&quot;classif.randomForest&quot; = rf_hyp_param, 
+        &quot;classif.xgboost&quot; = xgboost_hyp_param_std, 
+        &quot;classif.xgboost&quot; = xgboost_hyp_param_reg, 
+        &quot;classif.xgboost&quot; = xgboost_hyp_param_subsmp, 
+        &quot;classif.glmnet&quot; = lasso_hyp_param)
+
+# turn into list of data frames
+hyperparam_container &lt;- 
+   map2(hyperparam_container, 
+        names(hyperparam_container), 
+        ~data_frame('hyperparam_grid' = .x, 'fitted_model' = .y))
+
+# dplyr functions remove names of list columns with map_dfr - so go back to good old do.call + rbind
+matrix_container &lt;- do.call(rbind, map(hyperparam_container, ~bind_cols(matrix_container, .x)))
+
+saveRDS(matrix_container, file = &quot;./data/programmatic_output/matrix_container.rds&quot;)</code></pre>
+<p>For convenience, save one copy of the_matrix with all dosages and one with most interactions (and keeping all genes = ‘keepall’, and no chemical features).</p>
+<pre class="r"><code>tmp &lt;- matrix_container$drug_feature_matrices[[1]]
+saveRDS(object = tmp, file = &quot;./data/programmatic_output/the_matrix_matrixcontainer_alldosg.rds&quot;)
+
+tmp &lt;- matrix_container$drug_feature_matrices[[91]]
+saveRDS(object = tmp, file = &quot;./data/programmatic_output/the_matrix_matrixcontainer_mostinteractions.rds&quot;)</code></pre>
+<!--
+# New small matrix container - 10/07/2018
+
+Do the same with matrix with 2 dosages with most significant phenotypes. 
+And also get rid of the "other" MoA (different from cell_wall, dna, membrane_stress, 
+protein_synthesis), reducing the number of drugs from 78 to 67 (5x pmf, 5x oxidative_stress, 1x 
+protein_qc). 
+
+
+
+The saved matrix can be used (loaded) to run a resampling instance creation with the appropriate 
+notebook. Once generated, the resampling object need to be loaded.
+
+Edit the data matrices with the right filtering.
+
+First correlation based feature preselection.
+
+
+
+Then based on protein complexes from the EcoCyc database. The average signal for a complex is 
+computed and defined as a new feature.
+
+
+
+Extreme feature selection : First take the Protein complexes matrix, and apply the correlation based 
+selection with 0.6 or 0.7 cutoff. Then look at the variance across all drugs. 
+By boxploting these variances, one can extract the outlier individuals (based on some distribution 
+and IQR, outlier are individuals with values above (median + 1.5 * IQR)). It is similar in a way to 
+the top 10% or top 15% of individuals with the highest variance but it make more sense to define the 
+cutoff that way. It is in this case a kind of data-dependent cutoff.
+
+
+
+
+
+Building the new matrix container
+
+
+
+-->
 </div>
 </div>
 <div id="system-and-session-info" class="section level1">
-<h1><span class="header-section-number">3</span> System and session info</h1>
+<h1><span class="header-section-number">4</span> System and session info</h1>
 <pre class="r"><code>R.version</code></pre>
 <pre><code>##                _                           
 ## platform       x86_64-apple-darwin15.6.0   
@@ -1611,55 +1965,62 @@ the_matrix &lt;- left_join(the_matrix, drugs_full_selected_features)</code></pre
 ## system         x86_64, darwin15.6.0        
 ## status                                     
 ## major          3                           
-## minor          4.4                         
+## minor          5.0                         
 ## year           2018                        
-## month          03                          
-## day            15                          
-## svn rev        74408                       
+## month          04                          
+## day            23                          
+## svn rev        74626                       
 ## language       R                           
-## version.string R version 3.4.4 (2018-03-15)
-## nickname       Someone to Lean On</code></pre>
+## version.string R version 3.5.0 (2018-04-23)
+## nickname       Joy in Playing</code></pre>
 <pre class="r"><code>sessionInfo()</code></pre>
-<pre><code>## R version 3.4.4 (2018-03-15)
+<pre><code>## R version 3.5.0 (2018-04-23)
 ## Platform: x86_64-apple-darwin15.6.0 (64-bit)
-## Running under: macOS High Sierra 10.13.3
+## Running under: macOS High Sierra 10.13.6
 ## 
 ## Matrix products: default
-## BLAS: /Library/Frameworks/R.framework/Versions/3.4/Resources/lib/libRblas.0.dylib
-## LAPACK: /Library/Frameworks/R.framework/Versions/3.4/Resources/lib/libRlapack.dylib
+## BLAS: /Library/Frameworks/R.framework/Versions/3.5/Resources/lib/libRblas.0.dylib
+## LAPACK: /Library/Frameworks/R.framework/Versions/3.5/Resources/lib/libRlapack.dylib
 ## 
 ## locale:
 ## [1] en_IE.UTF-8/en_IE.UTF-8/en_IE.UTF-8/C/en_IE.UTF-8/en_IE.UTF-8
 ## 
 ## attached base packages:
-## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## [1] grid      parallel  stats     graphics  grDevices utils     datasets 
+## [8] methods   base     
 ## 
 ## other attached packages:
-##  [1] bindrcpp_0.2      mlr_2.11          ParamHelpers_1.10
-##  [4] forcats_0.3.0     stringr_1.3.0     dplyr_0.7.4      
-##  [7] purrr_0.2.4       readr_1.1.1       tidyr_0.8.0      
-## [10] tibble_1.4.2      ggplot2_2.2.1     tidyverse_1.2.1  
+##  [1] bindrcpp_0.2.2        circlize_0.4.4        ComplexHeatmap_1.18.1
+##  [4] plotly_4.8.0          gridExtra_2.3         gplots_3.0.1         
+##  [7] reshape2_1.4.3        plotmo_3.4.2          TeachingDemos_2.10   
+## [10] plotrix_3.7-2         parallelMap_1.3       mlr_2.12.1           
+## [13] ParamHelpers_1.11     forcats_0.3.0         stringr_1.3.1        
+## [16] dplyr_0.7.6           purrr_0.2.5           readr_1.1.1          
+## [19] tidyr_0.8.1           tibble_1.4.2          ggplot2_3.0.0        
+## [22] tidyverse_1.2.1      
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] tidyselect_0.2.4    reshape2_1.4.3      splines_3.4.4      
-##  [4] haven_1.1.1         lattice_0.20-35     colorspace_1.3-2   
-##  [7] htmltools_0.3.6     yaml_2.1.18         survival_2.41-3    
-## [10] rlang_0.2.0.9000    pillar_1.2.1        foreign_0.8-69     
-## [13] glue_1.2.0          modelr_0.1.1        readxl_1.0.0       
-## [16] bindr_0.1.1         plyr_1.8.4          munsell_0.4.3      
-## [19] gtable_0.2.0        cellranger_1.1.0    rvest_0.3.2        
-## [22] codetools_0.2-15    psych_1.7.8         evaluate_0.10.1    
-## [25] parallelMap_1.3     knitr_1.20          parallel_3.4.4     
-## [28] broom_0.4.3         Rcpp_0.12.16        scales_0.5.0       
-## [31] backports_1.1.2     checkmate_1.8.5     jsonlite_1.5       
-## [34] mnormt_1.5-5        hms_0.4.2           digest_0.6.15      
-## [37] stringi_1.1.7       BBmisc_1.11         grid_3.4.4         
-## [40] rprojroot_1.3-2     cli_1.0.0           tools_3.4.4        
-## [43] magrittr_1.5        lazyeval_0.2.1      crayon_1.3.4       
-## [46] pkgconfig_2.0.1     Matrix_1.2-12       data.table_1.10.4-3
-## [49] xml2_1.2.0          lubridate_1.7.3     assertthat_0.2.0   
-## [52] rmarkdown_1.9       httr_1.3.1          rstudioapi_0.7     
-## [55] R6_2.2.2            nlme_3.1-131.1      compiler_3.4.4</code></pre>
+##  [1] httr_1.3.1          jsonlite_1.5        viridisLite_0.3.0  
+##  [4] splines_3.5.0       modelr_0.1.2        gtools_3.8.1       
+##  [7] assertthat_0.2.0    cellranger_1.1.0    yaml_2.2.0         
+## [10] pillar_1.3.0        backports_1.1.2     lattice_0.20-35    
+## [13] glue_1.3.0          digest_0.6.15       RColorBrewer_1.1-2 
+## [16] checkmate_1.8.5     rvest_0.3.2         colorspace_1.3-2   
+## [19] htmltools_0.3.6     Matrix_1.2-14       plyr_1.8.4         
+## [22] pkgconfig_2.0.1     GetoptLong_0.1.7    broom_0.5.0        
+## [25] haven_1.1.2         scales_0.5.0        gdata_2.18.0       
+## [28] withr_2.1.2         lazyeval_0.2.1      cli_1.0.0          
+## [31] survival_2.42-6     magrittr_1.5        crayon_1.3.4       
+## [34] readxl_1.1.0        evaluate_0.11       nlme_3.1-137       
+## [37] xml2_1.2.0          tools_3.5.0         data.table_1.11.4  
+## [40] hms_0.4.2           GlobalOptions_0.1.0 BBmisc_1.11        
+## [43] munsell_0.5.0       compiler_3.5.0      caTools_1.17.1.1   
+## [46] rlang_0.2.1         rstudioapi_0.7      rjson_0.2.20       
+## [49] htmlwidgets_1.2     bitops_1.0-6        rmarkdown_1.10     
+## [52] gtable_0.2.0        R6_2.2.2            lubridate_1.7.4    
+## [55] knitr_1.20          bindr_0.1.1         fastmatch_1.1-0    
+## [58] rprojroot_1.3-2     shape_1.4.4         KernSmooth_2.23-15 
+## [61] stringi_1.2.4       Rcpp_0.12.18        tidyselect_0.2.4</code></pre>
 </div>
 
 

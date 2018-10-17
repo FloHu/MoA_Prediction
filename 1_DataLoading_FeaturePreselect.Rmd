@@ -443,6 +443,12 @@ saveRDS(object = tmp, file = "./data/programmatic_output/the_matrix_matrixcontai
 ```
 
 
+
+```{r echo = FALSE}
+knitr::opts_chunk$set(eval = FALSE, echo = FALSE)
+```
+
+<!--
 # New small matrix container - 10/07/2018
 
 Do the same with matrix with 2 dosages with most significant phenotypes. 
@@ -627,10 +633,11 @@ matrix_container_new[matrix_container_new$fitted_model == "classif.glmnet", ]$hy
 saveRDS(object = matrix_container_new, file = "data/programmatic_output/matrix_container_new.rds")
 ```
 
+-->
 
 # System and session info
 
-```{r}
+```{r echo = TRUE, eval = TRUE}
 R.version
 sessionInfo()
 ```

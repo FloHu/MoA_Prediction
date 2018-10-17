@@ -11,6 +11,8 @@ output:
     toc: yes
     toc_depth: 2
     toc_float: yes
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Setup
@@ -23,8 +25,12 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-load(file = "data/the_matrix_newDrugs.RData")
-load(file = "data/matrix_container.RData")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container.rds")
+
+# we have two types of data frames in terms of number of samples: one with all dosages, one with 
+# most interactions
+(the_matrix_all <- matrix_container$drug_feature_matrices[[3]][, 1:3])
+(the_matrix_mostias <- matrix_container$drug_feature_matrices[[180]][, 1:3])
 ```
 
 
@@ -39,7 +45,7 @@ one for each inner fold and one for the outer loop. In particular, instances of 
 be based on the training sets defined in the outer loop instances.
 
 Even if such a strategy can't be avoided in order to obtain an unbiased comparison of models, it 
-still presents some weaknesses : one can easily argue that the choosen instances are the ones giving 
+still presents some weaknesses : one can easily argue that the chosen instances are the ones giving 
 the best performances. To prevent such criticism, a repeated cross validation is possible, e.g. 
 10 times. 
 
@@ -53,24 +59,17 @@ Since we have a small data set, it is actually better to use more folds. Thus, t
 contain more individuals. The testing set results can be concatenated afterwards, with each individual 
 having been predicted by a model in which it was not trained. 
 
-A bunch of getters functions
-
 ```{r}
-
-get_outer_train_ids = function(NCV_sampling, rep_nb){
+# getter functions
+get_outer_train_ids <- function(NCV_sampling, rep_nb){
     NCV_sampling[[rep_nb]]$outer$train.inds
 }
 
-get_inner_train_ids = function(NCV_sampling, rep_nb, outer_nb){
+get_inner_train_ids <- function(NCV_sampling, rep_nb, outer_nb){
     NCV_sampling[[rep_nb]]$inner[[outer_nb]]$train.inds
 }
 
-```
-
-```{r function}
-
-#Makes more sense to put it here than in a seperate file
-instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8){
+instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8){
     dataset = select(dataset, -drugname_typaslab)
     sampling_method = makeResampleDesc(method = "CV", iters = nFoldsOuter, stratify = TRUE)
     
@@ -125,7 +124,6 @@ instance_creation = function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInne
 Creation of instances based on Nassos correction from 08/05/2018
 
 ```{r echo = F }
-
 # the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
 
 Rep_Nest_CV_instance_newDrugs = list()
@@ -147,7 +145,6 @@ One should also make the size fields in the lists match the length of vector of 
 ### Mapping function
 
 ```{r}
-
 # AIM : This function creates some extended version of a Resampling instance by mapping drugnames to a full dataset containing all the dosages
 # INPUT : A resampling instance with one dosage for each drugs 
 #       + A dataset with several dosages for the same drugs 
@@ -242,15 +239,17 @@ Rep_Nest_CV_instance_allDosage = RepNCV_instance_map_drugname(instance_oneDrug =
 ```
 
 *NOTA BENE*
-With this tricky resampling strategy, the same drugs are in the exact same sets in both cases (with or whithout all dosages)
-Only difference is that using all dosage, drugs are in a way present multiple times
+With this tricky resampling strategy, the same drugs are in the exact same sets in both cases (with 
+or whithout all dosages). The only difference is that using all dosage, drugs are in a way present 
+multiple times.
 
-
+<!--
 # Resampling instance - 2 mostIA dosages + main MoA
 
-Load the matrix, get rid of doubles, run once the instance creation and run again the chunk above to map dosages together.
+Load the matrix, get rid of doubles, run once the instance creation and run again the chunk above 
+to map dosages together.
 
-```{r}
+```{r echo = FALSE, eval = FALSE}
 
 matrix_2mostia_mainMoa = readRDS(file = "data/matrix_2mostia_mainMoA.rds")
 Rep_Nest_CV_instance = list()
@@ -268,11 +267,150 @@ Rep_Nest_CV_instance_allDosage = RepNCV_instance_map_drugname(instance_oneDrug =
 
 saveRDS(object = Rep_Nest_CV_instance_allDosage, file = "data/RNCV_instance_2mostia_mainMoa.rds")
 ```
+-->
+
+# Test functions
+
+For each repeat, need to make sure that:
+1. The number of indices corresponds to the number of observations.
+2. Each drug ends up in the test set of the outer loop exactly once.
+3. For each training test split of the outer loop only those drugs end up in the training set that 
+are not in the test set. 
+4. Observations that are just different dosages of the same drug should move together. 
+5. Stratification should be respected.
+
+```{r}
+oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData")
+cvinst_mostias <- get(oldname)
+rm(oldname)
+
+oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData")
+cvinst_alldosg <- get(oldname)
+rm(oldname)
 
 
-# Testing chunks - print class repartition inside Folds
+# testcvinst(cvinst, dataframe): to call different testing functions: 
 
-Just to be sure...The amount of each class in an inner set and the corresponding training set of the outer fold should be the same.
+run_cv_tests <- function(cvinst, data) {
+   ## TO DO: input tests
+   cvtest_check_n_obs()
+   cvtest_check_indices()
+   cvtest_inner_is_training()
+   cvtest_check_blocking()
+   cvtest_report_stratification()
+}
+
+cvtest_check_n_obs <- function(cvinst, data) {
+   # checks if all the outer cv instances have the same length as there are observations in the data 
+   required_length <- nrow(data)
+   return(all(required_length == map_chr(cvinst, c("outer", "size"))))
+}
+# cvtest_check_n_obs(cvinst_mostias, the_matrix_mostias)
+# cvtest_check_n_obs(cvinst_alldosg, the_matrix_all)
+
+cvtest_check_indices <- function(cvinst, data) {
+   ## TO DO: also do this test for all the inner instances (need to abstract the function)
+   required_length <- nrow(data)
+   # for each outer cv instance, make sure the no values occur twice
+   inds <- map(cvinst, function(x) {
+      map2(x[[c("outer", "train.inds")]], x[[c("outer", "test.inds")]], function(l, r) {sort(c(l, r))})
+   })
+   inds <- flatten(inds)
+   all(flatten_int(map(inds, function(x) rle(x)$lengths)) == 1) && 
+   all(flatten_int(map(inds, function(x) rle(x)$values)) <= required_length)
+}
+# cvtest_check_indices(cvinst_mostias, the_matrix_mostias)
+# cvtest_check_indices(cvinst_alldosg, the_matrix_all)
+
+cvtest_inner_is_training <- function(cvinst) {
+   # each inner resampling instance must have the same size as the size of the training set of the 
+   # corresponding outer resampling instance
+   outer_train_lengths <- map(cvinst, ~ lengths(.x[[c("outer", "train.inds")]]))
+   inner_lengths <- map(cvinst, function(x) {
+      map_dbl(x[["inner"]], "size")
+   })
+   all.equal(outer_train_lengths, inner_lengths)
+}
+# cvtest_inner_is_training(cvinst_mostias)
+# cvtest_inner_is_training(cvinst_alldosg)
+
+## criterion 4
+# only applies to data frame with blocking: some indices should not be torn apart
+cvtest_check_blocking <- function(cvinst, data) {
+   # some drugs were measured in different dosages, make sure they always "travel together" to the 
+   # training or test set
+   ## TO DO: also write this function for inner cv instances - perhaps make more abstract
+   ## TO DO: for this we need a function to "translate" indices from the inside to the outside
+   the_indivisible <- list()
+   for (drugname in unique(data$drugname_typaslab)) {
+      the_indivisible[[drugname]] <- which(drugname == data$drugname_typaslab)
+   }
+   
+   outer_instances <- map(cvinst, "outer")
+
+   check_exclusivity <- function(vec, train_test_pair) {
+      # takes a vector of numbers and a list of length two whose elements are also vectors of 
+      # numbers (idea: one = training indices, the other = test indices)
+      # if the elements of vec only occur in exclusively one of the elements of train_test_pair 
+      # return TRUE, else FALSE
+      stopifnot(length(train_test_pair) == 2 || is.list(train_test_pair) || all(sapply(train_test_pair, is.numeric)))
+      stopifnot(is.atomic(vec) || (!is.numeric(vec)))
+      return(xor(all(vec %in% train_test_pair[[1]]), all(vec %in% train_test_pair[[2]])))
+   }
+
+   check_blocking <- function(cvinst, indexlist) {
+      # function that "checks exclusivity" for a given CV instance
+      # takes a list of indices and checks that in cvinst they are either in the training or the 
+      # test set but not both
+      train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds))
+      for (i in indexlist) {
+         if (! all(map_lgl(train_test_pairs, check_exclusivity, vec = i))) {
+            stop("An element was found in both the training and the test set!\n")
+            invisible(FALSE)
+         }
+      }
+      invisible(TRUE)
+   }
+   
+   all(map_lgl(outer_instances, check_blocking, indexlist = the_indivisible))
+}
+# cvtest_check_blocking(cvinst_alldosg, the_matrix_all)
+
+cvtest_report_stratification <- function(cvinst, data) {
+   train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds), .names = letters[1:8])
+   train_test_pairs <- map(train_test_pairs, function(.x) {names(.x) <- c('train', 'test'); return(.x)})
+   train_test_pairs <- map(train_test_pairs, ~ unnest(enframe(.x)))
+   
+   train_test_pairs <- map2_dfr(train_test_pairs, names(train_test_pairs), function(.x, .y) {
+      .x$split <- .y
+      return(.x)
+   })
+   
+   train_test_pairs$value <- data$process_broad[train_test_pairs$value]
+   train_test_pairs <- select(train_test_pairs, value, name, split)
+   names(train_test_pairs) <- c("MoA", "test.or.train", "split")
+   print(ftable(train_test_pairs))
+}
+
+### CONTINUE HERE:
+# first of all, something's wrong, e.g. in the first split there is one observation for cell_wall 
+# in the most interactions thing and 7 observations in the all dosages thing
+# (perhaps easiest to recreate some instances)
+cvtest_report_stratification(cvinst_mostias$NCV_1$outer, the_matrix_mostias)
+cvtest_report_stratification(cvinst_alldosg$NCV_1$outer, the_matrix_all)
+
+# left to check:
+# some of the above things need to be checked for inner instances as well
+# could abstract out the routine that applies checks to all instances
+# need to check if 'all' is really just a 'blown up' version of most interactions
+
+# function to translate indices of inner fold to outer fold
+translate_inds <- function() {
+   # somehow translate inner indices given outer indices 
+   # (to be implemented depending on need)
+}
+```
+
 
 ```{r eval = F}
 #Test of outer folds, if they are all differents
@@ -309,81 +447,3 @@ R.Version
 sessionInfo()
 ```
 
-
-# Backup just in case 
-
-
-```{r eval = F , echo = F}
-
-# # For each repetition
-# for(i in 1:length(Rep_Nest_CV_instance_allDosage)){
-# 
-#     # OUTER FOLD RESAMPLING MAPPING
-#     # === Training sets ===
-#     # drugNameSet = name of individuals/drugs in the training set
-#     drugNameSet_outer_train = map(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i), function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-#     # then get all ids linked to these name in the "raw" dataset
-#     allDosage_indexes = map(drugNameSet_outer_train, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
-#     Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds = allDosage_indexes
-#     # === Testing sets ===
-#     allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, nrow(dataset_allDosage)), x ) } )
-#     Rep_Nest_CV_instance_allDosage[[i]]$outer$test.inds = allDosage_indexes_test
-#     #Size
-#     Rep_Nest_CV_instance_allDosage[[i]]$outer$size = nrow(dataset_allDosage)
-# 
-#     # write TRUE to check in details
-#     if(FALSE){
-#         print(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds)
-#         a = map(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds, function(x){ unique(dataset_allDosage[x , ]$drugname_typaslab) })
-#         b = map(Rep_Nest_CV_instance_newDrugs[[i]]$outer$train.inds, function(x){ dataset_newDrugs[x , ]$drugname_typaslab })
-#         print(map2(.x = a, .y = b, .f = function(x,y) {print(setdiff(y,x))}))
-#     }
-# 
-# 
-#     # NEVER MAP INNER IDS DIRECTLY TO THE DATASET, ALWAYS MAP THEM FIRST TO OUTER ID  !!!
-# 
-#     # INNER FOLDS RESAMPLING MAPPING
-#     for(outer in 1:length(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i))) {
-# 
-#         # === Training sets ===
-#         innerID = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i, outer_nb = outer)
-#         outerID = get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i)[[outer]]
-#         innerID_to_rawData = map(.x = innerID, .f = function(x){ outerID[x]})
-# 
-#         drugNameSet_inner_train = map(innerID_to_rawData, function(x){dataset_newDrugs[x, "drugname_typaslab"]})
-#         # Here we got names of the drugs that should be in the inner training sets
-# 
-# 
-#         # Extract a subset of raw dataset based on outer training id and select names of this subset
-#         dataset_outer_train = dataset_allDosage[get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]], ]$drugname_typaslab
-# 
-#         allDosage_indexes = map(drugNameSet_inner_train, function(x){
-#             which(dataset_outer_train %in% x$drugname_typaslab)
-#         } )
-# 
-#         Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$train.inds = allDosage_indexes
-# 
-# 
-#         if(FALSE){
-#             print(Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$train.inds)
-# 
-#             allDosageName_inner = map(.x = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i, outer_nb = outer),
-#                                       .f = function(x) {
-#                                           unique(dataset_allDosage[(get_outer_train_ids(Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
-#                                       })
-#             newDrugsName_inner = map(.x = get_inner_train_ids(NCV_sampling = Rep_Nest_CV_instance_newDrugs, rep_nb = i, outer_nb = outer),
-#                                       .f = function(x) {
-#                                           unique(dataset_newDrugs[(get_outer_train_ids(Rep_Nest_CV_instance_newDrugs, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
-#                                       })
-#             print(map2(.x = allDosageName_inner, .y = newDrugsName_inner, .f = function(x,y) {print(setdiff(y, x))}))
-#         }
-# 
-#         # === Testing sets ===
-#         allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, length(dataset_outer_train)), x ) } )
-#         Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$test.inds = allDosage_indexes_test
-#         Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$size = length(dataset_outer_train)
-# 
-#     }
-# }
-
-```
