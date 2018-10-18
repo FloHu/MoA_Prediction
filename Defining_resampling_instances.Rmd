@@ -276,7 +276,8 @@ For each repeat, need to make sure that:
 2. Each drug ends up in the test set of the outer loop exactly once.
 3. For each training test split of the outer loop only those drugs end up in the training set that 
 are not in the test set. 
-4. Observations that are just different dosages of the same drug should move together. 
+4. Observations that are just different dosages of the same drug should move together: both in 
+the outer and in all the inner CV instances.
 5. Stratification should be respected.
 
 ```{r}
@@ -288,128 +289,241 @@ oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData
 cvinst_alldosg <- get(oldname)
 rm(oldname)
 
+# these are indeed the cv instances used in matrix_container:
+all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "most_interactions"], 
+            ~identical(.x, cvinst_mostias)))
+all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "all"], 
+            ~identical(.x, cvinst_alldosg)))
 
-# testcvinst(cvinst, dataframe): to call different testing functions: 
 
-run_cv_tests <- function(cvinst, data) {
-   ## TO DO: input tests
-   cvtest_check_n_obs()
-   cvtest_check_indices()
-   cvtest_inner_is_training()
-   cvtest_check_blocking()
-   cvtest_report_stratification()
-}
+nest_cvinst <- cvinst_alldosg$NCV_1
+data <- the_matrix_all
 
-cvtest_check_n_obs <- function(cvinst, data) {
-   # checks if all the outer cv instances have the same length as there are observations in the data 
+cvtest_check_n_obs <- function(nest_cvinst, data) {
+   # checks if a cv instance has the same length as there are observations in the data
+   # after that it checks if inner resampling instance has the same size as the size of the 
+   # training set of the corresponding outer resampling instance
    required_length <- nrow(data)
-   return(all(required_length == map_chr(cvinst, c("outer", "size"))))
+   is_ok <- TRUE
+   if (nest_cvinst$outer$size != required_length) {
+      stop("Mismatch between cv instance size and number of data points")
+      is_ok <- FALSE
+   }
+   
+   if (!all(lengths(nest_cvinst$outer$train.inds)
+       ==
+       map_dbl(nest_cvinst$inner, "size"))) {
+      stop("Mismatch between inner cv size and size of outer training set")
+      is_ok <- FALSE
+   }
+   
+   return(is_ok)
+   # return(all(required_length == map_chr(cvinst, c("outer", "size"))))
 }
-# cvtest_check_n_obs(cvinst_mostias, the_matrix_mostias)
-# cvtest_check_n_obs(cvinst_alldosg, the_matrix_all)
+# cvtest_check_n_obs(cvinst_mostias$NCV_1, the_matrix_mostias)
+# cvtest_check_n_obs(cvinst_alldosg$NCV_1, the_matrix_all)
 
-cvtest_check_indices <- function(cvinst, data) {
-   ## TO DO: also do this test for all the inner instances (need to abstract the function)
+cvtest_check_indices <- function(nest_cvinst, data) {
+   ## make sure that no values occur twice in all the training/test splits
+   # for outer instance:
    required_length <- nrow(data)
-   # for each outer cv instance, make sure the no values occur twice
-   inds <- map(cvinst, function(x) {
-      map2(x[[c("outer", "train.inds")]], x[[c("outer", "test.inds")]], function(l, r) {sort(c(l, r))})
+   is_ok <- TRUE
+   
+   # for each outer cv instance, make sure that no values occur twice
+   inds <- map2(nest_cvinst$NCV_1$outer$train.inds, nest_cvinst$NCV_1$outer$test.inds, ~sort(c(.x, .y)))
+   all(map_lgl(inds, function(.x) {
+      if (!all(rle(.x)$lengths == 1) && all(rle(.x)$values) <= required_length) {
+         stop("Error in train/test set splits (outer CV)")
+         is_ok <- FALSE
+      }
+   }))
+   
+   # same for each inner cv instance
+   inds <- map(nest_cvinst$inner, function(.x) {
+      map2(.x[["train.inds"]], .x[["test.inds"]], ~sort(c(.x, .y)))
    })
    inds <- flatten(inds)
-   all(flatten_int(map(inds, function(x) rle(x)$lengths)) == 1) && 
-   all(flatten_int(map(inds, function(x) rle(x)$values)) <= required_length)
+   if (!all(flatten_int(map(inds, function(.x) rle(.x)$lengths == 1)))) {
+      stop("Error in train/test set splits of one of the inner CVs")
+      is_ok <- FALSE
+   }
+   return(is_ok)
 }
-# cvtest_check_indices(cvinst_mostias, the_matrix_mostias)
-# cvtest_check_indices(cvinst_alldosg, the_matrix_all)
+# cvtest_check_indices(cvinst_mostias$NCV_1, the_matrix_mostias)
+# cvtest_check_indices(cvinst_alldosg$NCV_1, the_matrix_all)
 
-cvtest_inner_is_training <- function(cvinst) {
-   # each inner resampling instance must have the same size as the size of the training set of the 
-   # corresponding outer resampling instance
-   outer_train_lengths <- map(cvinst, ~ lengths(.x[[c("outer", "train.inds")]]))
-   inner_lengths <- map(cvinst, function(x) {
-      map_dbl(x[["inner"]], "size")
-   })
-   all.equal(outer_train_lengths, inner_lengths)
-}
-# cvtest_inner_is_training(cvinst_mostias)
-# cvtest_inner_is_training(cvinst_alldosg)
-
-## criterion 4
-# only applies to data frame with blocking: some indices should not be torn apart
-cvtest_check_blocking <- function(cvinst, data) {
-   # some drugs were measured in different dosages, make sure they always "travel together" to the 
-   # training or test set
-   ## TO DO: also write this function for inner cv instances - perhaps make more abstract
-   ## TO DO: for this we need a function to "translate" indices from the inside to the outside
+cvtest_check_blocking <- function(nest_cvinst, data) {
+   # this function tests if blocking is respected
+   
+   # this is a list of indices that shouldn't be torn apart
    the_indivisible <- list()
    for (drugname in unique(data$drugname_typaslab)) {
       the_indivisible[[drugname]] <- which(drugname == data$drugname_typaslab)
    }
    
-   outer_instances <- map(cvinst, "outer")
-
    check_exclusivity <- function(vec, train_test_pair) {
-      # takes a vector of numbers and a list of length two whose elements are also vectors of 
-      # numbers (idea: one = training indices, the other = test indices)
-      # if the elements of vec only occur in exclusively one of the elements of train_test_pair 
-      # return TRUE, else FALSE
+      # returns TRUE only if the elements of vec are found in either the first or the second element 
+      # or in none of the elements of train_test pair, and FALSE if in both
       stopifnot(length(train_test_pair) == 2 || is.list(train_test_pair) || all(sapply(train_test_pair, is.numeric)))
       stopifnot(is.atomic(vec) || (!is.numeric(vec)))
-      return(xor(all(vec %in% train_test_pair[[1]]), all(vec %in% train_test_pair[[2]])))
+      # think De Morgan!
+      return(!all(vec %in% train_test_pair[[1]]) || !all(vec %in% train_test_pair[[2]]))
    }
-
+   
    check_blocking <- function(cvinst, indexlist) {
       # function that "checks exclusivity" for a given CV instance
       # takes a list of indices and checks that in cvinst they are either in the training or the 
       # test set but not both
+      is_ok <- TRUE
       train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds))
-      for (i in indexlist) {
-         if (! all(map_lgl(train_test_pairs, check_exclusivity, vec = i))) {
-            stop("An element was found in both the training and the test set!\n")
-            invisible(FALSE)
+      for (i in seq_along(indexlist)) {
+         if (! all(map_lgl(train_test_pairs, check_exclusivity, vec = indexlist[[i]]))) {
+            warning("An element was found in both the training and the test set (", names(indexlist)[i], ")!\n")
+            is_ok <- FALSE
+            break
          }
       }
-      invisible(TRUE)
+      invisible(is_ok)
    }
    
-   all(map_lgl(outer_instances, check_blocking, indexlist = the_indivisible))
-}
-# cvtest_check_blocking(cvinst_alldosg, the_matrix_all)
-
-cvtest_report_stratification <- function(cvinst, data) {
-   train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds), .names = letters[1:8])
-   train_test_pairs <- map(train_test_pairs, function(.x) {names(.x) <- c('train', 'test'); return(.x)})
-   train_test_pairs <- map(train_test_pairs, ~ unnest(enframe(.x)))
+   check_blocking(nest_cvinst$outer, indexlist = the_indivisible)
    
-   train_test_pairs <- map2_dfr(train_test_pairs, names(train_test_pairs), function(.x, .y) {
-      .x$split <- .y
-      return(.x)
-   })
+   # and now the same for the inner instances
+   # first we need to translate the inner indices to the correct outer indices 
+   # (inner indices correspond to indices of the vector "training.inds" of the corresponding outer 
+   # training set)
+   # within each inner instance: for each train/test pair needs to be matched up with the 
+   # right outer training set indices
    
-   train_test_pairs$value <- data$process_broad[train_test_pairs$value]
-   train_test_pairs <- select(train_test_pairs, value, name, split)
-   names(train_test_pairs) <- c("MoA", "test.or.train", "split")
-   print(ftable(train_test_pairs))
+   # ensure we have the same amount of inner cv instances as training sets in the outer instance
+   stopifnot(length(nest_cvinst$outer$train.inds) == length(nest_cvinst$inner))
+   matching_numbers <- seq_len(length(nest_cvinst$outer$train.inds))
+   
+   for (m in matching_numbers) {
+      outer_indices <- nest_cvinst$outer$train.inds[[m]]
+      inner_inst <- nest_cvinst$inner[[m]]
+      # map indices back
+      inner_inst$train.inds <- map(inner_inst$train.inds, ~outer_indices[.x])
+      inner_inst$test.inds <- map(inner_inst$test.inds, ~outer_indices[.x])
+      
+      # and now replace with 'correct' cv instance
+      nest_cvinst$inner[[m]] <- inner_inst
+   }
+   
+   # so now that the inner cv instances have been 'repaired' we can check_blocking() for each inner 
+   # instance
+
+   map_lgl(nest_cvinst$inner, check_blocking, indexlist = the_indivisible)
+}
+# cvtest_check_blocking(cvinst_alldosg$NCV_1, data = the_matrix_all)
+# map(cvinst_alldosg, cvtest_check_blocking, data = data)
+
+cvtest_report_stratification <- function(nest_cvinst, data, return_as_table = TRUE) {
+   # take a nested cv instance and corresponding data, then report how the different classes where 
+   # split into training and test set
+   # return_as_table: switch, if TRUE get back a table, otherwise the underlying data frame
+   report_tables <- list()
+   
+   data$process_broad <- ifelse(data$process_broad %in% c("cell_wall", "dna", "membrane_stress", 
+                                                          "protein_synthesis"), 
+                                data$process_broad, 
+                                "other")
+   
+   make_table <- function(cvinst, return_as_table) {
+      train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds), .names = letters[1:8])
+      train_test_pairs <- map(train_test_pairs, function(.x) {names(.x) <- c('train', 'test'); return(.x)})
+      train_test_pairs <- map(train_test_pairs, ~ unnest(enframe(.x)))
+      
+      train_test_pairs <- map2_dfr(train_test_pairs, names(train_test_pairs), function(.x, .y) {
+         .x$split <- .y
+         return(.x)
+      })
+      
+      train_test_pairs$drugname <- data$drugname_typaslab[train_test_pairs$value]
+      train_test_pairs$value <- data$process_broad[train_test_pairs$value]
+      train_test_pairs <- select(train_test_pairs, value, name, split, drugname)
+      names(train_test_pairs) <- c("MoA", "test.or.train", "split", "drugname")
+      if (return_as_table) {
+         train_test_pairs <- ftable(train_test_pairs[, c("MoA", "test.or.train", "split")])
+      }
+      return(train_test_pairs)
+   }
+   
+   # translate inner indices to outer ones (see also 'cvtest_check_blocking')
+   stopifnot(length(nest_cvinst$outer$train.inds) == length(nest_cvinst$inner))
+   matching_numbers <- seq_len(length(nest_cvinst$outer$train.inds))
+   
+   for (m in matching_numbers) {
+      outer_indices <- nest_cvinst$outer$train.inds[[m]]
+      inner_inst <- nest_cvinst$inner[[m]]
+      # map indices back
+      inner_inst$train.inds <- map(inner_inst$train.inds, ~outer_indices[.x])
+      inner_inst$test.inds <- map(inner_inst$test.inds, ~outer_indices[.x])
+      
+      # and now replace with 'correct' cv instance
+      nest_cvinst$inner[[m]] <- inner_inst
+   }
+   
+   report_tables[["outer"]] <- make_table(nest_cvinst$outer, return_as_table = return_as_table)
+   report_tables[["inner"]] <- map(nest_cvinst$inner, make_table, return_as_table = return_as_table)
+   return(report_tables)
 }
 
-### CONTINUE HERE:
-# first of all, something's wrong, e.g. in the first split there is one observation for cell_wall 
+# something's strange, e.g. in the first split there is one observation for cell_wall 
 # in the most interactions thing and 7 observations in the all dosages thing
-# (perhaps easiest to recreate some instances)
-cvtest_report_stratification(cvinst_mostias$NCV_1$outer, the_matrix_mostias)
-cvtest_report_stratification(cvinst_alldosg$NCV_1$outer, the_matrix_all)
+cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all)$outer
+cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias)$outer
 
-# left to check:
-# some of the above things need to be checked for inner instances as well
-# could abstract out the routine that applies checks to all instances
-# need to check if 'all' is really just a 'blown up' version of most interactions
+# to be more precise:
+tab <- cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias, FALSE)$outer
+filter(tab, test.or.train == "test", MoA == "cell_wall", split == "a")
 
-# function to translate indices of inner fold to outer fold
-translate_inds <- function() {
-   # somehow translate inner indices given outer indices 
-   # (to be implemented depending on need)
+# whereas
+tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all, FALSE)$outer
+filter(tab2, test.or.train == "test", MoA == "cell_wall", split == "a")
+
+# no idea why - since all the other tests are passed, however, I wouldn't change anything here now 
+# finally, check if always all drugs occur in the test set also in the inner instances
+
+cvtest_all_drugs_in_test <- function(nest_cvinst, data) {
+   le_report <- cvtest_report_stratification(nest_cvinst, data, FALSE)
+   
+   check_table <- function(table) {
+      all(unique(table$drugname) %in% table$drugname[table$test.or.train == "test"])
+   }
+   
+   checks <- logical(length = 9)
+   checks[1] <- check_table(le_report$outer)
+   checks[2:9] <- map_lgl(le_report$inner, check_table)
+   all(checks)
 }
+# cvtest_all_drugs_in_test(nest_cvinst = cvinst_alldosg$NCV_1, data = the_matrix_all)
+# cvtest_all_drugs_in_test(nest_cvinst = cvinst_mostias$NCV_1, data = the_matrix_mostias)
+
+
+run_cv_tests <- function(rep_nest_cvinst, data) {
+   cv_tests_report <- list()
+   
+   cv_tests_report$cvtest_check_n_obs <- 
+      map_lgl(rep_nest_cvinst, cvtest_check_n_obs, data = data)
+   
+   cv_tests_report$cvtest_check_indices <- 
+      map_lgl(rep_nest_cvinst, cvtest_check_indices, data = data)
+   
+   cv_tests_report$cvtest_check_blocking <- 
+      map(rep_nest_cvinst, cvtest_check_blocking, data = data)
+   
+   cv_tests_report$cvtest_all_drugs_in_test <- 
+      map_lgl(rep_nest_cvinst, cvtest_all_drugs_in_test, data = data)
+   
+   return(cv_tests_report)
+}
+
+# the big moment has come!
+all(unlist(run_cv_tests(cvinst_alldosg, the_matrix_all)))
+all(unlist(run_cv_tests(cvinst_mostias, the_matrix_mostias)))
 ```
+
 
 
 ```{r eval = F}
