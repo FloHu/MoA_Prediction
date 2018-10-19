@@ -1,5 +1,5 @@
 ---
-title: "Predicting drug mode of action: Defining sampling instances"
+title: "Predicting drug mode of action: Defining resampling instances"
 author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
@@ -26,40 +26,37 @@ source("./setup.R")
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 matrix_container <- readRDS("./data/programmatic_output/matrix_container.rds")
-
-# we have two types of data frames in terms of number of samples: one with all dosages, one with 
-# most interactions
-(the_matrix_all <- matrix_container$drug_feature_matrices[[3]][, 1:3])
-(the_matrix_mostias <- matrix_container$drug_feature_matrices[[180]][, 1:3])
 ```
 
 
 # Aim of notebook: defining sampling instances - motivation
 
-In order to compare performances of different models (e.g. Random Forest, Boosting trees...), one has 
-to use the *exact same samples in every fold* (inner and outer) of the nested cross-validation.
+In order to compare performances of different models (e.g. Random Forest, Boosting trees...), one 
+has to use the *exact same samples in every fold* (inner and outer) of the nested cross-validation.
 
 The function `makeResampleInstance()` could be used to keep in memory a object containing details 
-on the sampling. For a 5-fold by 5-fold nested cross-validation, 6 resampling instances are needed : 
-one for each inner fold and one for the outer loop. In particular, instances of the inner fold should 
-be based on the training sets defined in the outer loop instances.
+on the sampling. For a 5-fold by 5-fold nested cross-validation, 6 resampling instances are needed: 
+one for each inner fold and one for the outer loop. In particular, instances of the inner fold 
+should be based on the training sets defined in the outer loop instances.
 
 Even if such a strategy can't be avoided in order to obtain an unbiased comparison of models, it 
 still presents some weaknesses : one can easily argue that the chosen instances are the ones giving 
 the best performances. To prevent such criticism, a repeated cross validation is possible, e.g. 
 10 times. 
 
-Thus, the exact strategy for assessing models' performances and comparing them could be called : 
+Thus, the exact strategy for assessing models' performances and comparing them could be called: 
 **Repeated nested cross-validation with instanced stratified resampling**
 
 
 ## Generating instances
 
-Since we have a small data set, it is actually better to use more folds. Thus, the training set will 
-contain more individuals. The testing set results can be concatenated afterwards, with each individual 
-having been predicted by a model in which it was not trained. 
+Since we have a small data set, it is actually better to use more folds. Thus, the training set 
+will contain more individuals. The testing set results can be concatenated afterwards, with each 
+individual having been predicted by a model in which it was not trained. 
 
-```{r}
+Function for instance creation:
+
+```{r instance_creation_function}
 # getter functions
 get_outer_train_ids <- function(NCV_sampling, rep_nb){
     NCV_sampling[[rep_nb]]$outer$train.inds
@@ -93,14 +90,16 @@ instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInn
     sample_instance_inner = list()
     for(i in 1:nFoldsOuter){
         # New task using a subset of the whole dataset defined by outer training set ID
-        inner_task = makeClassifTask(data = dataset[ sample_instance_outer$train.inds[[i]] , ], target = "process_broad")
+        inner_task = makeClassifTask(data = dataset[sample_instance_outer$train.inds[[i]], ], 
+                                     target = "process_broad")
         sample_instance_inner[[i]] = makeResampleInstance(sampling_method, inner_task)
     }
     
     if(printTest){
-        # Testing stratification of inner instances
-        # BE CAREFUL !!!
-        # Indexes of individuals in the inner fold are the indexes of the vector of indexes of the corresponding outer fold 
+       # Testing stratification of inner instances
+       # BE CAREFUL !!!
+       # Indexes of individuals in the inner fold are the indexes of the vector of indexes of the 
+       # corresponding outer fold 
         for (j in 1:nFoldsOuter ){
             outer_ind = sample_instance_outer$train.inds[[j]]
             cat("Outer fold", j, "\n")
@@ -112,46 +111,54 @@ instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInn
             }
         }
     }
-    
+
     nested_CV_instance = list(outer = sample_instance_outer, inner = sample_instance_inner)
     return(nested_CV_instance)
 }
-
 ```
 
-## Creation of repeated CV instance - NEW LABELS
+Actually creating the instance: 'new' drugs = updated drug labels from 05/2018.
 
-Creation of instances based on Nassos correction from 08/05/2018
-
-```{r echo = F }
-# the_matrix_newDrugs = mutate(the_matrix_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
-
+```{r making_nested_cvinst_onedosg}
 Rep_Nest_CV_instance_newDrugs = list()
-dataset_newDrugs = filter(matrix_container, drug_dosages != "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
-dataset_newDrugs = mutate(dataset_newDrugs, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+
+dataset_newDrugs = 
+   filter(matrix_container, drug_dosages != "all") %>% 
+   select(drug_feature_matrices) %>% 
+   `[[`(1,1)
+
+dataset_newDrugs$process_broad <- 
+   ifelse(dataset_newDrugs$process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), 
+          "other", 
+          dataset_newDrugs$process_broad)
+
 for(i in 1:10){
     name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance_newDrugs[[name]] = instance_creation(dataset = dataset_newDrugs, printTest = F)
+    Rep_Nest_CV_instance_newDrugs[[name]] <- 
+       instance_creation(dataset = dataset_newDrugs, printTest = FALSE)
 }
-
 ```
 
-## Expanding resampling instance to all dosages
 
-The idea here is to copy the resampling object and map individuals IDs from the newDrug 
-dataset to the drugs names and then remap the names to the individuals IDs of the allDosage dataset
-One should also make the size fields in the lists match the length of vector of IDs
+### Expanding resampling instance to all dosages
 
-### Mapping function
+The idea here is to copy the resampling object and map individuals IDs from the newDrug dataset to 
+the drugs names and then remap the names to the individuals IDs of the allDosage dataset. One 
+should also make the size fields in the lists match the length of vector of IDs. 
 
-```{r}
-# AIM : This function creates some extended version of a Resampling instance by mapping drugnames to a full dataset containing all the dosages
+Mapping function:
+
+```{r mapping_function}
+# AIM : This function creates some extended version of a Resampling instance by mapping drugnames to 
+# a full dataset containing all the dosages
 # INPUT : A resampling instance with one dosage for each drugs 
 #       + A dataset with several dosages for the same drugs 
 # OUTPUT : A new resampling instance, blocked with drug based on the name
-RepNCV_instance_map_drugname = function(instance_oneDrug, dataset_oneDosage,  dataset_allDosage, DEBUG = FALSE){
 
-    # THe new resampling ojbject will be like the first one but extended   
+RepNCV_instance_map_drugname = function(instance_oneDrug, dataset_oneDosage, dataset_allDosage, 
+                                        DEBUG = FALSE){
+
+    # THe new resampling object will be like the first one but extended   
     Rep_Nest_CV_instance_allDosage = instance_oneDrug
     
     # For each repetition
@@ -160,21 +167,28 @@ RepNCV_instance_map_drugname = function(instance_oneDrug, dataset_oneDosage,  da
         # OUTER FOLD RESAMPLING MAPPING
         # ====== Training sets ======
         # drugNameSet = name of individuals/drugs in the training set based on the ID
-        drugNameSet_outer_train = map(get_outer_train_ids(instance_oneDrug, rep_nb = i), function(x){dataset_oneDosage[x, "drugname_typaslab"]})
+        drugNameSet_outer_train = map(get_outer_train_ids(instance_oneDrug, rep_nb = i), 
+                                      function(x) {dataset_oneDosage[x, "drugname_typaslab"]})
         # then get all IDs linked to these name in the full dataset
-        allDosage_indexes = map(drugNameSet_outer_train, function(x){ which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab) } )
+        allDosage_indexes = map(drugNameSet_outer_train, 
+                                function(x) {
+                                   which(dataset_allDosage$drugname_typaslab %in% x$drugname_typaslab)
+                                })
         Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds = allDosage_indexes 
         # ====== Testing sets ======
         # Just use setdiff, what's not in the training set is in the test set
-        allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, nrow(dataset_allDosage)), x ) } )
+        allDosage_indexes_test = map(allDosage_indexes, 
+                                     function(x) {setdiff(seq(1, nrow(dataset_allDosage)), x)})
         Rep_Nest_CV_instance_allDosage[[i]]$outer$test.inds = allDosage_indexes_test
         #Size mapping
         Rep_Nest_CV_instance_allDosage[[i]]$outer$size = nrow(dataset_allDosage)
         
         if(DEBUG){
             print(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds)
-            a = map(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds, function(x){ unique(dataset_allDosage[x , ]$drugname_typaslab) })
-            b = map(instance_oneDrug[[i]]$outer$train.inds, function(x){ dataset_oneDosage[x , ]$drugname_typaslab })
+            a = map(Rep_Nest_CV_instance_allDosage[[i]]$outer$train.inds, 
+                    function(x) {unique(dataset_allDosage[x , ]$drugname_typaslab)})
+            b = map(instance_oneDrug[[i]]$outer$train.inds, 
+                    function(x) {dataset_oneDosage[x , ]$drugname_typaslab})
             print(map2(.x = a, .y = b, .f = function(x,y) {print(setdiff(y,x))}))
         }
         
@@ -187,15 +201,17 @@ RepNCV_instance_map_drugname = function(instance_oneDrug, dataset_oneDosage,  da
             outerID = get_outer_train_ids(NCV_sampling = instance_oneDrug, rep_nb = i)[[outer]]
             innerID_to_rawData = map(.x = innerID, .f = function(x){ outerID[x]})
             
-            drugNameSet_inner_train = map(innerID_to_rawData, function(x){dataset_oneDosage[x, "drugname_typaslab"]})
+            drugNameSet_inner_train = map(innerID_to_rawData, 
+                                          function(x) {dataset_oneDosage[x, "drugname_typaslab"]})
             # Here we got names of the drugs that should be in the inner training sets
-        
+
             # Extract a subset of raw dataset based on outer training id and select names of this subset
-            dataset_outer_train = dataset_allDosage[get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]], ]$drugname_typaslab
+            dataset_outer_train = 
+               dataset_allDosage[get_outer_train_ids(NCV_sampling = Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]], ]$drugname_typaslab
             
-            allDosage_indexes = map(drugNameSet_inner_train, function(x){ 
-                which(dataset_outer_train %in% x$drugname_typaslab) 
-            } )
+            allDosage_indexes = map(drugNameSet_inner_train, function(x) {
+               which(dataset_outer_train %in% x$drugname_typaslab) 
+            })
             
             Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$train.inds = allDosage_indexes  
             
@@ -206,70 +222,50 @@ RepNCV_instance_map_drugname = function(instance_oneDrug, dataset_oneDosage,  da
                                           .f = function(x) {
                                               unique(dataset_allDosage[(get_outer_train_ids(Rep_Nest_CV_instance_allDosage, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
                                           })
+                
                 newDrugsName_inner = map(.x = get_inner_train_ids(NCV_sampling = instance_oneDrug, rep_nb = i, outer_nb = outer),
                                          .f = function(x) {
                                              unique(dataset_oneDosage[(get_outer_train_ids(instance_oneDrug, rep_nb = i)[[outer]])[x], ]$drugname_typaslab)
                                          })
+                
                 print(map2(.x = allDosageName_inner, .y = newDrugsName_inner, .f = function(x,y) {print(setdiff(y, x))}))
             }
             
             # ====== Testing sets ======
-            allDosage_indexes_test = map(allDosage_indexes, function(x){ setdiff(seq(1, length(dataset_outer_train)), x ) } )
+            allDosage_indexes_test = 
+               map(allDosage_indexes, function(x) {setdiff(seq(1, length(dataset_outer_train)), x)})
             Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$test.inds = allDosage_indexes_test
             Rep_Nest_CV_instance_allDosage[[i]]$inner[[outer]]$size = length(dataset_outer_train)
-            
         }
     }
     return(Rep_Nest_CV_instance_allDosage)
 }
-
 ```
 
 
-```{r}
-dataset_allDosage = filter(matrix_container, drug_dosages == "all") %>% select(drug_feature_matrices) %>% `[[`(1,1)
-dataset_allDosage = mutate(dataset_allDosage, process_broad = replace(process_broad, process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), "other"))
+Actual generation of nested cv instance for all dosages from the one with one dosage:
+
+```{r making_nested_cvinst_alldosg}
+dataset_allDosage = 
+   filter(matrix_container, drug_dosages == "all") %>% 
+   select(drug_feature_matrices) %>% 
+   `[[`(1,1)
+
+dataset_allDosage$process_broad <- 
+   ifelse(dataset_allDosage$process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), 
+          "other", 
+          dataset_allDosage$process_broad)
 
 Rep_Nest_CV_instance_allDosage = Rep_Nest_CV_instance_newDrugs
 
-Rep_Nest_CV_instance_allDosage = RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance_newDrugs,
-                                                              dataset_oneDosage = dataset_newDrugs, 
-                                                              dataset_allDosage = dataset_allDosage)
-
+Rep_Nest_CV_instance_allDosage = 
+   RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance_newDrugs, 
+                                dataset_oneDosage = dataset_newDrugs, 
+                                dataset_allDosage = dataset_allDosage)
 ```
 
-*NOTA BENE*
-With this tricky resampling strategy, the same drugs are in the exact same sets in both cases (with 
-or whithout all dosages). The only difference is that using all dosage, drugs are in a way present 
-multiple times.
 
-<!--
-# Resampling instance - 2 mostIA dosages + main MoA
-
-Load the matrix, get rid of doubles, run once the instance creation and run again the chunk above 
-to map dosages together.
-
-```{r echo = FALSE, eval = FALSE}
-
-matrix_2mostia_mainMoa = readRDS(file = "data/matrix_2mostia_mainMoA.rds")
-Rep_Nest_CV_instance = list()
-unique_pos = match(unique(matrix_2mostia_mainMoa$drugname_typaslab), matrix_2mostia_mainMoa$drugname_typaslab)
-dataset = matrix_2mostia_mainMoa[unique_pos, ] 
-
-# Create a simple resampling instance with one dosage (it can thus be stratified)
-for(i in 1:10){
-    name = paste("NCV_", as.character(i), sep="")
-    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = dataset, printTest = F)
-}
-
-# Extend the ressmapling instance to add oth drug dosages in the right sampling set : Thus it becomes also a blocked CV
-Rep_Nest_CV_instance_allDosage = RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance, dataset_oneDosage = dataset, dataset_allDosage = matrix_2mostia_mainMoa)
-
-saveRDS(object = Rep_Nest_CV_instance_allDosage, file = "data/RNCV_instance_2mostia_mainMoa.rds")
-```
--->
-
-# Test functions
+## Test functions
 
 For each repeat, need to make sure that:
 1. The number of indices corresponds to the number of observations.
@@ -280,24 +276,8 @@ are not in the test set.
 the outer and in all the inner CV instances.
 5. Stratification should be respected.
 
-```{r}
-oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData")
-cvinst_mostias <- get(oldname)
-rm(oldname)
-
-oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData")
-cvinst_alldosg <- get(oldname)
-rm(oldname)
-
-# these are indeed the cv instances used in matrix_container:
-all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "most_interactions"], 
-            ~identical(.x, cvinst_mostias)))
-all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "all"], 
-            ~identical(.x, cvinst_alldosg)))
-
-
-nest_cvinst <- cvinst_alldosg$NCV_1
-data <- the_matrix_all
+```{r cv_instance_testfunctions}
+# all these functions work similarly: pass a nested cv instance + the corresponding data set
 
 cvtest_check_n_obs <- function(nest_cvinst, data) {
    # checks if a cv instance has the same length as there are observations in the data
@@ -320,8 +300,6 @@ cvtest_check_n_obs <- function(nest_cvinst, data) {
    return(is_ok)
    # return(all(required_length == map_chr(cvinst, c("outer", "size"))))
 }
-# cvtest_check_n_obs(cvinst_mostias$NCV_1, the_matrix_mostias)
-# cvtest_check_n_obs(cvinst_alldosg$NCV_1, the_matrix_all)
 
 cvtest_check_indices <- function(nest_cvinst, data) {
    ## make sure that no values occur twice in all the training/test splits
@@ -349,8 +327,6 @@ cvtest_check_indices <- function(nest_cvinst, data) {
    }
    return(is_ok)
 }
-# cvtest_check_indices(cvinst_mostias$NCV_1, the_matrix_mostias)
-# cvtest_check_indices(cvinst_alldosg$NCV_1, the_matrix_all)
 
 cvtest_check_blocking <- function(nest_cvinst, data) {
    # this function tests if blocking is respected
@@ -415,9 +391,8 @@ cvtest_check_blocking <- function(nest_cvinst, data) {
 
    map_lgl(nest_cvinst$inner, check_blocking, indexlist = the_indivisible)
 }
-# cvtest_check_blocking(cvinst_alldosg$NCV_1, data = the_matrix_all)
-# map(cvinst_alldosg, cvtest_check_blocking, data = data)
 
+# this function is designed for visual inspection
 cvtest_report_stratification <- function(nest_cvinst, data, return_as_table = TRUE) {
    # take a nested cv instance and corresponding data, then report how the different classes where 
    # split into training and test set
@@ -469,22 +444,6 @@ cvtest_report_stratification <- function(nest_cvinst, data, return_as_table = TR
    return(report_tables)
 }
 
-# something's strange, e.g. in the first split there is one observation for cell_wall 
-# in the most interactions thing and 7 observations in the all dosages thing
-cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all)$outer
-cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias)$outer
-
-# to be more precise:
-tab <- cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias, FALSE)$outer
-filter(tab, test.or.train == "test", MoA == "cell_wall", split == "a")
-
-# whereas
-tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all, FALSE)$outer
-filter(tab2, test.or.train == "test", MoA == "cell_wall", split == "a")
-
-# no idea why - since all the other tests are passed, however, I wouldn't change anything here now 
-# finally, check if always all drugs occur in the test set also in the inner instances
-
 cvtest_all_drugs_in_test <- function(nest_cvinst, data) {
    le_report <- cvtest_report_stratification(nest_cvinst, data, FALSE)
    
@@ -497,10 +456,8 @@ cvtest_all_drugs_in_test <- function(nest_cvinst, data) {
    checks[2:9] <- map_lgl(le_report$inner, check_table)
    all(checks)
 }
-# cvtest_all_drugs_in_test(nest_cvinst = cvinst_alldosg$NCV_1, data = the_matrix_all)
-# cvtest_all_drugs_in_test(nest_cvinst = cvinst_mostias$NCV_1, data = the_matrix_mostias)
 
-
+# master function
 run_cv_tests <- function(rep_nest_cvinst, data) {
    cv_tests_report <- list()
    
@@ -516,45 +473,116 @@ run_cv_tests <- function(rep_nest_cvinst, data) {
    cv_tests_report$cvtest_all_drugs_in_test <- 
       map_lgl(rep_nest_cvinst, cvtest_all_drugs_in_test, data = data)
    
-   return(cv_tests_report)
+   if (!all(unlist(cv_tests_report))) {
+      cat("Potential problem with CV instance detected.")
+      return(cv_tests_report)
+   } else {
+      invisible(TRUE)
+   }
 }
+```
 
-# the big moment has come!
-all(unlist(run_cv_tests(cvinst_alldosg, the_matrix_all)))
-all(unlist(run_cv_tests(cvinst_mostias, the_matrix_mostias)))
+Running the actual tests:
+
+```{r testing_cvinsts_I}
+# we have two types of data frames in terms of number of samples: one with all dosages, one with 
+# most interactions
+# just keep the columns that we need
+(the_matrix_all <- matrix_container$drug_feature_matrices[[3]][, 1:3])
+(the_matrix_mostias <- matrix_container$drug_feature_matrices[[180]][, 1:3])
+
+run_cv_tests(Rep_Nest_CV_instance_newDrugs, the_matrix_mostias)
+run_cv_tests(Rep_Nest_CV_instance_allDosage, the_matrix_all)
 ```
 
 
+We already have some nested cv instances - those that were used in the matrix_container:
 
-```{r eval = F}
-#Test of outer folds, if they are all differents
-a = list()
-for (i in 1:10){
-    a[[i]] = Rep_Nest_CV_instance[[i]]$outer$train.inds
-}
+```{r testing_cvinsts_II}
+stopifnot(file.exists("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData") && 
+             file.exists("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData"))
 
-a = unlist(a, recursive = F)
+oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData")
+cvinst_mostias <- get(oldname)
+rm(oldname)
 
-res = c()
-for (i in 1:30){
-    for(j in 1:30){
-        if(i != j){
-            res = c(res, length(unlist(setdiff(a[i], a[j]))) )
-        }
-    }
-}
+oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData")
+cvinst_alldosg <- get(oldname)
+rm(oldname)
 
+run_cv_tests(cvinst_mostias, the_matrix_mostias)
+run_cv_tests(cvinst_alldosg, the_matrix_all)
+
+# these are indeed the cv instances used in matrix_container:
+all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "most_interactions"], 
+            ~identical(.x, cvinst_mostias)))
+all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "all"], 
+            ~identical(.x, cvinst_alldosg)))
+
+
+# an example instance + data set
+nest_cvinst <- cvinst_alldosg$NCV_1
+data <- the_matrix_all
+
+# something's strange, e.g. in the first split there is one observation for cell_wall 
+# in the most interactions thing and 7 observations in the all dosages thing
+# (even though the all dosage instance generation works by mapping ...)
+cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all)$outer
+cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias)$outer
+
+# to be more precise:
+tab <- cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias, FALSE)$outer
+filter(tab, test.or.train == "test", MoA == "cell_wall", split == "a")
+
+# whereas
+tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all, FALSE)$outer
+filter(tab2, test.or.train == "test", MoA == "cell_wall", split == "a")
+
+# no idea why - since all the other tests are passed, however, I wouldn't change anything here now 
 ```
 
 
+<!--
+# Resampling instance - 2 mostIA dosages + main MoA
 
-```{r export data}
-save(Rep_Nest_CV_instance_newDrugs, file = "data/Rep_Nest_CV_instance_newDrugs.RData")
-save(Rep_Nest_CV_instance_allDosage, file = "data/Rep_Nest_CV_instance_allDosage.RData")
+Load the matrix, get rid of doubles, run once the instance creation and run again the chunk above 
+to map dosages together.
+
+```{r echo = FALSE, eval = FALSE}
+
+matrix_2mostia_mainMoa = readRDS(file = "data/matrix_2mostia_mainMoA.rds")
+Rep_Nest_CV_instance = list()
+unique_pos = match(unique(matrix_2mostia_mainMoa$drugname_typaslab), matrix_2mostia_mainMoa$drugname_typaslab)
+dataset = matrix_2mostia_mainMoa[unique_pos, ] 
+
+# Create a simple resampling instance with one dosage (it can thus be stratified)
+for(i in 1:10){
+    name = paste("NCV_", as.character(i), sep="")
+    Rep_Nest_CV_instance[[name]] = instance_creation(dataset = dataset, printTest = F)
+}
+
+# Extend the ressmapling instance to add oth drug dosages in the right sampling set : Thus it becomes also a blocked CV
+Rep_Nest_CV_instance_allDosage = RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance, dataset_oneDosage = dataset, dataset_allDosage = matrix_2mostia_mainMoa)
+
+saveRDS(object = Rep_Nest_CV_instance_allDosage, file = "data/RNCV_instance_2mostia_mainMoa.rds")
+```
+-->
+
+
+## Saving data
+
+```{r saving_data}
+if (! file.exists("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData")) {
+   save(Rep_Nest_CV_instance_newDrugs, file = "./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData")
+}
+
+if (! file.exists("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData")) {
+   save(Rep_Nest_CV_instance_newDrugs, file = "./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData")
+}
 ```
 
 
-# System and session info
+## System and session info
 
 ```{r}
 R.Version
