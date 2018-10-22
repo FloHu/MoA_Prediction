@@ -31,7 +31,7 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 Modify some options for knitr. 
 
 ```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = FALSE)
+knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = TRUE)
 theme_set(theme_bw())
 theme_update(text = element_text(size = 16))
 ```
@@ -113,23 +113,24 @@ for (rownum in seq_len(nrow(matrix_container))) {
    matrix_container$PredData[[rownum]] <- pred_data
 }
 
-#  update
-#saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
+# update
+saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
 
-# to get an example of a results object
-my_row <- matrix_container[1, ]
-(my_filename <- paste(unlist(my_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_"))
-my_filename <- paste0("./run_results_from_server/matrix_container_result/", my_filename, ".rds")
-stopifnot(file.exists(my_filename))
-# example_res <- readRDS(my_filename)
-rm(my_row, my_filename)
+# # to get an example of a results object
+# my_row <- matrix_container[1, ]
+# (my_filename <- paste(unlist(my_row[, c("hyperparam_grid_name", "drug_dosages", "feat_preselect", "chemical_feats")]), collapse = "_"))
+# my_filename <- paste0("./run_results_from_server/matrix_container_result/", my_filename, ".rds")
+# stopifnot(file.exists(my_filename))
+# # example_res <- readRDS(my_filename)
+# rm(my_row, my_filename)
 ```
 
 
 
 ## Extracting results of the new matrix container
 
-Similar to the one above but for the anlysis based on the matrix using 2 dosages by drug (most interactions)
+Similar to the one above but for the analysis based on the matrix using 2 dosages by drug (most 
+interactions).
 
 ```{r reading_in_new, message = FALSE}
 matrix_container_new = readRDS(file = "data/matrix_container_new.rds")
@@ -185,8 +186,8 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
    gc()
 }
 
-#  update
-#saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
+# update
+saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
 ```
 
 
@@ -256,11 +257,11 @@ stopifnot(length(unique(matrix_container_ext$PredData[[1]]$drugname_typaslab)) =
 
 For each model, each drug is predicted to have a certain probability to belong to each MoA. Since 
 we did repeated nested CV, we can ask how stable these probabilities are. The same we can ask for 
-auc measurements. To ask these questions, we make a table `stability_assessment`. We need a separate 
-table to combine information for each repeat of the nested CV with unnesting to easily plot grouping 
-variables. This table will also indicate whether `moa_modelled == moa_truth` or not as we want to 
-compare stabilities of parameters depending on whether the drug actually belongs to the MoA we are 
-trying to predict. We exclude all drugs with "other". 
+auc measurements. To ask these questions, we make a table `stability_assessment`. We need a 
+separate table to combine information for each repeat of the nested CV with unnesting to easily 
+plot grouping variables. This table will also indicate whether `moa_modelled == moa_truth` or not 
+as we want to compare stabilities of parameters depending on whether the drug actually belongs to 
+the MoA we are trying to predict. We exclude all drugs with "other". 
 
 ```{r stability_assessment_table_I}
 # write into a new table stability_assessment 
@@ -360,7 +361,7 @@ for (rownum in seq_len(nrow(stability_assessment))) {
    rm(resultsobj)
 }
 
-#  update
+# update
 saveRDS(stability_assessment, file = "./data/stability_assessment.rds")
 
 # for ordering in plots further downstream
@@ -447,9 +448,8 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "drug_dosa
 # width = 16, height = 10)
 ```
 
-For the poster:
 
-```{r}
+```{r, for_poster, echo = FALSE}
 # this is just for the poster
 foo <- 
    filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
@@ -646,9 +646,8 @@ plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd", colourvar =
 #ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
 ```
 
-Again, for the poster :)
 
-```{r}
+```{r, for_poster_again, echo = FALSE}
 # just for the poster
 foo <- 
    stability_assessment %>%
@@ -906,12 +905,16 @@ the_matrix <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgen
 # add a new list column to matrix_container_ext: similar to PredData but with median of prob.moa 
 # and indicating how many significant interactions there are per drug and concentration using the 
 # drug_feature_matrix that was used for that particular model 
-matrix_container_ext$PredDataWithNSignif <- 
-   map2(matrix_container_ext$drug_feature_matrices, matrix_container_ext$PredData, 
-        get_nsignif, 
-        the_matrix = the_matrix)
 
-saveRDS(matrix_container_ext, "./data/programmatic_output/matrix_container_ext.rds")
+if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
+   matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+} else {
+   matrix_container_ext$PredDataWithNSignif <- 
+      map2(matrix_container_ext$drug_feature_matrices, matrix_container_ext$PredData, 
+           get_nsignif, 
+           the_matrix = the_matrix)
+   saveRDS(matrix_container_ext, "./data/programmatic_output/matrix_container_ext.rds")
+}
 ```
 
 #### Investigating number of interactions and class probabilities
@@ -948,7 +951,8 @@ ggplot(tmp, aes(x = n_signif, y = median_prob.moa)) +
    theme_bw() + 
    theme(text = element_text(size = 18)) + 
    labs(x = "Number of significant interactions", y = "Median probability for MoA for each drug", 
-        title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n(Lasso, all dosages, no chem feats, keepall)")
+        title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n
+        (Lasso, all dosages, no chem feats, keepall)")
 
 ```
 
@@ -1006,7 +1010,8 @@ highest concentrations vs. the other dosages/concentrations?
 tmp3 <- 
    tmp2 %>%
    group_by(moa_modelled, drugname_typaslab) %>%
-   mutate(most2interactions = n_signif_rank %in% sort(n_signif_rank, decreasing = TRUE)[1:2]) %>% # split into 2 groups: two highest interactions and all lower dosages
+   mutate(most2interactions = n_signif_rank %in% sort(n_signif_rank, decreasing = TRUE)[1:2]) %>% 
+   # split into 2 groups: two highest interactions and all lower dosages
    filter(n() > 2) %>% # keep only drugs where we can actually compare the effects
    group_by(drugname_typaslab, moa_modelled, most2interactions) %>% # summarise within those groups
    summarise(mean.median_prob.moa = mean(median_prob.moa)) %>%
@@ -1017,13 +1022,15 @@ ggplot(tmp3, aes(x = most2interactions, y = mean.median_prob.moa, colour = most2
    geom_point() +
    geom_line(aes(group = drugname_typaslab), colour = "black") + 
    facet_wrap( ~ moa_modelled) + 
-   labs(title = "Effect of using 2 dosages with most interactions (= label 'TRUE')\nvs. other dosages (= label 'FALSE')")
+   labs(title = "Effect of using 2 dosages with most interactions (= label 'TRUE')\nvs. other 
+        dosages (= label 'FALSE')")
 
 
 tmp3 <- 
    tmp2 %>%
    group_by(moa_modelled, drugname_typaslab) %>%
-   mutate(two_highest_dosgs = conc_rank %in% sort(conc_rank, decreasing = TRUE)[1:2]) %>% # split into 2 groups: two highest concentrations and all lower dosages
+   mutate(two_highest_dosgs = conc_rank %in% sort(conc_rank, decreasing = TRUE)[1:2]) %>% 
+   # split into 2 groups: two highest concentrations and all lower dosages
    filter(n() > 2) %>% # keep only drugs where we can actually compare the effects
    group_by(drugname_typaslab, moa_modelled, two_highest_dosgs) %>% # summarise within those groups
    summarise(mean.median_prob.moa = mean(median_prob.moa)) %>%
@@ -1043,8 +1050,11 @@ between dosage correlation (see notebook "Misc.Rmd") so our degree of dependency
 observations is likely to drop. 
 <!--
 Open points: 
-- Correlation of median_prob.moa and ranks should perhaps be done for individual drugs and across all models. 
-- The concentration with "highest number of interactions" is based on "keepall". How often is it different from the actual concentration with highest number of interactions using a specific feature selection?
+- Correlation of median_prob.moa and ranks should perhaps be done for individual drugs and across
+  all models. 
+- The concentration with "highest number of interactions" is based on "keepall". How often is it 
+  different from the actual concentration with highest number of interactions using a specific 
+  feature selection?
 -->
 
 ## Further investigations on chemical features
@@ -1086,38 +1096,6 @@ select(tmp, drugname_typaslab, process_broad, (ncol(tmp)-12):ncol(tmp)) %>%
 ```
 
 
-## Exploring matrix container - ROC curves 
-
-```{r, eval = FALSE, echo = FALSE}
-resMatrix = readRDS("./data/matrix_container_withextractions.rds")
-
-plot_ROC_from_container(containerObj = resMatrix[1:18, ], moa = "all", 
-                        by = c("feat_preselect", "chemical_feats"))
-plot_ROC_from_container(containerObj = resMatrix[19:36, ], moa = "all", 
-                        by = c("feat_preselect", "chemical_feats"))
-plot_ROC_from_container(containerObj = resMatrix[37:54, ], moa = "all",
-                        by = c("feat_preselect", "chemical_feats"))
-plot_ROC_from_container(containerObj = resMatrix[55:72, ], moa = "all", 
-                        by = c("feat_preselect", "chemical_feats"))
-
-plot_ROC_from_container(containerObj = 
-                           resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "lasso_hyp_param"), 
-                        moa = "all", 
-                        by = c("feat_preselect", "drug_dosages"))
-plot_ROC_from_container(containerObj = 
-                           resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "lasso_hyp_param"), 
-                        moa = "all", 
-                        by = c("feat_preselect", "drug_dosages"))
-plot_ROC_from_container(containerObj = 
-                           resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "rf_hyp_param"), 
-                        moa = "all", 
-                        by = c("feat_preselect", "drug_dosages"))
-plot_ROC_from_container(containerObj = 
-                           resMatrix %>% filter(chemical_feats ==  TRUE, hyperparam_grid_name == "xgboost_hyp_param_std"), 
-                        moa = "all", 
-                        by = c("feat_preselect", "drug_dosages"))
-```
-
 
 ## Exploring matrix_container_new
 
@@ -1146,5 +1124,14 @@ tmp <-
 plot_auc_vs_moa(tmp, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar = "fitted_model", 
                 facet_expr = quote(facet_wrap( ~ feat_preselect, ncol = 3)), additional_info = "")
 ```
+
+
+# System and session info
+
+```{r, session_info}
+R.version
+sessionInfo()
+```
+
 
 

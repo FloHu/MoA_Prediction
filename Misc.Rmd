@@ -37,9 +37,12 @@ ipak("plotly")
 library(ComplexHeatmap)
 library(viridis)
 library(circlize)
+library(gplots)
+library(RColorBrewer)
+library(forcats)
 ```
 
-# Hierarchical clusterings of drugs
+# Miscellaneous analyses
 
 ## Chemical similarities
 
@@ -78,9 +81,6 @@ colnames(drugs_RDkit_fingerprint) = c("data_stdinchi", "drugnames_typaslab", "RD
 Plot dendrogram of similarities. 
 
 ```{r}
-library(gplots)
-library(RColorBrewer)
-
 cluster_matrix <- as.tibble(select(drugs_RDkit_fingerprint, -data_stdinchi))
 row.names(cluster_matrix) <- cluster_matrix$drugnames_typaslab
 cluster_matrix$drugnames_typaslab <- NULL
@@ -104,7 +104,7 @@ rowcols <- moa_to_colour[process_lut[rownames(cluster_matrix)]]
 pdf("./plots/drug_drug_similarities_RDKit.pdf", width = 14, height = 14)
 heatmap.2(cluster_matrix_splitbits, 
           trace = "none", 
-          Rowv = as.dendrogram(hclust(cluster_matrix_dist)), 
+          Rowv = as.dendrogram(hclust(cluster_matrix_splitbits_dist)), 
           RowSideColors = rowcols, 
           margins = c(12, 9), 
           dendrogram = "row", 
@@ -122,7 +122,7 @@ dev.off()
 ```
 
 
-PCA plot: most interactions, top 10% variance, no chemical features.
+## PCA: first 4 PCs of most interactions, top 10% variance, no chemical features
 
 ```{r}
 m <- filter(matrix_container, feat_preselect == "top10pct", drug_dosages == "most_interactions", 
@@ -169,7 +169,7 @@ ggsave(p, file = "./plots/PCA_plots.pdf")
 
 Not nice in the sense of perfect but of colour scheme etc.
 
-```{r}
+```{r plot_flasthalk}
 tmp <- readRDS("./data/matrix_container_withextractions.rds")
 tmp <- tmp$ThreshVsPerfData[[1]]
 tmp <- tmp %>%
@@ -191,12 +191,11 @@ ggplot(tmp, aes(x = fpr_mean, y = tpr_mean)) +
         y = "True positive rate") + 
    geom_abline(intercept = 0, slope = 1, linetype = "dotted")
 ggsave("./plots/ROC_curve_flashtalk.pdf", width = 5, height = 5)
-
 ```
 
 ### S-score distribution
 
-```{r}
+```{r, posterplots_Madrid_I}
 the_matrix_melted_moainfo <- readRDS("./data/the_matrix_melted_moainfo.rds")
 
 tmp <- 
@@ -218,8 +217,7 @@ ggsave(filename = "./plots/POSTER_sscores.pdf", width = 7.5, height = 5)
 
 ### General statistics
 
-```{r}
-library(forcats)
+```{r, posterplots_Madrid_II}
 matrix_container_with_extractions <- readRDS("./data/matrix_container_withextractions.rds")
 
 drug_feat_mat <- matrix_container_with_extractions$drug_feature_matrices[[1]]
@@ -274,7 +272,6 @@ ggplot(tmp3, aes(x = n)) +
    scale_fill_manual("Cellular target", values = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99", "#bababa"))
 
 ggsave("./plots/POSTER_conc_per_drug.pdf", width = 6.5, height = 4.8)
-
 ```
 
 
@@ -304,7 +301,7 @@ tmp_m <- as.matrix(tmp)
 tmp_m_dist <- dist(tmp_m, method = "euclidean")
 tmp_m_dist <- as.dist((1 - cor(t(tmp_m))))
 
-pdf("./plots/euclid.pdf", width = 140, height = 30)
+pdf("./plots/Heatmap_drugs_vs_conds_euclid_alldosg_alldrugs.pdf", width = 140, height = 30)
 heatmap.2(tmp_m, 
           trace = "none", 
           Rowv = as.dendrogram(hclust(tmp_m_dist)), 
@@ -323,7 +320,8 @@ legend("top",
 dev.off()
 ```
 
-Write a function to generate "sub heatmaps", depending on the conditions and genes provided.
+
+Write a function to generate "subheatmaps", depending on the conditions and genes provided.
 
 First run a few tests for choosing color palettes etc. Important websites: the vignette for the 
 ComplexHeatmap package (can do everything) and also for the [viridis package](https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html).
@@ -421,16 +419,14 @@ Let's plot a few subheatmaps:
 
 ```{r}
 pdf("./plots/NEW_heatmap_test_SDS_allgenes.pdf")
-my_subheatmap(tmp_m, drugs = c("SDS"), genes = colnames(tmp_m))
+my_subheatmap(tmp_m, drugs = c("SDS"), genes = colnames(tmp_m)[1:20])
 dev.off()
 ```
 
 
-
-# PCA of chemical features
+## PCA of chemical features
 
 ```{r}
-
 #matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
 
 # Preparing data
@@ -480,214 +476,56 @@ p4 <- ggplot(plotData, aes(x = PC5, y = PC4)) +
     ggtitle("PCA Chemical Feat, PC 4 and 5 ")
 
 grid.arrange(p1, p2, p4, p3, nrow = 2)
-
-
-# ====================== TEST MDS =====================
-
-mds_data = data.frame(cmdscale(dist(dt_chem_mostInteraction), k=2))
-
-mds_data = cbind(mds_data, process_broad = dt_matrix$process_broad)
-#mds_data = cbind(mds_data, process_broad = dt_matrix[ dt_matrix$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), "process_broad"])
-
-mds_data$process_broad[!(mds_data$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
-
-
-mdsPlot <- ggplot(data = mds_data) + 
-        geom_point(mapping = aes(x = X1, y = X2, fill = process_broad ), colour = "black", size = 3, shape = 21 ) +
-        scale_fill_manual(values = rainbow(4)) + theme_bw()
-
 ```
 
 
-
-# Super Random control
+## Super Random control
 
 Just to be sure, RF model with random features (same sd and mean but random values). test on the chemogenomic matrix with 10% top variance features
 
 ```{r}
-
 mat = matrix_container[21, ]
 randomMat = mat$drug_feature_matrices[[1]] %>% select(-conc)
-randomMat = apply(randomMat[ , grepl(x = colnames(randomMat), pattern = "^[A-Z]{3,4}")], 2, function(x){assign("x", value = rnorm(78, mean = mean(x), sd = sd(x)))})
+randomMat = apply(randomMat[ , grepl(x = colnames(randomMat), pattern = "^[A-Z]{3,4}")], 2, 
+                  function(x){
+                     assign("x", value = rnorm(78, mean = mean(x), sd = sd(x)))
+                  })
 randomMat = as.data.frame(randomMat)
 randomMat$drugname_typaslab =  mat$drug_feature_matrices[[1]]$drugname_typaslab
 randomMat$process_broad =  mat$drug_feature_matrices[[1]]$process_broad
 
 mat$drug_feature_matrices[[1]] = as.tbl(randomMat)
 
-testTotal_random = repeated_NCV_run_4models_container(data_container = mat, line_number = 1)
+if (!file.exists("./data/programmatic_output/testTotal_random.rds")) {
+   testTotal_random = repeated_NCV_run_4models_container(data_container = mat, line_number = 1)
+   saveRDS(testTotal_random, file = "./data/programmatic_output/testTotal_random.rds")
+} else {
+   testTotal_random <- readRDS(file = "./data/programmatic_output/testTotal_random.rds")
+}
+
 plot_ROC_allRep(res = testTotal_random, moa = "all")
 ```
 
 Everything fine, random features leads to diagonal ROC curves
 
 
+## Correlation between dosages and betwen drugs
 
+Compare within vs. between-dosage correlation. 
 
-
-# Correlation between dosages and betwen drugs
-
-Compare repartition of the correlation (Pearson and Spearman) of drugs dosages, all drugs together and drugs within mode of action 
-Data might be list of 6 unequal vectors
 
 ```{r}
-
-# I know the code here is really awful but I was so eager to see the result I couldn't wait to figure out a good solution to compute it
-
-corData = list()
-
-matDrugs_mostInteraction = matrix_container[19, ]$drug_feature_matrices[[1]] %>% select(-conc, -drugname_typaslab)
-matDrugs_allDosages = matrix_container[1, ]$drug_feature_matrices[[1]] %>% select(-conc, -process_broad) 
-
-
-# Correlation between Dosages
-resP = c()
-resS = c()
-for(moa in unique(matDrugs_mostInteraction$process_broad)){
-    subData = matDrugs_mostInteraction %>% filter(process_broad == moa) %>% select(-process_broad) %>% t()
-    if(ncol(subData) > 1){
-        for(i in 1:(ncol(subData)-1)){
-            for(j in (i+1):ncol(subData)){
-                resP = c(resP, cor(subData[,i], subData[,j]))
-                resS = c(resS, cor(subData[,i], subData[,j], method = "spearman"))
-            }
-        }
-    }
-}
-corData[["betweenMoA\nPearson"]] = resP
-corData[["betweenMoa\nSpearman"]] = resS
-
-
-matDrugs_mostInteraction = matDrugs_mostInteraction %>% select(-process_broad) %>% t()
-# Correlation between Drugs
-resP = c()
-resS = c()
-for(i in 1:(ncol(matDrugs_mostInteraction)-1)){
-    for(j in (i+1):ncol(matDrugs_mostInteraction)){
-        resP = c(resP, cor(matDrugs_mostInteraction[,i], matDrugs_mostInteraction[,j]))
-        resS = c(resS, cor(matDrugs_mostInteraction[,i], matDrugs_mostInteraction[,j], method = "spearman"))
-    }
-}
-corData[["betweenDrugs\nPearson"]] = resP
-corData[["betweenDrugs\nSpearman"]] = resS
-
-
-
-# Correlation between Dosages
-resP = c()
-resS = c()
-for(d in unique(matDrugs_allDosages$drugname_typaslab)){
-    subData = matDrugs_allDosages %>% filter(drugname_typaslab == d) %>% select(-drugname_typaslab) %>% t()
-    if(ncol(subData) > 1){
-        for(i in 1:(ncol(subData)-1)){
-            for(j in (i+1):ncol(subData)){
-                resP = c(resP, cor(subData[,i], subData[,j]))
-                resS = c(resS, cor(subData[,i], subData[,j], method = "spearman"))
-            }
-        }
-    }
-}
-corData[["betweenDosages\nPearson"]] = resP
-corData[["betweenDosages\nSpearman"]] = resS
-
-
-# ggplot can easily handle boxplot of list of vector of differents length, so let's do it the traditionnal way
-par(mgp = c(3,2,0))    
-boxplot(corData,
-        at=c(1,2,4,5,7,8),
-        col = rep(rainbow(2), times = 2), lwd = 1.5, outline = T, pch = 21
-)
-abline(h = 0, lty = "dotted")
-
-
-
 ```
 
 
+## Correlation between chemical classes of drugs
 
-Look at correlation between drugs chemical classes
-
-
-# Details of drugs chemical classes
-
-```{r}
-
-full_matrix = matrix_container[2, ]$drug_feature_matrices[[1]]
-tail(colnames(full_matrix), n = 14)
-chem_feat = tail(colnames(full_matrix), n = 13)
-
-labels = unique(full_matrix$drugname_typaslab)
-chem_class = read.table(file = "data/drugs_chem_classes.txt", header = FALSE, sep = "\t", stringsAsFactors = FALSE)
-chem_class = chem_class %>% filter(V1 %in% labels)
+Check file `data/drugs_chem_classes.txt`. Put special focus on chemical features. 
 
 
-chem_class$V2 = unlist(lapply(chem_class$V2, function(x){ifelse(x== "", "others", x)}))
+## ROC curves of single features
 
-colnames(chem_class) = c("drugname_typaslab", "chem_class")
-full_matrix = left_join(full_matrix, chem_class, by = "drugname_typaslab")
-full_matrix = full_matrix %>% select(drugname_typaslab, process_broad, chem_class, chem_feat)
-full_matrix = unique(full_matrix)
-full_matrix = full_matrix %>% filter(chem_class %in% names(which(table(full_matrix$chem_class) >=2)))
-
-for (feat in colnames(full_matrix)[-c(1,2,3)]) {
-    boxplot(full_matrix[[feat]] ~ full_matrix$chem_class, main = feat)
-}
-
-```
-
-
-```{r}
-
-
-m = full_matrix %>% select(-drugname_typaslab, -process_broad, -chem_class)
-pca_data <- prcomp(m, scale = TRUE)
-
-barplot(pca_data$sdev / sum(pca_data$sdev))
-sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
-
-plotData <- as.data.frame(pca_data$x)
-plotData = cbind(plotData, process_broad = full_matrix$process_broad, chem_class = full_matrix$chem_class, names = full_matrix$drugname_typaslab)
-
-plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
-
-p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~chem_class, colors = rainbow(10)) %>%
-  add_markers(text = paste(plotData$process_broad, plotData$names)) %>%
-  layout(scene = list(xaxis = list(title = paste('PC1', as.character(round((pca_data$sdev / sum(pca_data$sdev))[1], digits = 3)))),
-                     yaxis = list(title =  paste('PC2', as.character(round((pca_data$sdev / sum(pca_data$sdev))[2], digits = 3)))),
-                     zaxis = list(title =  paste('PC3', as.character(round((pca_data$sdev / sum(pca_data$sdev))[3], digits = 3))))))
-
-
-# ========================================================================================
-
-cor(m)
-# TOO MUCH !
-for (feat in c("TPSA", "SlogP", "NumRings")) {
-    boxplot(full_matrix[[feat]] ~ full_matrix$chem_class, main = feat)
-}
-
-
-
-# ========================================================================================
-
-data = matrix_container[2, ]$drug_feature_matrices[[1]]  %>% select(-drugname_typaslab, -conc, -process_broad)
-
-test  = corr_feat_selection(data = data)
-matrix_container[2, ]$drug_feature_matrices[[1]] = matrix_container[2, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, conc, process_broad, colnames(test))
-
-x = ncol(test)
-matrix_container[2, ]$hyperparam_grid[[1]] = makeParamSet(
-                    makeDiscreteParam("ntree", values = c(200, 500)),
-                    makeDiscreteParam("mtry", values = floor(c(x, x*(3/4), x/2, x/4, sqrt(x))))
-                    )
-
-
-```
-
-
-# ROC Curves of one feature
-
-```{r}
-
+```{r, eval = FALSE}
 dt_mat = matrix_container[1, ]$drug_feature_matrices[[1]]
 
 all_feat = colnames(dt_mat)[-c(1,2,3)]
@@ -702,193 +540,13 @@ for(f in all_feat){
         areas[[moa]] = c(areas[[moa]], a$auc)
     }
 }
-
-
 ```
 
 
-# Old chunks from "Boosting_tree_results_overview.Rmd"
+# Session info
 
-File was deleted on 2018-07-25. Some stuff may still be useful so keep it here. 
-
-Wilcoxon test based feature selection: some features contain information, others don't: 
-
-```{r boosting_tree_results_overview_legacy_I}
-load("./run_results_from_server/result_XGBT_10topWilcox_allDrugs_tuneMMCE.RData")
-load("./run_results_from_server/result_XGBT_10worstWilcox_allDrugs_tuneMMCE.RData")
-
-compare_ROC_models(moa = "dna", result_XGBT_10topWilcox_allDrugs_tuneMMCE, 
-                   result_XGBT_10worstWilcox_allDrugs_tuneMMCE)
+```{r}
+R.version
+sessionInfo()
 ```
-
-Random forests plot: how OOB error changes with number of trees. Note that the error for "not" 
-class goes down, the other error stays the same - class imbalance. 
-
-```{r boosting_tree_results_overview_legacy_II}
-plot_RF_perf_allRep = function(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna"){
-    res_all500 = matrix(0, nrow = 500, ncol = 3)
-    res_all200 = matrix(0, nrow = 200, ncol = 3)
-    nb500 = 0
-    nb200 = 0
-    
-    plot(NULL, xlim = c(1,500), ylim = c(0,1), xlab = "Number of trees", ylab = "Error rate")
-    for (i in 1:length(res)){
-        for(j in 1:length(res[[1]])){
-            rf_res = res[[i]][[j]][[paste0("model_",moa)]]$learner.model
-            plot(rf_res, lty = 1, col = c("lightgrey", "lightblue", "orange"), add =T)
-            if(dim(rf_res$err.rate)[1] == 500){
-                res_all500 = res_all500 + rf_res$err.rate
-                nb500 = nb500 +1
-            }else{
-                res_all200 = res_all200 + rf_res$err.rate
-                nb200 = nb200 + 1
-            }
-        }
-    }
-    
-    res200 = (res_all200 +res_all500[1:200,]) / (nb200 + nb500)
-    res500 = res_all500 / nb500
-    
-    lines(res200[ ,1], lty = 1, lwd = 3, col = "black")
-    lines(x = seq(201, 500), y = res500[201:500, 1], lty = 1, lwd = 3, col = "black")
-    lines(res200[ ,2], lty = 1, lwd = 3, col = "blue")
-    lines(x = seq(201, 500), y = res500[201:500, 2], lty = 1, lwd = 3, col = "blue")
-    lines(res200[ ,3], lty = 1, lwd = 3, col = "red")
-    lines(x = seq(201, 500), y = res500[201:500, 3], lty = 1, lwd = 3, col = "red")
-    legend("topright", legend= colnames(res500), col=c("black", "blue", "red"), lwd=3, cex=1)  
-}
-
-load("./run_results_from_server/result_RF_10pc_allDrugs_tuneMMCE.RData")
-
-plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
-plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "cell_wall")
-plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "membrane_stress")
-plot_RF_perf_allRep(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "protein_synthesis")
-```
-
-This here is actually useful as a draft to mark a specific point on a ROC curve. Here, it shows the 
-point with the highest MCC. 
-
-```{r boosting_tree_results_overview_legacy_III}
-load("./run_results_from_server/result_XGBT_10pc_allDrugs_tuneMMCE.RData")
-
-my_res <- plot_ROC_optThres(result_XGBT_10pc_allDrugs_tuneMMCE, moa = "dna")
-View(my_res$confMat)
-
-ggsave(filename = "./plots/present_optThres.pdf", width = 14, height = 7, 
-       plot = my_res$plot)
-```
-
-
-# Old chunks from "FeatureImp_RF_XGBT_results_overview.Rmd"
-
-Like above: file was deleted on 2018-07-25, useful stuff can still be found here. That notebook was 
-dealing mainly with feature importances and has been superseded by `Inspecting_models.Rmd` and 
-`model_analysis.R`. 
-
-Old heatmap plotting function. May be useful for other heatmaps. Was used to check if we can get 
-MoA classification by doing a simple hierarchical clustering of all/a selected subset of 
-(presumably) best features from the chemical genomics data. Need to provide some "the_matrix" 
-object, which can still be found under ./data or in the drug_feature_matrices field from the 
-matrix_container. Not sure if it runs like this though:
-
-```{r eval = FALSE}
-plot_heatmap <- function(m = the_matrix_allDrugs_top10pct, feats_to_keep = "all", filename = "heatmap.pdf") {
-   library(gplots)
-   library(RColorBrewer)
-   # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
-   cluster_matrix <- m
-   row.names(cluster_matrix) <- cluster_matrix$drugname_typaslab
-   cluster_matrix$drugname_typaslab <- NULL
-   process_lut <- cluster_matrix$process_broad
-   names(process_lut) <- row.names(cluster_matrix)
-   cluster_matrix$process_broad <- NULL
-   cluster_matrix <- as.matrix(cluster_matrix)
-
-   # keep only genes in the columns because of measurement scale
-   if (feats_to_keep != "all") {
-      cluster_matrix <- cluster_matrix[, colnames(cluster_matrix) %in% feats_to_keep]
-   }
-
-   # get correlation-based distances between the drugs (--> transpose matrix)
-   drug_drug_dist <- as.dist(1 - abs(cor(t(cluster_matrix))))
-   gene_gene_dist <- as.dist(1 - abs(cor(cluster_matrix)))
-
-   # define colors for the mode of action
-   moa_to_colour <- c(cell_wall = "#a6cee3",
-                      dna = "#1f78b4",
-                      protein_synthesis = "#b2df8a",
-                      membrane_stress = "#33a02c",
-                      pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa"
-                      )
-   rowcols <- moa_to_colour[process_lut[rownames(cluster_matrix)]]
-
-   pdf(paste0("./plots/", filename), width = 20, height = 20)
-   heatmap.2(cluster_matrix,
-             trace = "none",
-             breaks = c(-10, -5, -3, -1, 0, 1, 3, 5, 10), # use this i/o zlim
-             Rowv = as.dendrogram(hclust(drug_drug_dist)), # change order of rows
-             Colv = as.dendrogram(hclust(gene_gene_dist)),
-             RowSideColors = rowcols,
-             margins = c(12, 9),
-             dendrogram = "row") # only draw row dendrogram
-   legend("top",
-          legend = names(moa_to_colour),
-          col = moa_to_colour,
-          lty = 1,
-          lwd = 10)
-   dev.off()
-}
-
-plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = genes$gene_synonym, 
-             filename = "heatmap_cordist_all.pdf")
-# exclude SlogP:
-features_of_interest <- features_of_interest[features_of_interest != "SlogP"]
-# now with only the 'relevant' features:
-plot_heatmap(m = the_matrix_allDrugs_top10pct, feats_to_keep = features_of_interest, 
-             filename = "heatmap_cordist_most_imprtnt_rf.pdf")
-
-```
-
-Plotting feature importances using results objects. Were used to generate plots "present_sscore_dists.pdf" 
-and "present_feat_imp${MOA}.pdf". 
-
-```{r old_feature_importance_functions}
-# make sure you loaded the results object from ./data
-feat_RF_dna <- plot_feat_4model(res = result_RF_10pc_allDrugs_tuneMMCE, moa = "dna")
-feat_RF_dna_dfr <- make_importance_dfr(feat_RF_dna, cutoff = 0.07)
-plot_importance(feat_RF_dna_dfr, moa = "dna")
-load("./data/the_matrix_newDrugs_top10pct.RData")
-p <- feature_distrib_ggplot(the_matrix_newDrugs_top10pct, "RECA", save = FALSE)
-p
-```
-
-Code to generate old to generate "ultimate_plot" files. 
-
-```{r old_ultimate_plot eval = FALSE}
-ultimate_plot(res =result_XGBT_10pc_allDrugs_tuneMMCE)
-
-pdf(file = "~/Documents/recap_utlimate.pdf", width = 20, height = 30)
-layout(matrix(seq(1,6), 3,2, byrow = T))
-for(d in the_matrix_allDrugs$drugname_typaslab){
-    distrib_drug_prob_small(res = result_RF_10pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-    distrib_drug_prob_small(res = result_RF_5pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-    distrib_drug_prob_small(res = result_XGBT_10pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-    distrib_drug_prob_small(res = result_XGBT_5pc_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-    distrib_drug_prob_small(res = result_XGBT_10topWilcox_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-    distrib_drug_prob_small(res = result_RF_27feat_allDrugs_tuneMMCE, drug = d, dt_matrix = the_matrix_allDrugs)
-}
-dev.off()
-```
-
-
-
-
-
-
-
-
-
-
-
 

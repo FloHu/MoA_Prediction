@@ -26,3 +26,10 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 ```
+
+
+```{r session_info}
+R.version
+sessionInfo()
+```
+

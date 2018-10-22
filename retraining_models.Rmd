@@ -48,20 +48,30 @@ matrix_container_new = readRDS(file = "data/matrix_container_new_withextractions
 
 # Retraining on everything
 
-Aim here is to retrain models on the whole dataset. Feat preselection and algorithm used are the ones displaying the best performances in the previous step of the analysis (see notebook Inspecting Models).
-This is the purpose of cross validation (outer loop in the analysis), getting an estimate of a model's performances if retrained on the whole dataset. Knowing such performances, we can choose what's performing best.
+Aim here is to retrain models on the whole dataset. Feat preselection and algorithm used are the 
+ones displaying the best performances in the previous step of the analysis (see notebook Inspecting 
+Models). This is the purpose of cross validation (outer loop in the analysis), getting an estimate 
+of a model's performances if retrained on the whole dataset. Knowing such performances, we can 
+choose what's performing best.
 
-Performances of the retrained model cannot be studied since we do not have another dataset whose true response are known.
-However, the features importance can be studied and should be easier to use than the previous one. Mostly because there's just one measure of feature importance.
+Performances of the retrained model cannot be studied since we do not have another dataset whose 
+true response are known. However, the features importance can be studied and should be easier to 
+use than the previous one. Mostly because there's just one measure of feature importance.
 
-**PS** After running this notebook, it seems that the chemogenomic fingerprint consisting of the genes used in all 80 models in the same run are better to design a nice tSNE space.
-I suspect some crowd wisdom effect (something similar to the boosting theory) where aggregation of lots of "weak" models can perform better than a "strong" one (having seen more data)
+**PS** After running this notebook, it seems that the chemogenomic fingerprint consisting of the 
+genes used in all 80 models in the same run are better to design a nice tSNE space. I suspect some 
+crowd wisdom effect (something similar to the boosting theory) where aggregation of lots of "weak" 
+models can perform better than a "strong" one (having seen more data)
 
 
-On top of that, such models can be used to predict MoA of "other" drugs, either the one with a MoA different from the 4 main ones or with an unknown MoA.
-On can use the 4 prediction model as a "meta-model". Analyzing all prediction probabilities together as a unique outcome. Some mechanisms of action can indeed lead to ambiguity and kind of ties in the predictions.
+On top of that, such models can be used to predict MoA of "other" drugs, either the one with a MoA 
+different from the 4 main ones or with an unknown MoA.
+On can use the 4 prediction model as a "meta-model". Analyzing all prediction probabilities 
+together as a unique outcome. Some mechanisms of action can indeed lead to ambiguity and kind of 
+ties in the predictions.
 
-The choice of hyperparameter will be made using a new loop of CV (not nested this time) for EN models. RF models hyperparameter will be chosen according to the OOB error.
+The choice of hyperparameter will be made using a new loop of CV (not nested this time) for EN 
+models. RF models hyperparameter will be chosen according to the OOB error.
 
 
 ```{r}
@@ -126,8 +136,9 @@ if (!file.exists("./data/models_trainOnAll.RData")) {
 
 One chunk works for RF model, the other one for EN. 
 
-**NB** when there's too many feature, or with some distribution, maybe the 1-dim 2-means is not the perfect algorithm to use.
-Maybe one can define 3 clusters (low, medium and high importance) or even more
+**NB** when there's too many feature, or with some distribution, maybe the 1-dim 2-means is not the 
+perfect algorithm to use. Maybe one can define 3 clusters (low, medium and high importance) or even 
+more.
 
 ```{r}
 
@@ -239,9 +250,11 @@ par(mar = c(5.1, 4.1, 4.1, 2.1))
 
 ## Prediction on other drugs
 
-Use retrained model to get a prediction ( as a probability ) for other drugs that has not been used so far.
+Use retrained model to get a prediction ( as a probability ) for other drugs that has not been used 
+so far.
 
-The prediction for EN net models is not so easy, for it needs a data object with all features used in the building process (3 lines of code instead of 1)
+The prediction for EN net models is not so easy, for it needs a data object with all features used 
+in the building process (3 lines of code instead of 1)
 
 ```{r}
 
@@ -282,7 +295,8 @@ dev.off()
 
 ```
 
-**Problem** : here no idea wich decision threhold should be used for classification (0.5 ?). In previous cases, we had a look at the threshold maximizing the MCC
+**Problem** : here no idea wich decision threhold should be used for classification (0.5 ?). In 
+previous cases, we had a look at the threshold maximizing the MCC
 
 
 # Leave-one-out Models for single drugs characterization
@@ -346,7 +360,8 @@ a = a[ ,apply(a, 2, sum) != 0]
 a  = a[, sig_DNA ]
 
 
-# What is really interresting is the shift of feature use compared to the model trained on all, otherwise the weight is almost put on the most important drugs because of higher values
+# What is really interresting is the shift of feature use compared to the model trained on all, 
+# otherwise the weight is almost put on the most important drugs because of higher values
 a = t(apply(a, 1, function(x){x - a["ALL", ]}))
 
 
@@ -366,5 +381,6 @@ Heatmap(a[rownames(a) !="ALL", ], row_dend_width = unit(50, "mm"), clustering_di
 ```
 
 
-Not so convincing, tested for 4 MoA, some patterns of subclasses can emerge, but it's maybe only explained by randomness or the subgroup distribution in a group.
+Not so convincing, tested for 4 MoA, some patterns of subclasses can emerge, but it's maybe only 
+explained by randomness or the subgroup distribution in a group.
 

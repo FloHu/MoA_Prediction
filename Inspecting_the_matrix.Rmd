@@ -1,5 +1,5 @@
 ---
-title: ""
+title: "Inspecting our data: skewness, NA values"
 author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
@@ -310,3 +310,10 @@ ggplot(counting_NA, aes(x = nb_NA)) +
 
 # so there seems to be a slight trend but probably not important
 ```
+
+
+```{r, session_info}
+R.version
+sessionInfo()
+```
+
