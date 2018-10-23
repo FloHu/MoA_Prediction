@@ -1,4 +1,3 @@
-
 plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL, scaleMethod = "column", clust = "row") {
     # plots a heatmap for all drugs with only the features provided in the feats_to_keep argument
     cluster_matrix <- m
@@ -17,29 +16,29 @@ plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL
     }
     drugs_names = cluster_matrix$drugname_typaslab[row_ord]
     cluster_matrix = cluster_matrix[ row_ord, ]
-    
+
     process_lut <- cluster_matrix$process_broad
-    
+
     rowcols <- moa_to_colour[process_lut]
-   
-    
+
+
     cluster_matrix$drugname_typaslab <- NULL
     cluster_matrix$process_broad <- NULL
     cluster_matrix <- as.matrix(cluster_matrix)
-    
+
     if(plotFile){ pdf("./plots/heatmap.pdf", width = 20, height = 20) }
-    
+
     if(is.null(clust)){
         row_ord = FALSE
         dend = "none"
     }else{
         dend = clust
     }
-    
+
     heatmap.2(cluster_matrix,
               scale = scaleMethod,
               trace = "none",
-              Rowv = row_ord, 
+              Rowv = row_ord,
               Colv = TRUE,
               breaks = c(seq(-5,5,length=20)), # use this i/o zlim
               RowSideColors = rowcols,
@@ -61,18 +60,18 @@ plot_heatmap <- function(m  , plotFile = F, name_size = 0.3 , names_order = NULL
 # =========================================================================================================================================
 
 plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj = FALSE, model_type = "lasso", ...){
-    
+
     match.arg(arg = moa, choices = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
     match.arg(arg = model_type, choices = c("lasso", "tree"))
-    
+
     nrep = length(resObj)
     nfold = length(resObj[[1]])
     #List of coefficient values across all models
     feat_cat = list()
-    
+
     for(rep in 1:nrep){
         for(fold in 1:nfold){
-            
+
             if(model_type == "lasso"){
                 model = resObj[[rep]][[fold]][[paste0("model_", moa)]]
                 lambda_for_pred = model$learner$par.vals$s
@@ -84,37 +83,37 @@ plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj =
                 coeffs = getFeatureImportance(resObj[[rep]][[fold]][[paste0("model_", moa)]])$res
                 coeffs = coeffs[which(coeffs !=0)]
             }
-            
+
             for(n in names(coeffs)){
                 feat_cat[[n]] = unlist(c(feat_cat[[n]], coeffs[n]))
             }
         }
     }
-    
+
     #eff contains how many times features appear in a model
     eff = sort(unlist(lapply(feat_cat, length)))
     feat_cat = feat_cat[names(eff)]
-    
+
     # filter
     feat_cat = feat_cat[(eff/80) >= thres]
     eff = eff[(eff/80) >= thres]
-    
+
     #Remove coefficient whose impact on the model is ambigous (have sometimes values above and under 0)
     if(model_type == "lasso"){
         toKeep = unlist(lapply(feat_cat, function(x){length(table(x > 0)) == 1}))
         feat_cat = feat_cat[toKeep]
         eff = eff[toKeep]
     }
-    
+
     colMap = rainbow(length(unique(eff)))
     names(colMap) = unique(eff)
-    
+
     # test
     a = data.frame(feat_name = names(feat_cat), len = unlist(lapply(feat_cat, length)), med = unlist(lapply(feat_cat, median)))
     a = arrange(a, len, med)
     feat_cat = feat_cat[as.character(a$feat_name)]
     # end test
-    
+
     if(model_type == "lasso"){
         location = "bottomleft"
         importance = "Coefficient in the regression"
@@ -122,11 +121,11 @@ plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj =
         location = "bottomright"
         importance = "Mean decrease in Gini impurity"
     }
-    
+
     par(mar = c(5,10,4,2))
     boxplot(feat_cat, horizontal = T, las = 2, lwd = 1.5, col = colMap[as.character(eff)], xlab = importance, ...)
-    
-    legend(x = location,  legend = paste0(as.numeric(names(colMap))/80 * 100, " %"), 
+
+    legend(x = location,  legend = paste0(as.numeric(names(colMap))/80 * 100, " %"),
            fill = colMap, title = "Present in % models", cex = 0.8)
     abline(v = 0)
     if(return_obj){
@@ -138,7 +137,7 @@ plot_top_feat_importance = function(resObj, moa = "dna", thres = 0, return_obj =
 
 model_analysis = function(res_obj , matrix_container_line, matrix_container_line_noChemFeat = NULL, moa,
                           pdf_filename = "plot.pdf", feat_imp_thres = 0.6, model_type = "lasso", model_name_title = "Model"){
-    
+
     nb_models = length(res_obj) * length(res_obj[[1]])
     mat = matrix_container_line$drug_feature_matrices[[1]]
     colMap = rainbow(4)
@@ -146,29 +145,29 @@ model_analysis = function(res_obj , matrix_container_line, matrix_container_line
 
     # PDF file with all plot from the analysis
     pdf(file = pdf_filename, width = 14, height = 14, onefile = T)
-    
+
     #First page : ROC curve of the model for the targeted MoA
     par(mfrow = c(1,1))
-    grid.arrange(plot_ROC_allRep(res_obj, moa = moa, plotAllRep = T) + ggtitle(model_name_title)) 
-    grid.arrange(plot_prec_recall(res_obj, moa = moa, plotAllRep = T) + ggtitle(model_name_title)) 
-    
-    featImp = plot_top_feat_importance(resObj = res_obj, moa = moa, main = model_name_title , thres = feat_imp_thres, return_obj = T, model_type = model_type)    
+    grid.arrange(plot_ROC_allRep(res_obj, moa = moa, plotAllRep = T) + ggtitle(model_name_title))
+    grid.arrange(plot_prec_recall(res_obj, moa = moa, plotAllRep = T) + ggtitle(model_name_title))
 
-    
+    featImp = plot_top_feat_importance(resObj = res_obj, moa = moa, main = model_name_title , thres = feat_imp_thres, return_obj = T, model_type = model_type)
+
+
     mat = mat %>% select(drugname_typaslab, process_broad, names(featImp))
     if(is.null(matrix_container_line_noChemFeat)){
         names_order = drugs_pred_prob_from_container(pred_data = matrix_container_line$PredData[[1]], moa = moa,
-                                                     main = model_name_title, xlab = "Probability prediction")  
+                                                     main = model_name_title, xlab = "Probability prediction")
     }else{
         par(mfrow = c(1,2))
         prob_shift_plot(pred_data = matrix_container_line$PredData[[1]], pred_data_noChem = matrix_container_line_noChemFeat$PredData[[1]], moa = moa, main = "Comparison with or without ChemFeat" )
         names_order = drugs_pred_prob_from_container(pred_data = matrix_container_line$PredData[[1]], moa = moa,
-                                                     main = model_name_title, xlab = "Probability prediction") 
+                                                     main = model_name_title, xlab = "Probability prediction")
         par(mfrow = c(1,1))
     }
     print(drugs_pred_prob_by_dosage(pred_data = matrix_container_line$PredData[[1]], moa = moa))
 
-    
+
     if(nrow(mat) > 100){
         plot_heatmap(m = mat, names_order = names_order, scaleMethod = "none")
         plot_heatmap(m = mat, names_order = names_order, clust = "both", scaleMethod = "none")
@@ -176,7 +175,6 @@ model_analysis = function(res_obj , matrix_container_line, matrix_container_line
         plot_heatmap(m = mat, names_order = names_order, scaleMethod = "none", name_size = 0.9)
         plot_heatmap(m = mat, names_order = names_order, clust = "both", scaleMethod = "none",  name_size = 0.9)
     }
-   
+
     dev.off()
 }
-
