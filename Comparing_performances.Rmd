@@ -49,7 +49,7 @@ interested in.
 
 ```{r reading_in, message = FALSE}
 # old matrix_container object
-load("./data/matrix_container.RData")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container.rds")
 matrix_container_old <- matrix_container
 
 ##################################################
@@ -61,8 +61,8 @@ matrix_container_old <- matrix_container
 # updated. 
 
 # results we already have
-if (file.exists("./data/matrix_container_withextractions.rds")) {
-   matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
+if (file.exists("./data/programmatic_output/matrix_container_withextractions.rds")) {
+   matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
    matrix_container.bak <- matrix_container
    matrix_container <- matrix_container.bak
 } else {
@@ -114,7 +114,7 @@ for (rownum in seq_len(nrow(matrix_container))) {
 }
 
 # update
-saveRDS(matrix_container, file = "./data/matrix_container_withextractions.rds")
+saveRDS(matrix_container, file = "./data/programmatic_output/matrix_container_withextractions.rds")
 
 # # to get an example of a results object
 # my_row <- matrix_container[1, ]
@@ -133,10 +133,10 @@ Similar to the one above but for the analysis based on the matrix using 2 dosage
 interactions).
 
 ```{r reading_in_new, message = FALSE}
-matrix_container_new = readRDS(file = "data/matrix_container_new.rds")
+matrix_container_new = readRDS(file = "data/programmatic_output/matrix_container_new.rds")
 
-if (file.exists("./data/matrix_container_new_withextractions.rds")) {
-   matrix_container_new <- readRDS("./data/matrix_container_new_withextractions.rds")
+if (file.exists("./data/programmatic_output/matrix_container_new_withextractions.rds")) {
+   matrix_container_new <- readRDS("./data/programmatic_output/matrix_container_new_withextractions.rds")
 } else {
    matrix_container_new$hyperparam_grid_name <- names(matrix_container_new$hyperparam_grid)
    matrix_container_new$ThreshVsPerfData <- list(NA)
@@ -187,7 +187,7 @@ for (rownum in seq_len(nrow(matrix_container_new))) {
 }
 
 # update
-saveRDS(matrix_container_new, file = "./data/matrix_container_new_withextractions.rds")
+saveRDS(matrix_container_new, file = "./data/programmatic_output/matrix_container_new_withextractions.rds")
 ```
 
 
@@ -298,8 +298,8 @@ Re-read results objects so we can get partial AUCs (with a cutoff of e.g. fpr = 
 
 ```{r message = FALSE, stability_assessment_tableIII_partialAUCs}
 # results we already have
-if (file.exists("./data/stability_assessment.rds")) {
-   stability_assessment <- readRDS("./data/stability_assessment.rds")
+if (file.exists("./data/programmatic_output/stability_assessment.rds")) {
+   stability_assessment <- readRDS("./data/programmatic_output/stability_assessment.rds")
 } else {
    stability_assessment$auc_stabilities_new <- list(NA)
 }
@@ -362,7 +362,7 @@ for (rownum in seq_len(nrow(stability_assessment))) {
 }
 
 # update
-saveRDS(stability_assessment, file = "./data/stability_assessment.rds")
+saveRDS(stability_assessment, file = "./data/programmatic_output/stability_assessment.rds")
 
 # for ordering in plots further downstream
 stability_assessment$feat_preselect <- 
@@ -899,7 +899,6 @@ combination. For each drug-dosage combination in each of the models we built the
 significant interactions will depend on the number of features that have been preselected. 
 
 ```{r, message = FALSE}
-# the_matrix <- readRDS("./data/the_matrix_after_select_mutant.rds")
 the_matrix <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
 
 # add a new list column to matrix_container_ext: similar to PredData but with median of prob.moa 
@@ -1100,7 +1099,8 @@ select(tmp, drugname_typaslab, process_broad, (ncol(tmp)-12):ncol(tmp)) %>%
 ## Exploring matrix_container_new
 
 ```{r exploring_matrix_container_new}
-stability_assessment_new <- readRDS("./data/stability_assessment_newmatrixcontainer.rds")
+#### Where does this file come from? ... probably temporarily adapted code above without saving
+stability_assessment_new <- readRDS("./data/programmatic_output/stability_assessment_newmatrixcontainer.rds")
 
 tmp <- 
    select(stability_assessment_new, drug_dosages:hyperparam_grid_name, auc_stabilities_new) %>%

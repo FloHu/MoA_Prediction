@@ -37,8 +37,8 @@ lasso seems to have done fairly well. Let's have a look at the ROC and precision
 again.
 
 ```{r}
-matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
-stability_assessment <- readRDS("./data/stability_assessment.rds")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
+stability_assessment <- readRDS("./data/programmatic_output/stability_assessment.rds")
 
 # this should become the standard colour code for the MoAs:
 moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")

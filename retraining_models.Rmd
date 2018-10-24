@@ -42,7 +42,7 @@ library(viridis)
 colMap = rainbow(4)
 names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 
-matrix_container_new = readRDS(file = "data/matrix_container_new_withextractions.rds")
+matrix_container_new = readRDS(file = "data/programmatic_output/matrix_container_new_withextractions.rds")
 ```
 
 
@@ -80,7 +80,7 @@ retraining_cell_wall = matrix_container_new[8, ]
 retraining_protein_synthesis = matrix_container_new[5, ]
 retraining_membrane_stress = matrix_container_new[9, ]
 
-matrix_allDrugs = readRDS(file = "data/matrix_2mostia_allDrugs.rds")
+matrix_allDrugs = readRDS(file = "data/programmatic_output/matrix_2mostia_allDrugs.rds")
 matrix_mainDrugs = matrix_container_new[1, ]$drug_feature_matrices[[1]]
 
 drugsToPred = !(matrix_allDrugs$drugname_typaslab %in% matrix_mainDrugs$drugname_typaslab)

@@ -27,8 +27,8 @@ source("./R/ipak.R")
 source("./setup.R")
 knitr::opts_chunk$set(cache = T)
 
-matrix_container <- readRDS("./data/matrix_container_withextractions.rds")
-matrix_container_new = readRDS("data/matrix_container_new_withextractions.rds")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
+matrix_container_new = readRDS("data/programmatic_output/matrix_container_new_withextractions.rds")
 
 ipak(plotmo)
 ipak(reshape2)
@@ -700,7 +700,7 @@ chemogeno_fingerprint = c('RECC_RECB', 'RECG', 'RECA', 'TPX', 'XERC_XERD', 'LOLB
 # everything we need. Here we also build a matrix containing a few unknown drug to see where they 
 # will be in the t-SNE
 
-matrix_allDrugs = readRDS(file = "data/matrix_2mostia_allDrugs.rds")
+matrix_allDrugs = readRDS(file = "data/programmatic_output/matrix_2mostia_allDrugs.rds")
 full_mat = matrix_allDrugs %>% 
             filter(process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis") | 
                       drugname_typaslab %in% c("UV", "BILE", "PEROXIDE", "NIGERICIN"))

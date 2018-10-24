@@ -125,7 +125,6 @@ the_matrix <-
    group_by(the_matrix, gene_synonym) %>%
    do(select_mutant(.))
 
-# saveRDS(the_matrix, file = "./data/the_matrix_after_select_mutant.rds")
 saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
 
 tmp <- group_by(the_matrix, gene_synonym) %>% 

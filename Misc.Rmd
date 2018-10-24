@@ -27,7 +27,7 @@ source("./setup.R")
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-matrix_container = readRDS("./data/matrix_container_withextractions.rds")
+matrix_container = readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
 ipak(plotmo)
 ipak(reshape2)
 ipak(gplots)
@@ -170,7 +170,7 @@ ggsave(p, file = "./plots/PCA_plots.pdf")
 Not nice in the sense of perfect but of colour scheme etc.
 
 ```{r plot_flasthalk}
-tmp <- readRDS("./data/matrix_container_withextractions.rds")
+tmp <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
 tmp <- tmp$ThreshVsPerfData[[1]]
 tmp <- tmp %>%
    group_by(threshold, moa_modelled) %>%
@@ -196,7 +196,7 @@ ggsave("./plots/ROC_curve_flashtalk.pdf", width = 5, height = 5)
 ### S-score distribution
 
 ```{r, posterplots_Madrid_I}
-the_matrix_melted_moainfo <- readRDS("./data/the_matrix_melted_moainfo.rds")
+the_matrix_melted_moainfo <- readRDS("./data/programmatic_output/the_matrix_melted_moainfo.rds")
 
 tmp <- 
    filter(the_matrix_melted_moainfo, gene_synonym == "RECA") %>%
@@ -218,7 +218,7 @@ ggsave(filename = "./plots/POSTER_sscores.pdf", width = 7.5, height = 5)
 ### General statistics
 
 ```{r, posterplots_Madrid_II}
-matrix_container_with_extractions <- readRDS("./data/matrix_container_withextractions.rds")
+matrix_container_with_extractions <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
 
 drug_feat_mat <- matrix_container_with_extractions$drug_feature_matrices[[1]]
 unique(drug_feat_mat$process_broad)
@@ -427,8 +427,6 @@ dev.off()
 ## PCA of chemical features
 
 ```{r}
-#matrix_container = readRDS("/Volumes/typas/Florian/matrix_container_withextractions.rds")
-
 # Preparing data
 dt_matrix <- filter(matrix_container, drug_dosages == "most_interactions", chemical_feats == TRUE)$drug_feature_matrices[[1]]
 
