@@ -815,7 +815,7 @@ pRandom
 
 ```{r}
 fingerprint_mat = full_mat %>% select(drugname_typaslab, process_broad, conc, chemogeno_fingerprint)
-saveRDS(fingerprint_mat, file = "data/chemGen_fingerprint_mat.rds")
+saveRDS(fingerprint_mat, file = "data/programmatic_output/chemGen_fingerprint_mat.rds")
 # Save fingerprint mat to export it in the interaction prediction notebook
 
 m = fingerprint_mat %>% select(chemogeno_fingerprint)

@@ -25,6 +25,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
 
 theme_set(theme_bw())
 ```
@@ -190,9 +191,6 @@ model_analysis(res_obj = chosen_res, matrix_container_line = matrix_container[th
 drugs_pred_prob_from_container(pred_data = matrix_container[the_line, ]$PredData[[1]], 
                                moa = my_moa, 
                                main = "Hello world", xlab = "Probability prediction")
-
-
-
 ```
 
 
@@ -688,6 +686,7 @@ ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) +
    labs(x = "Probability bin midpoint (10% bins)", y = "Observed event percentage", 
         title = "Probability calibration plot for multi-class RF")
 
+ggsave("./plots/probability_calibration.pdf")
 ```
 
 
