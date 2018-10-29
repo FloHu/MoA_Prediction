@@ -111,6 +111,8 @@ for (rownum in seq_len(nrow(matrix_container))) {
    pred_data$drugname_typaslab <- (matrix_container_row$drug_feature_matrices[[1]])$drugname_typaslab[pred_data$id]
    pred_data$conc <- (matrix_container_row$drug_feature_matrices[[1]])$conc[pred_data$id]
    matrix_container$PredData[[rownum]] <- pred_data
+   rm(resultsobj)
+   gc()
 }
 
 # update
