@@ -1082,8 +1082,9 @@ corrplot::corrplot(tmp_m_cor, method = "color", order = "hclust", tl.cex = 0.7)
 corrplot::corrplot(tmp_m_cor, type = "upper", method = "number", order = "hclust", tl.cex = 0.4)
 ```
 
-As can also be seen in the plot "drug_drug_similarities_RDKit.pdf" (notebook Misc) our chemical 
-features are biased towards distinguishing protein_synthesis from the other features:
+As can also be seen in the plot "drug_drug_similarities_RDKit.pdf" (notebook Misc) some of 
+our chemical features are biased towards distinguishing protein_synthesis from the other features. 
+However, numbe of amide bonds favours cell wall, number of aromatic rings might favour DNA. 
 
 ```{r}
 select(tmp, drugname_typaslab, process_broad, (ncol(tmp)-12):ncol(tmp)) %>%
@@ -1096,6 +1097,13 @@ select(tmp, drugname_typaslab, process_broad, (ncol(tmp)-12):ncol(tmp)) %>%
       labs(title = "Distribution of chemical features across MoAs")
 ```
 
+Check which drugs have high number of aliphatic rings and of saturated rings. This seems to bias 
+the models using chemical features towards protein synthesis. 
+
+```{r}
+tmp$drugname_typaslab[tmp$NumAliphaticRings > 2.5]
+tmp$drugname_typaslab[tmp$NumSaturatedRings > 2.5]
+```
 
 
 ## Exploring matrix_container_new

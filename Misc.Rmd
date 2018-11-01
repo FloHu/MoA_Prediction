@@ -541,6 +541,60 @@ for(f in all_feat){
 ```
 
 
+## Which drugs profit from chemical features? 
+
+This concerns all dosages, lasso vs. random forests, focus only on top20pct
+
+```{r}
+stability_assessment <- readRDS("./data/programmatic_output/stability_assessment.rds")
+matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+
+filter_container(matrix_container, dosgs = "all", feats = "top20pct", 
+  models = "classif.randomForest", chemfeats = TRUE)
+
+tmp <- filter_container(matrix_container_ext, dosgs = "all", feats = "top20pct", 
+  models = c("classif.glmnet", "classif.randomForest"))
+
+pdf("./plots/ROC_curves_plusminuschem.pdf", width = 15, height = 10)
+plot_ROC_from_container(tmp)
+dev.off()
+```
+
+The difference is really striking for random forests, so let's stick to this one atm. 
+
+```{r}
+tmp <- filter_container(tmp, models = "classif.randomForest")
+# turn into a function with a default set of columns? 
+tmp_unnest <- 
+  select(tmp, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
+    PredDataWithNSignif) %>%
+  unnest() %>%
+  filter(moa_modelled == "protein_synthesis")
+tmp_unnest
+
+# sort the drugs by biggest difference in probability
+probdiffs <- 
+  group_by(tmp_unnest, drugname_typaslab, conc) %>%
+  select(drugname_typaslab, chemical_feats, conc, median_prob.moa, 
+    moa_modelled_is_truth) %>%
+  mutate(diff = median_prob.moa[chemical_feats] - median_prob.moa[!chemical_feats]) %>%
+  arrange(diff)
+
+hist(probdiffs$diff, breaks = 50)
+probdiffs_big <- probdiffs[abs(probdiffs$diff) > 0.2, ]
+
+library(htmlTable)
+cat(htmlTable(probdiffs_big), file = "./tables/probdiffs.html")
+```
+
+The 7 drugs with the highest difference are gentamicin, amikacin, streptomycin, clarythromycin, 
+tunicamycin, taurocholate and tobramycin. Out of those, 4 are aminoglycosides. Note that they also 
+have high number of aliphatic rings and saturated rings. 
+
+Proper way of comparing them would be to see which ones pass the threshold at a certain cutoff and 
+which ones don't (at e.g. 10% fpr). 
+
+
 # Session info
 
 ```{r}

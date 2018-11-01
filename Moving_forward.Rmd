@@ -1,0 +1,245 @@
+---
+title: ""
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+rm(list = ls())
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+```
+
+TO DO:
+
+* (not yet: retraining the old model and then predict left out drugs. Have to fix data preprocessing 
+first)
+* First show that the old approach using the OOB error leads to the same result (or didn't we use 
+it already?)
+* Then show that using the same approach with a multi-class model leads to similar performance. 
+
+* Compare performance of previous point if using OOB error instead of test set errors. 
+* (compare to a 'naive' KNN model)
+* See how well the multi-class model performs when using drug subclasses (perhaps only do after the 
+following point). 
+* Not yet clear how to cleanly integrate with previous analyses: new preprocessing of data, new 
+model understanding. Also, what to do about retraining with reduced set? 
+* Try to improve models or make them more robust. 
+
+Let's start with point 2. Remember that our winning model was all dosages, top20pct, no chemical 
+features, random forests. 
+
+```{r}
+# Writing code for multi-class model and comparing it to several one-vs-rest models. 
+# Could try to compare ROC curves, but may also have to take other metrics. 
+
+# relevant data sets
+mat_cont_ext <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
+stab_assmt <- readRDS("./data/programmatic_output/stability_assessment.rds")
+
+(mat_cont_ext <- filter_container(mat_cont_ext, dosgs = "all", feats = "top20pct", chemfeats = FALSE, 
+  models = "classif.randomForest"))
+stopifnot(nrow(mat_cont_ext) == 1)
+
+(stab_assmt <- filter_container(stab_assmt, dosgs = "all", feats = "top20pct", chemfeats = FALSE, 
+  models = "classif.randomForest"))
+
+plot_ROC_from_container(mat_cont_ext)
+## TO DO: fix plot_precRecall ...
+```
+
+First let's simplify the way how nested resampling was done. Instead of going through all the 
+instances and function calls by hand as previously, use MLR's options for nested resampling. The 
+only thing that needs to be fixed is to get the right nested CV instance. 
+
+Data preparation.
+
+```{r}
+(drugsnfeats <- mat_cont_ext$drug_feature_matrices[[1]])
+
+# prepare blocking: different dosages of the same drug shouldn't be torn apart
+(my_rle <- rle(drugsnfeats$drugname_typaslab))
+stopifnot(length(unique(drugsnfeats$drugname_typaslab)) == length(my_rle$values))
+(my_blocks <- factor(rep(seq_along(my_rle$values), my_rle$lengths)))
+levels(my_blocks)
+
+# we compare only cell wall for now
+my_target <- "cell_wall"
+drugsnfeats_cw <- drugsnfeats
+drugsnfeats_cw$process_broad <- ifelse(drugsnfeats_cw$process_broad == my_target, my_target, 
+  paste0("not_", my_target))
+drugsnfeats_cw <- select(drugsnfeats_cw, -one_of(c("conc", "drugname_typaslab")))
+
+# note the blocking argument!
+rf_task_cw <- makeClassifTask(data = drugsnfeats_cw, target = "process_broad", positive = my_target, 
+  blocking = my_blocks)
+
+# ?
+rf_learner <- makeLearner("classif.randomForest", predict.type = "prob")
+
+rf_rdesc <- makeResampleDesc("CV", iters = 8)
+
+(rin <- makeResampleInstance(rf_rdesc, rf_task_cw))
+rep_rin <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), rf_task_cw)
+```
+
+Run model fitting the old way with the old nested CV instance, to reproduce result.
+
+Let's revise some of the things one can do. First: using resampling to estimate performance.
+
+```{r}
+# to do so, need to specify hyperparameters first
+# let's say ntree = 1000, mtry = 150
+rf_learner
+rf_learner$par.set
+# better:
+getParamSet(rf_learner)
+
+rf_learner$par.vals
+# better:
+getHyperPars(rf_learner)
+
+ntree <- 1000
+mtry <- 150
+my_measures <- list(mmce, auc)
+# to change hyperparameters later on:
+rf_learner_withparams <- setHyperPars(rf_learner, par.vals = list(ntree = ntree, mtry = mtry))
+rf_learner_withparams
+
+# to do just basic resampling: it's easy, we just need a resampling instance and resampling
+# can specify a stratify argument here; however, blocking needs to be done when making the task
+my_rdesc <- makeResampleDesc("CV", iters = 8) 
+
+# default measure for resample is the default measure for the task:
+getDefaultMeasure(rf_task_cw)
+resmp_res <- resample(learner = rf_learner_withparams, task = rf_task_cw, resampling = my_rdesc, 
+  measures = my_measures)
+resmp_res
+
+# reassuringly, it's about the same as we already had in the matrix container
+
+# now comes the big question: how do we measure the out of bag error? 
+# for a single training run it's easy
+rf_train <- train(learner = rf_learner_withparams, task = rf_task_cw)
+getLearnerModel(rf_train)
+class(rf_train)
+# to get the out of bag predictions:
+(oob <- getOOBPreds(rf_train, task = rf_task_cw))
+class(oob)
+# this works because one can extract the oob votes from the trained model:
+getLearnerModel(rf_train)[["votes"]]
+# getOOBPreds() then simply combines this with the data from task
+
+performance(oob, measures = list(auc, mmce))
+generateThreshVsPerfData(oob, measures = list(mmce, fpr, tpr, ppv))
+
+# Problem! OOB error doesn't respect blocking! ----------
+getTaskDesc(rf_task_cw)$has.blocking
+getLearnerModel(rf_train)[["oob.times"]]
+head(drugsnfeats)
+
+getLearnerModel()
+```
+
+It looks like using the OOB error will not be feasible. First, it doesn't respect blocking. Second, 
+with small groups it might anyway happen that it's not so different from a LOOCV. So two options: 
+either we stick with nested CV and use LOOCV in both cases. Or we fix the hyperparameters and then 
+use LOOCV only. Since we are limited by number of observations I'd argue for the latter. Has the 
+additional benefit that it doesn't need repeats or stratification. Only disadvantage is that it's 
+computationally more burdensome. Moreover, it's possible that the way how we constructed the nested 
+CV instances is not truly random: not obvious how many 'degrees of freedom' we really have given 
+our blocking and stratification constraints. 
+
+Note also that in Kuhn book, p70, there is a reference that LOOCV should perform similar to 10-fold 
+CV. 
+
+Another option would be to construct our own bagging wrapper 
+(https://mlr.mlr-org.com/articles/tutorial/out_of_bag_predictions.html).
+
+But how does it compare with the AUCs we currently have?
+
+```{r}
+# as a reminder: result with normal 8-fold CV:
+resmp_res
+
+loocv <- makeResampleDesc(method = "LOO")
+loo_res <- resample(learner = rf_learner_withparams, task = rf_task_cw, resampling = loocv, 
+  measures = my_measures)
+class(loo_res)
+
+# good that LOO respects blocking!
+# but how to obtain AUCs?
+loo_res
+loo_res$aggr
+loo_res$measures.train
+loo_res$measures.test
+
+performance(loo_res, measures = my_measures)
+generateThreshVsPerfData(loo_res, my_measures)
+
+# to get predictions:
+loo_res$pred
+# better:
+getRRPredictions(loo_res)
+class(getRRPredictions(loo_res))
+loo_res$pred$data
+
+# ? getting ROC curves? 
+loo_res_pred <- getRRPredictions(loo_res)
+performance(loo_res_pred, measures = my_measures)
+loo_res_threshvsperf <- generateThreshVsPerfData(loo_res_pred, measures = list(mmce, fpr, tpr, ppv))
+# not working
+# plotThreshVsPerf(loo_res_threshvsperf)
+
+# # not working
+# loo_res_pred
+# class(loo_res_pred) <- c("PredictionClassif", "Prediction")
+# loo_res_pred
+# class(loo_res_pred)
+
+loo_res_pred <- getRRPredictions(loo_res)$data
+```
+
+
+Generate a new repeated CV instance that respects blocking. 
+
+```{r}
+
+```
+
+Run model fitting the old way with the new nested CV instance. 
+
+```{r}
+
+```
+
+Run model fitting with a simplified new way. 
+
+```{r}
+
+```
+
+
+
+```{r session_info}
+R.version
+sessionInfo()
+```
+
