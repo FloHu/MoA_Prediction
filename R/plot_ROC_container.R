@@ -22,8 +22,8 @@ plot_ROC_from_container = function(containerObj, moa = "all", by = NULL){
     if(moa == "all"){
         for(containerRow in 1:nrow(containerObj)){
 
-            perfData = containerObj[containerRow, ]$ThreshVsPerfData[[1]]
-            predData = containerObj[containerRow, ]$PredData[[1]]
+            perfData = containerObj[containerRow, ]$thresh_vs_perf[[1]]
+            predData = containerObj[containerRow, ]$pred_data[[1]]
 
             perfData$threshold <- factor(perfData$threshold)
             # so it is possible to just average instead of concatenating folds
@@ -91,8 +91,8 @@ plot_ROC_from_container = function(containerObj, moa = "all", by = NULL){
         plotDataMoa = NULL
         for(containerRow in 1:nrow(containerObj)){
 
-            perfData = containerObj[containerRow, ]$ThreshVsPerfData[[1]]
-            predData = containerObj[containerRow, ]$PredData[[1]]
+            perfData = containerObj[containerRow, ]$thresh_vs_perf[[1]]
+            predData = containerObj[containerRow, ]$pred_data[[1]]
 
             perfData = perfData %>% filter(moa_modelled == moa)
 
