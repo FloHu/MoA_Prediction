@@ -37,8 +37,7 @@ lasso seems to have done fairly well. Let's have a look at the ROC and precision
 again.
 
 ```{r}
-matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
-stability_assessment <- readRDS("./data/programmatic_output/stability_assessment.rds")
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
 
 # this should become the standard colour code for the MoAs:
 moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
@@ -65,30 +64,6 @@ plot_ROC_from_container(
    sub_matrix_container[sub_matrix_container$fitted_model == "classif.glmnet", ], 
    by = "feat_preselect")
 
-# again, 25 pct better - we'd probably have to argue that lasso is better for membrane stress and 
-# protein_synthesis but as we know: problem with stabilities
-# what about partial aucs? 
-# check first the numbers
-
-sub_stability_assessment <- 
-   filter(stability_assessment, 
-          fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-          feat_preselect %in% c("top25pct", "keepall"), 
-          ! chemical_feats, 
-          drug_dosages == "all")
-
-tmp <- 
-   sub_stability_assessment %>%
-   select(-one_of("PredData", "prob.moa_stabilities", "auc_stabilities")) %>%
-   unnest() %>%
-   group_by(feat_preselect, fitted_model, moa_modelled) %>%
-   summarise(median_auc = round(median(auc), digits = 3), 
-             median_part_auc = round(median(part_auc_01), digits = 3))
-View(tmp)
-# conclusions from this table: top25pct is almost always better than keepall
-# random forests is better for DNA and cell_wall, lasso is better for membrane stress and 
-# protein synthesis 
-# these trends are also true for partial AUCs, sometimes the improvement is even more dramatic
 
 # check again with this ROC curve:
 plot_ROC_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ], 
@@ -97,52 +72,6 @@ plot_precRecall_from_container(sub_matrix_container[sub_matrix_container$feat_pr
                                by = "fitted_model")
 
 containerObj <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ]
-
-plot_perf_from_container <- 
-   function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
-            what = c("ROC", "prec-recall"), show_repeats = FALSE, by_row = NULL, 
-            by_col = NULL) {
-      #### TO DO: get correct AUC calculation
-      moa <- match.arg(moa, several.ok = TRUE)
-      what <- match.arg(what)
-      
-      containerObj <- 
-         select(containerObj, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
-                ThreshVsPerfData) %>%
-         unnest() %>%
-         filter(moa_modelled %in% moa)
-      
-      containerObj_averaged <- 
-         group_by(containerObj, moa_modelled, threshold) %>%
-         summarise(fpr = mean(fpr), tpr = mean(tpr), ppv = mean(ppv)) %>%
-         ungroup() %>%
-         mutate(moa_modelled = factor(moa_modelled, levels = moa))
-      
-      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
-      names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
-      # the following step is necessary because we don't want to get a separate ROC curve for each 
-      filter(containerObj, cvrep == "Nested CV 1", threshold > 0.99) %>%
-         arrange(fold, desc(threshold))
-      # training/test set split
-      containerObj <- 
-         group_by(containerObj, moa_modelled, cvrep, threshold) %>%
-         summarise(fpr = mean(fpr), tpr = mean(tpr), ppv = mean(ppv))
-      containerObj$group <- interaction(containerObj$moa_modelled, containerObj$cvrep)
-      
-      p <- ggplot(containerObj_averaged, 
-                  aes(x = if(what == "ROC") fpr else tpr, 
-                      y = if(what == "ROC") tpr else ppv, 
-                      group = moa_modelled, colour = moa_modelled))
-      p <- p + geom_path(aes(colour = moa_modelled), size = 0.75)
-      if (show_repeats) {
-         p <- p + geom_path(data = containerObj, aes(group = group), alpha = 0.2)
-      }
-      p <- p + 
-         scale_colour_manual("MoA", labels = names(my_colours), values = my_colours) + 
-         coord_cartesian(ylim = c(0, 1), xlim = c(0, 1))
-      p
-   }
 
 plot_perf_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ], 
                          moa = "cell_wall", what = "prec-recall", show_repeats = TRUE)

@@ -100,4 +100,54 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
 }
 
 
+plot_perf_from_container <- 
+   function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
+            what = c("ROC", "prec-recall"), show_repeats = FALSE, by_row = NULL, 
+            by_col = NULL) {
+      moa <- match.arg(moa, several.ok = TRUE)
+      what <- match.arg(what)
+      
+      containerObj <- 
+        select(containerObj, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
+          thresh_vs_perf) %>%
+        unnest() %>%
+        filter(moa_modelled %in% moa) %>%
+        arrange(moa_modelled, cvrep, threshold)
+      
+      containerObj_averaged <-
+         group_by(containerObj, moa_modelled, threshold) %>%
+         summarise(tpr_min = min(tpr), tpr_max = max(tpr), tpr_mean = mean(tpr),
+           ppv_min = min(ppv), ppv_max = max(ppv), ppv_mean = mean(ppv), fpr_mean = mean(fpr)) %>%
+         ungroup() %>%
+         mutate(moa_modelled = factor(moa_modelled, levels = moa))
 
+      
+      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+      names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+      
+      p <- ggplot(containerObj_averaged, 
+                  aes(x = if(what == "ROC") fpr_mean else tpr_mean, 
+                      y = if(what == "ROC") tpr_mean else ppv_mean, 
+                      group = moa_modelled, colour = moa_modelled, fill = moa_modelled))
+      p <- p + geom_line(aes(colour = moa_modelled), size = 0.75)
+      if (show_repeats) {
+        p <- p + geom_path(data = containerObj, 
+          aes(x = if(what == "ROC") fpr else tpr, y = if(what == "ROC") tpr else ppv, 
+          group = interaction(cvrep, moa_modelled), colour = moa_modelled), alpha = 0.25, 
+          inherit.aes = FALSE) 
+        # side note: inherits.aes = FALSE is necessary here otherwise ggplot will complain about 
+        # aesthetics from top level not present in containerObj (bug???)
+      }
+      # if (show_ribbon) {
+      #   p <- p + geom_ribbon(data = containerObj_averaged, 
+      #     aes(ymin = if(what == "ROC") tpr_min else ppv_min, 
+      #       ymax = if(what == "ROC") tpr_max else ppv_max), 
+      #     alpha = 0.25, colour = NA)
+      # }
+      p <- p + 
+        scale_colour_manual("MoA", labels = names(my_colours), values = my_colours) + 
+        coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) + 
+        labs(x = if(what == "ROC") "FPR (1-specificity)" else "TPR (recall)", y = if(what == "ROC") "TPR (recall)" else "PPV (precision)") + 
+        guides(fill = FALSE)
+      p
+}
