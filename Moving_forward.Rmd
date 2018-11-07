@@ -31,11 +31,7 @@ TO DO:
 
 * (not yet: retraining the old model and then predict left out drugs. Have to fix data preprocessing 
 first)
-* First show that the old approach using the OOB error leads to the same result (or didn't we use 
-it already?)
 * Then show that using the same approach with a multi-class model leads to similar performance. 
-
-* Compare performance of previous point if using OOB error instead of test set errors. 
 * (compare to a 'naive' KNN model)
 * See how well the multi-class model performs when using drug subclasses (perhaps only do after the 
 following point). 

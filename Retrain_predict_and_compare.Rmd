@@ -31,179 +31,112 @@ theme_set(theme_bw())
 ```
 
 
+# Analysis
+
+## Recapitulating results from `matrix_container`
+
 To recapitulate from "Comparing_performances.Rmd": random forests was better than lasso because of 
 model stabilities. Top20pct of features seems to have worked best. Only for protein synthesis the 
 lasso seems to have done fairly well. Let's have a look at the ROC and precision recall curves 
 again.
 
 ```{r}
-matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
 
 # this should become the standard colour code for the MoAs:
 moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
 
 sub_matrix_container <- 
-   filter(matrix_container, 
-          fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-          feat_preselect %in% c("top25pct", "keepall"), 
-          ! chemical_feats, 
-          drug_dosages == "all")
+   filter(matrix_container_ext, fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+     feat_preselect %in% c("top25pct", "keepall"), ! chemical_feats, drug_dosages == "all")
 
 # remember: this still contains all the drugs, also the ones not belonging to 
 # one of the main MoAs:
 (unique(sub_matrix_container$drug_feature_matrices[[1]]$process_broad))
 
-#### TO DO: fix this function (gives wrong AUCs, colours, layout etc. - see below) #### 
-plot_ROC_from_container(
-   sub_matrix_container[sub_matrix_container$fitted_model == "classif.randomForest", ], 
-   by = c("feat_preselect"))
-
 # almost no difference but 25 pct is more sparse and performs a bit better for membrane_stress
+plot_perf_from_container(sub_matrix_container, row_var = "fitted_model", col_var = "feat_preselect")
+plot_perf_from_container(sub_matrix_container, what = "prec-recall", row_var = "fitted_model", 
+  col_var = "feat_preselect")
 
-plot_ROC_from_container(
-   sub_matrix_container[sub_matrix_container$fitted_model == "classif.glmnet", ], 
-   by = "feat_preselect")
+# AUCs:
+sub_matrix_container %>%
+  select(feat_preselect, fitted_model, perf_measures) %>%
+  unnest() %>% 
+  group_by(fitted_model, feat_preselect, moa_modelled) %>%
+  summarise(mean_auc = mean(auc))
 
-
-# check again with this ROC curve:
-plot_ROC_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ], 
-                        by = "fitted_model")
-plot_precRecall_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ], 
-                               by = "fitted_model")
-
-containerObj <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ]
-
-plot_perf_from_container(sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ], 
-                         moa = "cell_wall", what = "prec-recall", show_repeats = TRUE)
-
-
-# something strange is going on here
-ppv_strangeness <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ]$ThreshVsPerfData[[1]]
-filter(ppv_strangeness, moa_modelled == "dna", cvrep == "Nested CV 2", threshold == 1)
-
-hmm <- sub_matrix_container[sub_matrix_container$feat_preselect == "top25pct", ][1, ]$PredData[[1]]
-filter(hmm, cvrep == "Nested CV 2", prob.moa >= 0.4, moa_modelled == "dna") %>%
-   arrange(desc(prob.moa))
-
+# so the current 'winner' is:
+chosen_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
 ```
 
+<!-- TO DO: work on prediction probabilities, model analysis (improve functions)
 So if we concentrate now on random forests, all dosages, no chemical features, top25pct variance: 
 what prediction probabilities do we get, how are the feature importances distributed? 
 
 More importantly, should this be done on a retrained model? And should we retrain this new model 
 with a different feature set, different dosages (perhaps even the reduced feature set?) 
+-->
 
-```{r}
-# plot prediction probabilities, feature importances
-# not sure about heatmap split - is it a good idea? 
-# use Leonard's function
+## Prediction probabilities of chosen model
 
-chosen_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
-(the_line <- which(matrix_container$fitted_model == "classif.randomForest" &
-                     matrix_container$feat_preselect == "top25pct" & 
-                     ! matrix_container$chemical_feats & 
-                     matrix_container$drug_dosages == "all"))
+```{r, echo = FALSE, eval = TRUE}
+# # plot prediction probabilities, feature importances
+# # not sure about heatmap split - is it a good idea? 
+# # use Leonard's function
+# 
+# chosen_res <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
+(the_line <- which(matrix_container_ext$fitted_model == "classif.randomForest" &
+    matrix_container_ext$feat_preselect == "top25pct" & ! matrix_container_ext$chemical_feats &
+    matrix_container_ext$drug_dosages == "all"))
 my_moa <- "cell_wall"
 
 stopifnot(length(the_line) == 1)
-
-#### TO DO: what does it mean for RF that it's present in x% of models? ####
-# shouldn't we rather care about feature importance? 
-# compare with the bad features 
-# etc. 
-model_analysis(res_obj = chosen_res, matrix_container_line = matrix_container[the_line, ], 
-               moa = my_moa, 
-               model_type = "tree", 
-               feat_imp_thres = 1, # else we get way too many features
-               pdf_filename = "./plots/the_chosen_ model_explanation_cell_wall.pdf")
-
-drugs_pred_prob_from_container(pred_data = matrix_container[the_line, ]$PredData[[1]], 
-                               moa = my_moa, 
-                               main = "Hello world", xlab = "Probability prediction")
-```
-
-
-
-```{r plot_ROC_from_container_new}
-pred_data <- matrix_container$PredData[[the_line]]
-thresh_vs_perf_data <- matrix_container$ThreshVsPerfData[[the_line]]
-moa <- "cell_wall"
-# thresh_vs_perf_data <- 
-#    filter(thresh_vs_perf_data, moa_modelled == moa) %>%
-#    group_by(threshold) %>%
-#    summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
-# View(thresh_vs_perf_data)
 # 
-# target_fpr <- 0.1
-# # get threshold which is closest to an fpr of 0.1:
-# thresh_vs_perf_data$diff <- abs(target_fpr - thresh_vs_perf_data$mean_fpr)
-# (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
-
-plot_prediction_probabilities <- 
-   function(pred_data, thresh_vs_perf_data, moa, fileprefix, fpr_cutoff = 0.1) {
-   # take a pred_data object (= from matrix_container, the PredData column) 
-   # and plot prediction probabilities as a boxplot 
-   # also add a thresh_vs_perf_data object to indicate the fpr cutoff 
-   pred_data <- 
-      filter(pred_data, moa_modelled == moa) %>% 
-      select(prob.moa, drugname_typaslab, truth, conc)
-
-   thresh_vs_perf_data <- 
-      filter(thresh_vs_perf_data, moa_modelled == moa) %>%
-      group_by(threshold) %>%
-      summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
-   
-   # get threshold which is closest to an fpr of 0.1:
-   thresh_vs_perf_data$diff <- abs(fpr_cutoff - thresh_vs_perf_data$mean_fpr)
-   (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
-
-   pred_data$drugndosg <- paste(pred_data$drugname_typaslab, pred_data$conc, sep = "_")
-   pred_data$drugndosg <- fct_reorder(pred_data$drugndosg, .x = pred_data$prob.moa)
-   
-   selector <- 
-      group_by(pred_data, drugname_typaslab, conc, drugndosg) %>%
-      summarise(median_prob.moa = median(prob.moa)) %>%
-      ungroup() %>%
-      group_by(drugname_typaslab) %>%
-      top_n(1, median_prob.moa) %>%
-      pull(drugndosg)
-   
-   p <- ggplot(pred_data[pred_data$drugndosg %in% selector, ], aes(x = drugndosg, y = prob.moa)) + 
-      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
-      geom_hline(yintercept = thresh, colour = "red") + 
-      geom_hline(yintercept = 0.5, linetype = "dotted") + 
-      coord_flip(ylim = c(0, 1)) + 
-      theme_bw()
-   ggsave(filename = paste0("./plots/", fileprefix, "_onedosg.pdf"), plot = p, width = 10, height = 15)
-   
-   # showing everything
-   p <- ggplot(pred_data, aes(x = drugndosg, y = prob.moa)) + 
-      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
-      geom_hline(yintercept = thresh, colour = "red") + 
-      geom_hline(yintercept = 0.5, linetype = "dotted") + 
-      coord_flip(ylim = c(0, 1)) + 
-      theme_bw()
-   ggsave(filename = paste0("./plots/", fileprefix, ".pdf"), plot = p, width = 10, height = 40)
-}
-
-moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
-pwalk(list(moa = moas, fileprefix = paste0(moas, "_probs")), 
-      plot_prediction_probabilities, 
-      pred_data = pred_data, thresh_vs_perf_data = thresh_vs_perf_data)
+# #### TO DO: what does it mean for RF that it's present in x% of models? ####
+# # shouldn't we rather care about feature importance? 
+# # compare with the bad features 
+# # etc. 
+# model_analysis(res_obj = chosen_res, matrix_container_line = matrix_container[the_line, ], 
+#                moa = my_moa, 
+#                model_type = "tree", 
+#                feat_imp_thres = 1, # else we get way too many features
+#                pdf_filename = "./plots/the_chosen_ model_explanation_cell_wall.pdf")
+# 
+# drugs_pred_prob_from_container(pred_data = matrix_container[the_line, ]$PredData[[1]], 
+#                                moa = my_moa, 
+#                                main = "Hello world", xlab = "Probability prediction")
 ```
 
 
-# Retraining models and trying out some stuff
+<!-- like chunk above: rewrite -->
+```{r plot_ROC_from_container_new, echo = FALSE, eval = FALSE}
+# pred_data <- matrix_container$PredData[[the_line]]
+# thresh_vs_perf_data <- matrix_container$ThreshVsPerfData[[the_line]]
+# moa <- "cell_wall"
+# # thresh_vs_perf_data <- 
+# #    filter(thresh_vs_perf_data, moa_modelled == moa) %>%
+# #    group_by(threshold) %>%
+# #    summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
+# # View(thresh_vs_perf_data)
+# # 
+# # target_fpr <- 0.1
+# # # get threshold which is closest to an fpr of 0.1:
+# # thresh_vs_perf_data$diff <- abs(target_fpr - thresh_vs_perf_data$mean_fpr)
+# # (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
+# 
+# moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+# 
+# pwalk(list(moa = moas, fileprefix = paste0(moas, "_probs")), 
+#       plot_prediction_probabilities, 
+#       pred_data = pred_data, thresh_vs_perf_data = thresh_vs_perf_data)
+```
 
-## Retraining random forests with top25pct variance, only the main groups, rest = "test set"
+
+## Retrieving most commonly used hyperparameters
 
 And try here to find best hyperparameters as this makes later retrainings easier, where we can just 
 use the OOB error so we can more easily handle small groups. 
-
-Compare OOB error with CV error. 
-
-If this works might also wanna retrain with reduced feature set.
 
 ```{r}
 # first try to figure out which values were used for mtry and ntree in our favourite result
@@ -214,57 +147,30 @@ getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)$learner.model
 getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)$learner.model$mtry
 
 # little reminder of which row we are talking about 
-matrix_container[the_line, ]
-matrix_container$fitted_model[[the_line]]
-matrix_container$hyperparam_grid[[the_line]]
-dim(matrix_container$drug_feature_matrices[[the_line]])
+matrix_container_ext[the_line, ]
+matrix_container_ext$fitted_model[[the_line]]
+matrix_container_ext$hyperparam_grid[[the_line]]
+dim(matrix_container_ext$drug_feature_matrices[[the_line]])
 
 # let's see what were typically optimal parameters so we don't have to do nested resampling since 
 # we save ourselves the work of tuning - will make the model fittings below much easier
 # we have 10 * 8 optimal hyperparameters per MoA
 (ntrees <- map_dbl(chosen_res, ~ getLearnerModel(.x[["Outer fold 1"]][["model_dna"]])$learner.model$ntree))
 
-extract_params_from_resultsobj <- 
-   function(resobj, moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), param = c("ntree", "mtry")) {
-      # takes a result object from matrix_container and extracts all the ntree/mtry values used 
-      # across all folds and repeats
-      moa <- match.arg(moa)
-      param <- match.arg(param)
-      
-      get_param <- function(fold_contents, moa, param) {
-         # each fold of each repeat contains model and prediction objects from which we 
-         # can extract the corresponding hyperparameters
-         getLearnerModel(fold_contents[[paste0("model_", moa)]])[["learner.model"]][[param]]
-      }
-      
-      access_all_folds <- function(cvrepeat, FUN, ...) {
-         # takes a cvrepeat and accesses all the folds using FUN
-         # ... = additional arguments passed to FUN
-         map(cvrepeat, FUN, ...)
-      }
-      
-      # so what happens here?
-      # the first call to map accesses all slots of the resobj, which are the nested CV repeats 
-      # this accessing is done using access_all_folds + a function: access_all_folds will again 
-      # call map so it will pass all the folds (hence the name) to FUN, which can then access 
-      # the desired values
-      params <- unlist(map(resobj, access_all_folds, FUN = get_param, param = param, moa = moa))
-      return(params)
-   }
-
 # for ntree it seems like only 200 or 500 trees were used:
 moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 all_ntrees <- sapply(moas, extract_params_from_resultsobj, resobj = chosen_res, param = "ntree", 
-                     simplify = FALSE, USE.NAMES = TRUE)
+  simplify = FALSE, USE.NAMES = TRUE)
 # this is funny - perhaps we should have tried different numbers of trees? 
 # anyway, I would see we use 500 from now on - or perhaps even go to 1000
 lapply(all_ntrees, table)
 
 all_mtrys <- sapply(moas, extract_params_from_resultsobj, resobj = chosen_res, param = "mtry", 
-                    simplify = FALSE, USE.NAMES = TRUE)
+  simplify = FALSE, USE.NAMES = TRUE)
 lapply(all_mtrys, table)
-matrix_container$hyperparam_grid[[the_line]]
-dim(matrix_container$drug_feature_matrices[[the_line]])
+matrix_container_ext$hyperparam_grid[[the_line]]
+dim(matrix_container_ext$drug_feature_matrices[[the_line]])
+
 # dna and cell_wall clearly favour 106, membrane_stress and protein_synthesis: less clear, but 
 # the tendency there is more towards 200
 # let's settle for 150, which is around a third of the observations, like it is recommended for 
@@ -274,14 +180,19 @@ dim(matrix_container$drug_feature_matrices[[the_line]])
 So now we're ready to retrain models, we will use ntree = 1000 (immune to overfitting) and 
 mtry = 150. 
 
-First, let's go through the procedure and compare CV with OOB error.
+
+## Playing around with model fitting
+
+Define train and test set.
 
 ```{r}
 my_ntree <- 1000
 my_mtry <- 150
-(my_data <- matrix_container$drug_feature_matrices[[the_line]])
+(my_data <- matrix_container_ext$drug_feature_matrices[[the_line]])
 length(unique(my_data$drugname_typaslab))
 moas
+
+# define my_data for training set and my_data_test for test set
 
 # these we wanna predict later:
 my_data_test <- my_data[!my_data$process_broad %in% moas, ]
@@ -295,9 +206,8 @@ complete_data <- left_join(complete_data, drug_info)
 complete_data <- select(complete_data, drugname_typaslab, conc, process_broad, everything())
 complete_data <- complete_data[, colnames(complete_data) %in% colnames(my_data_test)] # filter
 complete_data <- complete_data[, colnames(my_data_test)] # sort
-my_data_test <- bind_rows(my_data_test, 
-                          filter(complete_data, drugname_typaslab %in% 
-                                    c("CHLOROPROMAZINE", "EPINEPHRINE", "NOREPINEPHRINE")))
+my_data_test <- bind_rows(my_data_test, filter(complete_data, drugname_typaslab %in% 
+    c("CHLOROPROMAZINE", "EPINEPHRINE", "NOREPINEPHRINE")))
 unique(my_data_test$drugname_typaslab)
 table(my_data_test$process_broad)
 
@@ -307,15 +217,19 @@ my_data <- my_data[my_data$process_broad %in% moas, ]
 length(unique(my_data$drugname_typaslab))
 table(my_data$process_broad)
 
-#### TO DO: FIX ####
+
+#### TO DO: FIX already at an earlier stage ------------------------------------------------
 # another thing we will do is to exclude genes with lots of NA values
 # since NA values here were already imputed, need to specify this by hand
 to_exclude <- c("OXYR", "IMP", "ATPC", "GUAB", "YFCA", "PSTA", "GMHB", "RFAP", "LIPA", "YDJI", "FLDA")
 to_exclude %in% colnames(my_data)
 my_data <- select(my_data, -one_of(to_exclude))
 my_data_test <- select(my_data_test, -one_of(to_exclude))
+```
 
-##### GENERATING THE TABLE #####
+Preparing tables for MLR. Try with `cell_wall` only for the time being.
+
+```{r}
 # this one we need for prediction:
 (my_data_mainmoas <- select(my_data, -one_of(c("conc", "drugname_typaslab")))) # keep drugname information? 
 # go for cell_wall first
@@ -323,16 +237,11 @@ my_target <- "cell_wall"
 my_data_mainmoas$process_broad <- ifelse(my_data_mainmoas$process_broad == my_target, 
                                          my_target, 
                                          paste0("not_", my_target))
+```
 
-#(pos_weight <- round(table(my_data_mainmoas$process_broad)[paste0("not_", my_target)] / 
-#                        table(my_data_mainmoas$process_broad)[my_target], digits = 2))
+Making a task and a learner.
 
-# my_weights <- ifelse(my_data_mainmoas$process_broad == my_target, 
-#                      pos_weight, 
-#                      1)
-
-##### MAKING TASK AND LEARNER #####
-
+```{r}
 # same dosages belong together
 # can easily done by blocking argument, construct levels using rle() but first make sure that 
 # different dosages of the same drug haven't been torn apart
@@ -341,36 +250,44 @@ stopifnot(length(unique(my_data$drugname_typaslab)) == length(my_rle$values))
 my_blocks <- factor(rep(seq_along(my_rle$values), my_rle$lengths))
 levels(my_blocks)
 
-(rf.task <- makeClassifTask(data = my_data_mainmoas, target = "process_broad", 
-                            positive = my_target, blocking = my_blocks))
+(rf.task <- makeClassifTask(data = my_data_mainmoas, target = "process_broad", positive = my_target, 
+  blocking = my_blocks))
 
 (rf.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-                           par.vals = list(ntree = 1000, mtry = 150)))
+  par.vals = list(ntree = my_ntree, mtry = my_mtry)))
 
 # check https://mlr-org.github.io/mlr/articles/cost_sensitive_classif.html
 # negative class automatically receives weight 1
 # so I assume the positive weight should get this:
 # but doesn't change anything - supported by the learner? 
 # rf.learn <- makeWeightedClassesWrapper(rf.learner, wcw.weight = pos_weight)
+```
 
-# before we go on to resampling we will "retrain"
-##### RETRAIN #####
+
+Before we go on to resampling let's retrain.
+
+```{r}
 (rf.model <- train(rf.learner, rf.task))
-# class(rf.model)
+class(rf.model)
 getLearnerModel(rf.model)
-# we again have this phenomenon of the negative class being favoured - can we fix this using one of 
-# the strategies dealing with imbalanced classes? 
+```
 
-##### RESAMPLING #####
+We again have this phenomenon of the negative class being favoured - can we fix this using one of 
+the strategies dealing with imbalanced classes? 
+
+*Note* that out of bag error is biased because it doesn't respect blocking!
+
+Do resampling. Note that blocking + stratification is not allowed - our 'old' problem and the reason 
+why in some splits there is no ROC curve.
+
+```{r}
 # doing resampling
-(my_measures <- matrix_container$tuning_measure[[the_line]])
-# not sure why 4th slot = 1st slot
-my_measures[[4]] <- NULL
+(my_measures <- matrix_container_ext$tuning_measure[[the_line]])
 
 rf.rdesc <- makeResampleDesc("CV", iters = 8) # predict = "test" ("both") argument goes here 
-rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, # extract argument!
-                               resampling = rf.rdesc)
-# blocking + stratification not allowed - our 'old' problem
+rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+  resampling = rf.rdesc)
+
 class(rf.resample_result)
 
 rf.resample_result
@@ -383,21 +300,23 @@ class(getRRPredictions(rf.resample_result))
 # this is what we need
 generateThreshVsPerfData(rf.resample_result, measures = list(tpr, fpr, ppv))
 plotROCCurves(generateThreshVsPerfData(rf.resample_result, measures = list(fpr, tpr)))
+```
 
 
-#### MAKING RESAMPLING INSTANCES EMPIRICALLY ####
-# on the one hand: blocking + stratification not possible
-# but also don't wanna bother around with manually tuning, fitting etc.
-# way out: use instances
-# simply write a function that tests if an instance is more or less stratified
-# if it is, keep it, otherwise try again
+### Making resampling instances empirically
 
+On the one hand: blocking + stratification not possible but also don't wanna bother around with 
+manually tuning, fitting etc. way out: use instances. 
+Simply write a function that tests if an instance is more or less stratified if it is, keep it, 
+otherwise try again.
+
+```{r}
 # here's how it works in principle (blocking is considered but stratification we will have to do 
 # ourselves):
 (rin <- makeResampleInstance(rf.rdesc, rf.task))
 (rep_rin <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), rf.task))
-# we could pass this to resample()
-resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rin)
+## we could pass this to resample() but then we will sometimes not get an auc
+# resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rin)
 
 rin$train.inds
 rin$test.inds
@@ -409,9 +328,12 @@ arrange(my_data[rin$train.inds[[1]], ], drugname_typaslab)
 # approach: we already have a repeated CV instance (rep_rin) but will not be properly stratified 
 # so what we will do is to keep trying until we find in total 10 good CV instances and then we 
 # simply replace the indices
+
+# number of observations per MoA, absolute and relative:
 table(my_data$process_broad)
 table(my_data$process_broad) / length(my_data$process_broad)
 
+# number of observations per MoA in a particular training/test set split
 table(my_data$process_broad[rin$train.inds[[1]]])
 table(my_data$process_broad[rin$train.inds[[1]]]) / length(rin$train.inds[[1]])
 
@@ -451,16 +373,15 @@ while (length(cv_instances) < 10) {
 }
 
 #  I somehow can't believe it, let's resample with the list:
-# for (inst in cv_instances[8]) {
-#    r1 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = inst)
-# }
+for (inst in cv_instances[8]) {
+   r1 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = inst)
+}
 
 # what happens actually with the original CV instance? 
 # interestingly, the repeat of the CV is not encoded
 r2 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rep_rin, 
-               models = TRUE)
+  models = TRUE)
 
-## COOL!!! ##
 # so now let's replace the slots in the repeated CV instance above
 my_backup <- list(rep_rin, cv_instances)
 
@@ -468,30 +389,38 @@ rep_rin$train.inds <- flatten(map(cv_instances, "train.inds"))
 rep_rin$test.inds <- flatten(map(cv_instances, "test.inds"))
 
 r2_correct <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
-                       resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+  resampling = rep_rin, models = TRUE, keep.pred = TRUE)
 
+r2_correct$aggr 
+# this is very close to our original result - cool!
+mean(filter(matrix_container_ext$perf_measures[[the_line]], moa_modelled == "cell_wall")$auc)
+```
+
+So now we know that our approach to get a repeated CV instance empirically works. For nested CV one 
+would need to do the same thing internally. 
+
+Let's have a bit of a look at the result:
+
+```{r}
 r2_correct$pred
-getRRPredictions(r2_correct)
+getRRPredictions(r2_correct) # same
 
 # this corresponds almost perfectly to the original curves that we got
-r2_correct_threshdata <- generateThreshVsPerfData(r2_correct, measures = list(fpr, tpr, ppv, tnr, mmce))
+(r2_correct_threshdata <- generateThreshVsPerfData(r2_correct, measures = list(fpr, tpr, ppv, tnr, mmce)))
 plotROCCurves(r2_correct_threshdata)
 plotThreshVsPerf(r2_correct_threshdata) # very useful :)
+```
 
-#####################################################
-#### RETRAINING AND PREDICTING LEFT OUT DRUGS :) ####
-#####################################################
 
+### Retraining and predicting left out drugs
+
+```{r}
 (retrained_rf <- train(learner = rf.learner, task = rf.task))
 getLearnerModel(retrained_rf)
 
 myhead(my_data_test)
-#(my_data_test_fortask <- my_data_test[, -c(1, 2)])
-# my_data_test_fortask$process_broad <- ifelse(my_data_test_fortask$process_broad == my_target, 
-#                                             my_target, 
-#                                             paste0("not_", my_target))
-
 pr <- predict(retrained_rf, newdata = my_data_test)
+pr
 
 (tmp <- cbind(pr$data, my_data_test[, c("drugname_typaslab", "conc", "process_broad")]))
 
@@ -500,38 +429,54 @@ ggplot(tmp, aes(x = factor(conc), y = prob.cell_wall)) +
    facet_wrap( ~ drugname_typaslab, scales = "free_x")
 ```
 
-What about multi-class? Alternatively: train a fifth model for 'other'
+We could now repeat this for all other models ('dna', 'protein_synthesis', ...)
 
-```{r}
-# my_data as it is after line 389
+
+# Training a multi-class model
+
+Using the same new repeated resampling instance as above. Note that most measures won't work 
+anymore, could use mmce or something else. 
+
+```{r, training_multiclass}
+# just as a reminder
 length(unique(my_data$drugname_typaslab))
 unique(my_data$process_broad)
-(my_data_multiclass <- select(my_data, -one_of(c("conc", "drugname_typaslab")))) # keep drugname information? 
+
+(my_data_multiclass <- select(my_data, -one_of(c("conc", "drugname_typaslab"))))
 
 (rf_multi.task <- makeClassifTask(data = my_data_multiclass, target = "process_broad"))
 (rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-                           par.vals = list(ntree = 1000, mtry = 150)))
+  par.vals = list(ntree = 1000, mtry = 150)))
 
 # most measures won't work anymore - multiclass problem! - take mmce
 resampled_multiclass <- resample(learner = rf_multi.learner, task = rf_multi.task, measures = mmce, 
-                                 resampling = rep_rin, models = TRUE, keep.pred = TRUE)
-# so mmce is ~ 1/3
-# with cell-wall model above it was ~ 7.5%
-# but not clear what kind of misclassification error we would get with our five models
-# aggregate errors?
+  resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+```
 
+So the mmce is ~ 1/3. With cell-wall model above it was ~ 7.5%. But not clear what kind of 
+misclassification error we would get with our five models. Would we get more errors from 
+aggregation?
+
+Let's have a look at the predictions:
+
+```{r}
 # so let's check, for each drug and dosage, the probabilities that it gets
-(resampled_multiclass_pred <- resampled_multiclass$pred$data)
+head(resampled_multiclass_pred <- resampled_multiclass$pred$data)
 
 # merge with original information:
-resampled_multiclass_pred <- bind_cols(my_data[resampled_multiclass_pred$id, c(1, 2)], resampled_multiclass_pred)
+resampled_multiclass_pred <- bind_cols(my_data[resampled_multiclass_pred$id, c(1, 2)], 
+  resampled_multiclass_pred)
 resampled_multiclass_pred <- arrange(resampled_multiclass_pred, drugname_typaslab, iter, conc)
 head(resampled_multiclass_pred)
+```
 
+For example, the predictions + IQRs for A22:
+
+```{r}
 a22 <- filter(resampled_multiclass_pred, drugname_typaslab == "A22")
 (a22 <- gather(a22, prob.cell_wall:prob.protein_synthesis, key = "class", value = "probability"))
 a22$repetition <- cut(a22$iter, breaks = seq(from = 0.5, by = 8, length.out = 11), 
-                      labels = as.character(1:10))
+  labels = as.character(1:10))
 (a22 <- 
    group_by(a22, conc, class, truth) %>%
    summarise(ymin = boxplot.stats(probability)$stats[2], 
@@ -539,15 +484,19 @@ a22$repetition <- cut(a22$iter, breaks = seq(from = 0.5, by = 8, length.out = 11
              ymed = median(probability)))
 
 ggplot(a22, aes(x = factor(conc), y = ymed, fill = class)) + 
-   geom_pointrange(aes(ymin = ymin, ymax = ymax, colour = class), alpha = 0.75) + 
-   geom_line(aes(group = class, colour = class)) + 
-   facet_wrap( ~ truth)
+  geom_pointrange(aes(ymin = ymin, ymax = ymax, colour = class), alpha = 0.75) + 
+  geom_line(aes(group = class, colour = class)) + 
+  facet_wrap( ~ truth) + 
+  labs(x = "Concentration", y = "Prediction probability", title = "A22, multi-class prediction")
+```
 
+And now for all drugs:
 
+```{r}
 (multi_melted <- gather(resampled_multiclass_pred, prob.cell_wall:prob.protein_synthesis, 
-                       key = "class", value = "probability"))
+  key = "class", value = "probability"))
 multi_melted$repetition <- cut(multi_melted$iter, breaks = seq(from = 0.5, by = 8, length.out = 11), 
-                               labels = as.character(1:10))
+  labels = as.character(1:10))
 (multi_melted <- 
    group_by(multi_melted, conc, class, truth, drugname_typaslab) %>%
    summarise(ymin = boxplot.stats(probability)$stats[2], 
@@ -564,10 +513,13 @@ p <- ggplot(multi_melted, aes(x = factor(conc), y = ymed, colour = class)) +
    scale_colour_manual("Predicted probability\nfor class", 
                        labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
                        values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a"))
+p
 ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot = p, width = 30, height = 20)
 ```
 
-An attempt at characterising model quality of the multi-class model:
+An attempt to characterise model quality of the multi-class model: 'winner' approach. One can see 
+that this improves accuracy by about 10 percent - but probably should compare this to random 
+guessing.
 
 ```{r}
 # one simple approach: the highest median probability across all dosages wins
@@ -582,8 +534,12 @@ An attempt at characterising model quality of the multi-class model:
 # we should compare this to random guessing
 mean(winners$response == winners$truth)
 mean(winners$response != winners$truth)
+```
 
-View(winners[winners$response != winners$truth, ])
+Notably, stuff that is predicted badly is the same as in the previous models. 
+
+```{r}
+winners[winners$response != winners$truth, ]
 ```
 
 From Kuhn, chapter 11, p294ff.: probability calibration plot. Should also compare with our original 
@@ -619,28 +575,15 @@ ggsave("./plots/probability_calibration.pdf")
 ```
 
 
+<!-- TO DO
+proper comparisons
+data preprocessing
+comparison with KNN
+-->
 
-## Which performance do we get with one multi-class RF model?
+# Comparing with baseline models
 
-First try and compare with same data set as above. 
-
-Then rerun with more drugs, including subgroups.
-
-```{r}
-
-```
-
-
-## RF with binary predictors
-
-Depending on above results. Might be more robust when extending to new data sets.
-
-```{r}
-
-```
-
-
-## Comparing this with a very naive model: KNN
+## KNN
 
 Has certain advantages: less black and white; assumption matches intuition that similar MoA = close 
 in chemical genomics space. Will fail however when other features are included. 
@@ -658,27 +601,17 @@ class(ctrl)
 
 knn.learner <- makeLearner("classif.knn")
 
+# rf.task was with cell_wall only
 res_knn <- tuneParams(learner = knn.learner, task = rf.task, resampling = rep_rin, 
-                      measures = list(mmce), par.set = knn_params, control = ctrl)
+  measures = list(mmce), par.set = knn_params, control = ctrl)
 
-res_knn # random forest result (r2_correct) returns ~ 0.08, so this is worse
-# note that all this stuff is with cell_wall
-res_knn$x
+res_knn
+res_knn$x# this is a bit higher than for the random forests model above:
+r2_correct$aggr 
+
 
 data <- generateHyperParsEffectData(res_knn)
 plotHyperParsEffect(data, x = "k", y = "mmce.test.mean", plot.type = "line")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
 
 

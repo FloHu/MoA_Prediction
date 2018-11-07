@@ -102,10 +102,23 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
 
 plot_perf_from_container <- 
    function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
-            what = c("ROC", "prec-recall"), show_repeats = FALSE, by_row = NULL, 
-            by_col = NULL) {
+            what = c("ROC", "prec-recall"), show_repeats = FALSE, row_var = NULL, col_var = NULL) {
       moa <- match.arg(moa, several.ok = TRUE)
       what <- match.arg(what)
+      facet_flag <- TRUE 
+      
+      if (is.null(col_var) && (!is.null(row_var))) {
+        stop("Please specify either row_var and col_var or only col_var but not only row_var")
+      } else if (is.null(col_var) && is.null(row_var)) {
+        if (nrow(containerObj) != 1) {stop("Without faceting nrow(containerObj) should be equal to 1")}
+        facet_flag <- FALSE
+      } else {
+        facet_formula <- as.formula(paste(as.character(row_var), "~", as.character(col_var)))
+        # check if number of subplots corresponds to number of rows:
+        if (nrow(unique(model.frame(facet_formula, containerObj))) != nrow(containerObj)) {
+          stop("Number of subplots won't match number of rows in containerObj")
+        }
+      }
       
       containerObj <- 
         select(containerObj, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
@@ -115,7 +128,7 @@ plot_perf_from_container <-
         arrange(moa_modelled, cvrep, threshold)
       
       containerObj_averaged <-
-         group_by(containerObj, moa_modelled, threshold) %>%
+         group_by(containerObj, moa_modelled, threshold, feat_preselect, fitted_model, drug_dosages, chemical_feats) %>%
          summarise(tpr_min = min(tpr), tpr_max = max(tpr), tpr_mean = mean(tpr),
            ppv_min = min(ppv), ppv_max = max(ppv), ppv_mean = mean(ppv), fpr_mean = mean(fpr)) %>%
          ungroup() %>%
@@ -144,10 +157,61 @@ plot_perf_from_container <-
       #       ymax = if(what == "ROC") tpr_max else ppv_max), 
       #     alpha = 0.25, colour = NA)
       # }
+      if (facet_flag) p <- p + facet_grid(facet_formula)
       p <- p + 
         scale_colour_manual("MoA", labels = names(my_colours), values = my_colours) + 
         coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) + 
-        labs(x = if(what == "ROC") "FPR (1-specificity)" else "TPR (recall)", y = if(what == "ROC") "TPR (recall)" else "PPV (precision)") + 
+        labs(x = if(what == "ROC") "FPR (1-specificity)" else "TPR (recall)", 
+          y = if(what == "ROC") "TPR (recall)" else "PPV (precision)") + 
         guides(fill = FALSE)
       p
 }
+
+
+plot_prediction_probabilities <- 
+  function(pred_data, thresh_vs_perf_data, moa, fileprefix, fpr_cutoff = 0.1) {
+    # take a pred_data object (= from matrix_container, the PredData column) 
+    # and plot prediction probabilities as a boxplot 
+    # also add a thresh_vs_perf_data object to indicate the fpr cutoff 
+    pred_data <- 
+      filter(pred_data, moa_modelled == moa) %>% 
+      select(prob.moa, drugname_typaslab, truth, conc)
+    
+    thresh_vs_perf_data <- 
+      filter(thresh_vs_perf_data, moa_modelled == moa) %>%
+      group_by(threshold) %>%
+      summarise(mean_fpr = mean(fpr), mean_tpr = mean(tpr))
+    
+    # get threshold which is closest to an fpr of 0.1:
+    thresh_vs_perf_data$diff <- abs(fpr_cutoff - thresh_vs_perf_data$mean_fpr)
+    (thresh <- thresh_vs_perf_data$threshold[which.min(thresh_vs_perf_data$diff)])
+    
+    pred_data$drugndosg <- paste(pred_data$drugname_typaslab, pred_data$conc, sep = "_")
+    pred_data$drugndosg <- fct_reorder(pred_data$drugndosg, .x = pred_data$prob.moa)
+    
+    selector <- 
+      group_by(pred_data, drugname_typaslab, conc, drugndosg) %>%
+      summarise(median_prob.moa = median(prob.moa)) %>%
+      ungroup() %>%
+      group_by(drugname_typaslab) %>%
+      top_n(1, median_prob.moa) %>%
+      pull(drugndosg)
+    
+    p <- ggplot(pred_data[pred_data$drugndosg %in% selector, ], aes(x = drugndosg, y = prob.moa)) + 
+      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
+      geom_hline(yintercept = thresh, colour = "red") + 
+      geom_hline(yintercept = 0.5, linetype = "dotted") + 
+      coord_flip(ylim = c(0, 1)) + 
+      theme_bw()
+    ggsave(filename = paste0("./plots/", fileprefix, "_onedosg.pdf"), plot = p, width = 10, height = 15)
+    
+    # showing everything
+    p <- ggplot(pred_data, aes(x = drugndosg, y = prob.moa)) + 
+      geom_boxplot(aes(fill = truth), outlier.shape = 1, outlier.size = 1) + 
+      geom_hline(yintercept = thresh, colour = "red") + 
+      geom_hline(yintercept = 0.5, linetype = "dotted") + 
+      coord_flip(ylim = c(0, 1)) + 
+      theme_bw()
+    ggsave(filename = paste0("./plots/", fileprefix, ".pdf"), plot = p, width = 10, height = 40)
+  }
+

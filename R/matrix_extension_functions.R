@@ -177,3 +177,34 @@ make_filename <- function(matrix_container_row) {
     "feat_preselect", "chemical_feats")]), collapse = "_"), ".rds")
   return(filename)
 }
+
+extract_params_from_resultsobj <- 
+  function(resobj, moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), param = c("ntree", "mtry")) {
+    # takes a result object from matrix_container and extracts all the ntree/mtry values used 
+    # across all folds and repeats
+    moa <- match.arg(moa)
+    param <- match.arg(param)
+    
+    get_param <- function(fold_contents, moa, param) {
+      # each fold of each repeat contains model and prediction objects from which we 
+      # can extract the corresponding hyperparameters
+      getLearnerModel(fold_contents[[paste0("model_", moa)]])[["learner.model"]][[param]]
+    }
+    
+    access_all_folds <- function(cvrepeat, FUN, ...) {
+      # takes a cvrepeat and accesses all the folds using FUN
+      # ... = additional arguments passed to FUN
+      map(cvrepeat, FUN, ...)
+    }
+    
+    # so what happens here?
+    # the first call to map accesses all slots of the resobj, which are the nested CV repeats 
+    # this accessing is done using access_all_folds + a function: access_all_folds will again 
+    # call map so it will pass all the folds (hence the name) to FUN, which can then access 
+    # the desired values
+    params <- unlist(map(resobj, access_all_folds, FUN = get_param, param = param, moa = moa))
+    return(params)
+  }
+
+
+
