@@ -1,0 +1,121 @@
+---
+title: "Inspecting models 2.0"
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup, library loading
+
+This part is the general setup, whichever model we are using.
+
+```{r setup}
+rm(list = ls())
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+# Aim
+
+To generate a report of performances, prediction probabilities for each drug, and feature 
+importances. Use most important features to generate heatmaps and PCA/tSNE/MDS maps. Builds up on 
+work from Leonard in `Inspecting_models.Rmd`.
+
+
+# Report
+
+## Which models are we talking about?
+
+We will focus on random forests, top25pct, no chemical features, all dosages. 
+
+```{r input_data}
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+chosen_res <- filter_container(matrix_container, dosgs = "all", feats = "top25pct", 
+  chemfeats = FALSE, models = "classif.randomForest")
+stopifnot(nrow(chosen_res) == 1)
+chosen_res
+moas <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
+res_obj <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
+```
+
+## What are the performances?
+
+```{r}
+plot_perf_from_container(chosen_res, what = "ROC")
+plot_perf_from_container(chosen_res, what = "prec-recall")
+```
+
+## How are prediction probabilities distributed? 
+
+### Dosage with highest probability
+
+```{r, fig.height = 10}
+walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+  dosg_to_plot = "highest_prob")
+```
+
+### All dosages
+
+```{r, fig.height = 20}
+walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+  dosg_to_plot = "all")
+```
+
+## Feature importances
+
+```{r}
+# make a data frame with features + present in % of models
+all_combs <- 
+  list(cvrep = names(res_obj), fold = names(res_obj$`Nested CV 1`), 
+    moa = paste0("model_", moas))
+all_combs <- as_tibble(expand.grid(all_combs, stringsAsFactors = FALSE))
+
+l <- pmap_dfr(all_combs, function(cvrep, fold, moa) {
+  #list(expr(res_obj[[!!cvrep]][[!!fold]][[!!moa]]), res_obj[[cvrep]][[fold]][[moa]])
+  # is a list!
+  f <- getFeatureImportance(res_obj[[cvrep]][[fold]][[moa]])$res
+  f <- tibble(gene = names(f), importance = unlist(f), cvrep = cvrep, fold = fold, moa = moa)
+  return(f)
+})
+
+# ???????
+map(l, getFeatureImportance)
+map(l[1:10], getFeatureImportance)
+
+lengths(l)
+l[84] # 7 elements
+l[167] # 8 elements
+
+# fails:
+getFeatureImportance(l[[84]][[2]])
+all_combs[84, ]
+
+# works:
+getFeatureImportance(l[[167]][[2]])
+all_combs[107, ]
+
+
+```
+
+
+
+# Session information
+
+```{r session_info}
+R.version
+sessionInfo()
+```
+

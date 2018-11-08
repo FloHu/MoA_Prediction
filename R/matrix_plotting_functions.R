@@ -215,3 +215,58 @@ plot_prediction_probabilities <-
     ggsave(filename = paste0("./plots/", fileprefix, ".pdf"), plot = p, width = 10, height = 40)
   }
 
+
+plot_highest_probs <- function(pred_data_obj, which_moa = c("cell_wall", "dna", "protein_synthesis", 
+  "membrane_stress"), dosg_to_plot = c("highest_prob", "all")) 
+{
+  # takes pred_data table from matrix_container
+  # have to specify the mode of action of interest
+  # dosg_to_plot: either only plot the dosage of one drug that gets the highest probability 
+  # or all dosages
+  which_moa <- match.arg(which_moa)
+  dosg_to_plot <- match.arg(dosg_to_plot)
+  
+  # pred_data_obj <- chosen_res$pred_data[[1]]
+  pred_data_obj <- pred_data_obj[pred_data_obj$moa_modelled == which_moa, ]
+  pred_data_obj$drug_conc <- paste(pred_data_obj$drugname_typaslab, pred_data_obj$conc, sep = "_")
+  pred_data_obj$process_broad <- ifelse(pred_data_obj$process_broad == which_moa, 
+    which_moa, paste0("not_", which_moa))
+  stopifnot(nrow(pred_data_obj) > 0)
+  
+  winners <- 
+    pred_data_obj %>%
+    # first calculate median probability (across cv repeats) for each drug-concentration combination
+    group_by(drugname_typaslab, drug_conc) %>%
+    summarise(median_prob.moa = median(prob.moa)) %>%
+    # then group them by drug and rank the median probabilities
+    group_by(drugname_typaslab) %>%
+    mutate(prob_rank = rank(median_prob.moa, ties.method = "first")) %>%
+    # choose the drug-concentration combination with the highest rank
+    arrange(desc(prob_rank), .by_group = TRUE) %>%
+    top_n(1) %>% 
+    arrange(desc(median_prob.moa))
+  
+  # and now keep in the original data (which isn't aggregated) the winning drug-concentration 
+  # combination and define a factor so that all the data will be plotted in the correct order
+  pred_data_obj_winners <- filter(pred_data_obj, drug_conc %in% winners$drug_conc)
+  pred_data_obj_winners$drug_conc <- factor(pred_data_obj_winners$drug_conc, 
+    levels = rev(winners$drug_conc))
+  
+  # ranking if all dosages are kept
+  pred_data_obj$drug_conc <- forcats::fct_reorder(pred_data_obj$drug_conc, pred_data_obj$prob.moa)
+  
+  plot_func <- function(data) {
+    ggplot(data, aes(x = drug_conc, y = prob.moa, fill = process_broad)) + 
+      geom_boxplot(outlier.shape = 1, outlier.size = 0.5) + 
+      coord_flip() + 
+      labs(x = "Concentrations across all modes of action", y = "Drug-concentration combination")
+  }
+  
+  if (dosg_to_plot == "highest_prob") {
+    p <- plot_func(pred_data_obj_winners)
+  } else {
+    p <- plot_func(pred_data_obj)
+  }
+  
+  print(p)
+}
