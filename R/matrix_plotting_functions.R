@@ -259,7 +259,8 @@ plot_highest_probs <- function(pred_data_obj, which_moa = c("cell_wall", "dna", 
     ggplot(data, aes(x = drug_conc, y = prob.moa, fill = process_broad)) + 
       geom_boxplot(outlier.shape = 1, outlier.size = 0.5) + 
       coord_flip() + 
-      labs(x = "Concentrations across all modes of action", y = "Drug-concentration combination")
+      labs(x = "Concentrations across all modes of action", y = "Drug-concentration combination", 
+        title = paste0("Prediction probabilities across all CV repeats for ", which_moa))
   }
   
   if (dosg_to_plot == "highest_prob") {

@@ -284,9 +284,16 @@ why in some splits there is no ROC curve.
 # doing resampling
 (my_measures <- matrix_container_ext$tuning_measure[[the_line]])
 
-rf.rdesc <- makeResampleDesc("CV", iters = 8) # predict = "test" ("both") argument goes here 
-rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
-  resampling = rf.rdesc)
+rf.rdesc <- makeResampleDesc("CV", iters = 8) # predict = "test" ("both") argument goes here
+
+my_filename <- "./data/programmatic_output/rf.resample_result.rds"
+if (file.exists(my_filename)) {
+  rf.resample_result <- readRDS(my_filename)
+} else {
+  rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+    resampling = rf.rdesc)
+  saveRDS(rf.resample_result, file = my_filename)
+}
 
 class(rf.resample_result)
 
@@ -373,14 +380,21 @@ while (length(cv_instances) < 10) {
 }
 
 #  I somehow can't believe it, let's resample with the list:
-for (inst in cv_instances[8]) {
-   r1 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = inst)
-}
+# for (inst in cv_instances[8]) {
+#    r1 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = inst)
+# }
 
 # what happens actually with the original CV instance? 
 # interestingly, the repeat of the CV is not encoded
-r2 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rep_rin, 
-  models = TRUE)
+my_filename <- "./data/programmatic_output/r2.rds"
+if (file.exists(my_filename)) {
+  r2 <- readRDS(my_filename)
+} else {
+  r2 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rep_rin, 
+    models = TRUE)
+  saveRDS(r2, file = my_filename)
+}
+
 
 # so now let's replace the slots in the repeated CV instance above
 my_backup <- list(rep_rin, cv_instances)
@@ -388,8 +402,14 @@ my_backup <- list(rep_rin, cv_instances)
 rep_rin$train.inds <- flatten(map(cv_instances, "train.inds"))
 rep_rin$test.inds <- flatten(map(cv_instances, "test.inds"))
 
-r2_correct <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
-  resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+my_filename <- "./data/programmatic_output/r2_correct.rds"
+if (file.exists(my_filename)) {
+  r2_correct <- readRDS(my_filename)
+} else {
+  r2_correct <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+    resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+  saveRDS(r2, file = my_filename)
+}
 
 r2_correct$aggr 
 # this is very close to our original result - cool!
@@ -449,8 +469,15 @@ unique(my_data$process_broad)
   par.vals = list(ntree = 1000, mtry = 150)))
 
 # most measures won't work anymore - multiclass problem! - take mmce
-resampled_multiclass <- resample(learner = rf_multi.learner, task = rf_multi.task, measures = mmce, 
-  resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+
+my_filename <- "./data/programmatic_output/resampled_multiclass"
+if (file.exists(my_filename)) {
+  resampled_multiclass <- readRDS(my_filename)
+} else {
+  resampled_multiclass <- resample(learner = rf_multi.learner, task = rf_multi.task, measures = mmce, 
+    resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+  saveRDS(resampled_multiclass, file = my_filename)
+}
 ```
 
 So the mmce is ~ 1/3. With cell-wall model above it was ~ 7.5%. But not clear what kind of 
@@ -466,7 +493,7 @@ head(resampled_multiclass_pred <- resampled_multiclass$pred$data)
 # merge with original information:
 resampled_multiclass_pred <- bind_cols(my_data[resampled_multiclass_pred$id, c(1, 2)], 
   resampled_multiclass_pred)
-resampled_multiclass_pred <- arrange(resampled_multiclass_pred, drugname_typaslab, iter, conc)
+resampled_multiclass_pred <- arrange(resampled_multiclass_pred, drugname_typaslab, conc, iter)
 head(resampled_multiclass_pred)
 ```
 
@@ -513,7 +540,7 @@ p <- ggplot(multi_melted, aes(x = factor(conc), y = ymed, colour = class)) +
    scale_colour_manual("Predicted probability\nfor class", 
                        labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
                        values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a"))
-p
+# p
 ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot = p, width = 30, height = 20)
 ```
 
@@ -541,6 +568,9 @@ Notably, stuff that is predicted badly is the same as in the previous models.
 ```{r}
 winners[winners$response != winners$truth, ]
 ```
+
+
+### Probability calibration plot
 
 From Kuhn, chapter 11, p294ff.: probability calibration plot. Should also compare with our original 
 1-vs-others approach. 
@@ -575,6 +605,130 @@ ggsave("./plots/probability_calibration.pdf")
 ```
 
 
+## Comparing multi-class probabilities with 1-vs-rest probabilities
+
+For each mode of action: compare probabilities for each observation returned by either 
+(i) multi-class model or (ii) the respective 1-vs-all model. 
+
+```{r}
+# do for each MoA separately
+head(multi_melted)
+head(pred_data_1vsall <- matrix_container_ext$pred_data[[the_line]])
+
+filter(multi_melted, drugname_typaslab == "LEVOFLOXACIN")
+filter(pred_data_1vsall, drugname_typaslab == "LEVOFLOXACIN")
+
+# so the original data hasn't been aggregated across repeats yet
+# the final table should be: drug - conc - multi_or_1vsall median_prob
+# probability of moa_modelled is the probability prob.moa_modelled in the multi-class model
+prob_comp <- ungroup(multi_melted)
+prob_comp$moa_modelled <- str_extract(prob_comp$class, pattern = "cell_wall|dna|protein_synthesis|membrane_stress")
+prob_comp <- rename(prob_comp, 'prob.moa_median' = 'ymed')
+prob_comp <- select(prob_comp, drugname_typaslab, conc, moa_modelled, prob.moa_median)
+head(prob_comp)
+nrow(prob_comp)
+
+# note that this has more drugs because in our multi-class model we only considered the 4 main 
+# modes of action
+# that's also the reason for the left_join
+pred_data_1vsall <- group_by(pred_data_1vsall, drugname_typaslab, conc, moa_modelled) %>%
+  summarise(prob.moa_median = median(prob.moa))
+head(pred_data_1vsall)
+nrow(prob_comp)
+
+prob_comp <- 
+  left_join(prob_comp, pred_data_1vsall, by = c("drugname_typaslab", "conc", "moa_modelled"), 
+  suffix = c('_multi', '_1vsall'))
+
+ggplot(prob_comp, aes(x = prob.moa_median_1vsall, y = prob.moa_median_multi)) + 
+  geom_point() + 
+  facet_wrap( ~ moa_modelled, ncol = 2) + 
+  labs(title = "Comparison of probabilities 1-vs-all and multi-class model")
+
+by(prob_comp, INDICES = prob_comp$moa_modelled, FUN = function(data) {
+  cor(data$prob.moa_median_1vsall, y = data$prob.moa_median_multi, method = "spearman")
+})
+
+# focusing only on values where either prob is > 0.25:
+
+by(prob_comp, INDICES = prob_comp$moa_modelled, FUN = function(data) {
+  data <- data[data$prob.moa_median_1vsall > 0.25 & data$prob.moa_median_multi > 0.25, ]
+  cor(data$prob.moa_median_1vsall, y = data$prob.moa_median_multi, method = "spearman")
+})
+```
+
+
+## "Comparing" ROC curves
+
+Not sure if that makes sense or is needed 
+
+
+## Comparing feature importances
+
+```{r}
+getFeatureImportance(resampled_multiclass$models[[1]])
+
+feat_imps_multi <- imap_dfr(resampled_multiclass$models, function(val, pos) {
+  f <- getFeatureImportance(val)$res
+  f <- tibble(gene = names(f), importance = unlist(f), modelnum = pos)
+})
+
+head(feat_imps_multi)
+```
+
+In that case we don't have any features that only occur in some models. Perhaps because we are 
+using more trees? So in that case, one histogram is enough
+
+```{r}
+all(rle(sort(feat_imps_multi$gene))$lengths == 80)
+colnames(my_data_multiclass)[! colnames(my_data_multiclass) %in% feat_imps_multi$gene]
+
+# so we can easily summarise
+feat_imps_multi <- 
+  group_by(feat_imps_multi, gene) %>%
+  summarise(median_importance = median(importance))
+
+ggplot(feat_imps_multi, aes(x = log2(median_importance))) + 
+  geom_histogram()
+
+fingerprint1_multi <- feat_imps_multi$gene[log2(feat_imps_multi$median_importance) > -2.5]
+fingerprint2_multi <- feat_imps_multi$gene[log2(feat_imps_multi$median_importance) > 0]
+
+# compare with fingerprints from 1-vs-all models
+fingerprints_onevsall <- readRDS("./data/programmatic_output/fingerprints_1vsall.rds")
+
+library(VennDiagram)
+venn.plot <- venn.diagram(
+  list("fingerprint1_1vsall" = fingerprints_onevsall$fingerprint1, 
+    "fingerprint1_multi" = fingerprint1_multi), 
+  imagetype = "png", 
+  "./plots/fingerprint1.png"
+)
+
+venn.plot <- venn.diagram(
+  list("fingerprint2_1vsall" = fingerprints_onevsall$fingerprint2, 
+    "fingerprint2_multi" = fingerprint2_multi), 
+  imagetype = "png", 
+  "./plots/fingerprint2.png"
+)
+
+feat_imps_nest <- fingerprints_onevsall$feat_imps_nest
+# alternatively, we can plot a correlation:
+tmp <- left_join(feat_imps_multi, feat_imps_nest[, c("moa", "gene", "median_importance")], 
+  by = "gene", suffix = c("_multi", "_1vsall"))
+
+ggplot(tmp, aes(x = log2(median_importance_1vsall), y = log2(median_importance_multi))) + 
+  geom_point() + 
+  facet_wrap( ~ moa) + 
+  labs(title = "Comparison of feature importances 1-vs-all and multi-class model")
+
+by(data = tmp, tmp$moa, function(data) {
+  cor(x = data$median_importance_1vsall, y = data$median_importance_multi, method = "spearman")
+})
+```
+
+
+
 <!-- TO DO
 proper comparisons
 data preprocessing
@@ -588,7 +742,7 @@ comparison with KNN
 Has certain advantages: less black and white; assumption matches intuition that similar MoA = close 
 in chemical genomics space. Will fail however when other features are included. 
 
-```{r}
+```{r, eval = FALSE}
 getLearnerParamSet("classif.knn")
 
 (knn_params <- makeParamSet(
@@ -606,7 +760,7 @@ res_knn <- tuneParams(learner = knn.learner, task = rf.task, resampling = rep_ri
   measures = list(mmce), par.set = knn_params, control = ctrl)
 
 res_knn
-res_knn$x# this is a bit higher than for the random forests model above:
+res_knn$x # this is a bit higher than for the random forests model above:
 r2_correct$aggr 
 
 
