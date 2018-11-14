@@ -9,15 +9,13 @@ output:
     fig_width: 6
     number_sections: yes
     toc: yes
-    toc_depth: 2
+    toc_depth: 3
     toc_float: yes
 editor_options: 
   chunk_output_type: console
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
 rm(list = ls())
@@ -27,6 +25,8 @@ source("./R/ipak.R")
 source("./setup.R")
 ```
 
+
+# Session info
 
 ```{r session_info}
 R.version

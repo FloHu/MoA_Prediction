@@ -29,8 +29,8 @@ source("./setup.R")
 
 TO DO:
 
-* (not yet: retraining the old model and then predict left out drugs. Have to fix data preprocessing 
-first)
+* (not yet: retraining the old model and then predict left out drugs. Have to fix data 
+preprocessing first)
 * Then show that using the same approach with a multi-class model leads to similar performance. 
 * (compare to a 'naive' KNN model)
 * See how well the multi-class model performs when using drug subclasses (perhaps only do after the 
