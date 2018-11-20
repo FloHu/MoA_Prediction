@@ -37,7 +37,7 @@ datadir <- "./run_results_from_server/matrix_container_result"
 ## Current 1-vs-rest 'production' model
 
 To recapitulate from "Comparing_performances.Rmd": random forests was better than lasso because of 
-model stabilities. Top20pct of features seems to have worked best. Only for protein synthesis the 
+model stabilities. Top25pct of features seems to have worked best. Only for protein synthesis the 
 lasso seems to have done fairly well.
 
 ```{r}
@@ -279,7 +279,7 @@ prob_calib <-
    summarise(true_fraction = mean(truth == prob_is_for))
 prob_calib
 
-ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) + 
+p0 <- ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) + 
    geom_point() + 
    geom_line(aes(group = prob_is_for)) + 
    geom_abline(slope = 1/10, linetype = "dotted") + 
@@ -290,6 +290,7 @@ ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) +
                       labels = as.character(10 * seq(from = 0, to = 9, by = 1))) + 
    labs(x = "Probability bin midpoint (10% bins)", y = "Observed event percentage", 
         title = "Probability calibration plot for multi-class RF")
+p0
 
 ggsave("./plots/probability_calibration.pdf")
 ```
@@ -334,10 +335,11 @@ prob_comp <-
   left_join(prob_comp, pred_data_1vsall, by = c("drugname_typaslab", "conc", "moa_modelled"), 
   suffix = c('_multi', '_1vsall'))
 
-ggplot(prob_comp, aes(x = prob.moa_median_1vsall, y = prob.moa_median_multi)) + 
+p1 <- ggplot(prob_comp, aes(x = prob.moa_median_1vsall, y = prob.moa_median_multi)) + 
   geom_point() + 
   facet_wrap( ~ moa_modelled, ncol = 2) + 
   labs(title = "Comparison of probabilities 1-vs-all and multi-class model")
+p1
 
 by(prob_comp, INDICES = prob_comp$moa_modelled, FUN = function(data) {
   cor(data$prob.moa_median_1vsall, y = data$prob.moa_median_multi, method = "spearman")
@@ -451,6 +453,159 @@ plotHyperParsEffect(data, x = "k", y = "mmce.test.mean", plot.type = "line")
 
 # Section 2: Improving models
 
+First we need a quick and informative way of comparing models with each other. In the sections 
+above we have a set of 1-vs-rest and one multi-model 'production' model. Both are likely to change 
+because of data processing steps and certain things we wanna try to improve. 
+
+<!--
+Both 1-vs-rest and multi-class models will come in several variants (improved preprocessing and 
+other things). So we need an easy way to find out which one is better but also to peek a bit into 
+the models. 
+
+Ways of comparing: metrics, ROC curves, probabilities, feature importances.
+
+Comparisons: 
+(i) When using many models, use a 'large-scale' type of comparison that generates tables 
+or other kinds of overview, like in Comparing_performances.Rmd.
+(ii) Small scale comparisons when looking at 1-vs-1, 1-vs-multi, multi-vs-multi.
+(iii) Make also some report function to get a quick overview on a specific model. 
+
+Needed: a quick way of making new models. We already have one for the new multi-class model, we 
+would also need one for new instances of the 1-vs-rest models - either locally or on the cluster. 
+
+Perhaps we should think about using generic functions here? 
+
+Btw ... to directly embed something in Rmarkdown use:
+![my](./plots/cell_wall_probs.pdf)
+
+to just link to a local file use:
+<a href="./plots/cell_wall_probs.pdf">link</a>
+-->
+
+```{r}
+# so first let's get on the same page with which models we are dealing with:
+# View(resampled_multiclass)
+# View(chosen_res)
+pryr::object_size(resampled_multiclass)
+pryr::object_size(chosen_res)
+# - quite unwieldy, about 0.5 and 2.1 GB, respectively 
+
+class(resampled_multiclass)
+class(chosen_res)
+
+report_on_model <- function(modelobj) UseMethod("report_on_model")
+
+report_on_model.list <- function(modelobj) {
+  # cat(deparse(substitute(modelobj)), " in function for list\n")
+  # print(pryr::object_size(modelobj))
+}
+
+report_on_model.ResampleResult <- function(modelobj) {
+  # cat(deparse(substitute(modelobj)), " in function for ResampleResult\n")
+  # print(pryr::object_size(modelobj))
+}
+
+report_on_model(resampled_multiclass)
+report_on_model(chosen_res)
+
+report_on_model <- function() {
+  # input: either a 1-vs-rest model or a resampled_multiclass model 
+  # consider making this a generic function
+  
+  # if 1-vs-rest model:
+    # - report on a number of metrics
+    # - plot ROC and prec-recall curves (including (partial) AUCs)
+    # ? plot prediction probabilities
+    # - plot feature importances
+  
+  # if multi-class model:
+    # - report on a number of metrics
+    # ??? plot ROC curve?
+    # - plot confusion matrix
+    # - plot probability calibration plot
+    # - plot probabilities
+    # plot feature importances
+    # etc.
+}
+
+compare_2_models <- function() {
+  # play around with multiple dispatch
+  # first compare certain metrics, depending on combination
+  # comparison plots:
+  
+  # 1-vs-rest + 1-vs-rest:
+  # can simply compare ROC and precision-recall curves, can also compare probabilities
+  
+  # 1-vs-rest + multi-class:
+  # see notebook
+  
+  # multi-class vs. multi-class:
+  # perhaps confusion matrices and probabilities? 
+  
+  # generate plots using report_on_model, then arrange them side by side using cowplot
+  # after that, try manually adding annotations
+  
+  # INPUT: 
+    # matrix_container_ext rows - can also come from two different matrix_container_ext objects
+}
+
+model1 <- matrix_container_ext[9, ]
+model2 <- matrix_container_ext[10, ]
+file <- "./plots/compare_1vsrest.pdf"
+
+theme_update()
+
+compare_1vsrest_models <- function(model1, model2, file) {
+  # INPUT: 2 matrix_container_ext rows
+  # OUTPUT: a pdf file 
+  stopifnot(nrow(model1) == 1 & nrow(model2) == 1)
+  # ROC curves:
+  model1_ROC <- plot_perf_from_container(model1)
+  model2_ROC <- plot_perf_from_container(model2)
+  # precision-recall curves:
+  model1_prc <- plot_perf_from_container(model1, what = "prec-recall")
+  model2_prc <- plot_perf_from_container(model2, what = "prec-recall")
+  # probabilities:
+  model1_probs <- plot_highest_probs(model1$pred_data[[1]], dosg_to_plot = "highest_prob", 
+    which_moa = "cell_wall")
+  model2_probs <- plot_highest_probs(model2$pred_data[[1]], dosg_to_plot = "highest_prob", 
+    which_moa = "cell_wall")
+  
+  output <- cowplot::plot_grid(model1_ROC, model2_ROC, model1_prc, model2_prc, 
+    labels = c("A", "B", "C", "D"))
+  cowplot::save_plot(filename = file, plot = output, ncol = 2, nrow = 2, 
+    base_width = 6, base_height = 6)
+}
+
+compare_1vsrest_models(model1, model2, file)
+
+```
+
+
+```{r}
+# try those things:
+# problem: if several ROC curves are plotted, cannot easily put the AUC on top of the plot
+# because ggplot2 doesn't allow separate legends - would have to use some grid arrangement stuff 
+# but then the rest of the code would get more complicated
+# use tables in that case
+l <- plot_perf_from_container(matrix_container_ext[c(9, 10), ], col_var = "chemical_feats")
+l <- plot_perf_from_container(matrix_container_ext[9, ])
+l <- plot_perf_from_container(matrix_container_ext[c(1:4), ], col_var = "chemical_feats", 
+  row_var = "feat_preselect")
+
+l
+
+# Multiple plots on the same or different pages
+pdf(paper = "a4", file = "./plots/test.pdf")
+print(p0)
+print(p1)
+dev.off()
+
+# multipage:
+pdf(paper = "a4", file = "./plots/test2.pdf")
+cowplot::plot_grid(p0, p1, nrow = 2)
+dev.off()
+```
 
 
 # Session info 

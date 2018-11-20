@@ -21,6 +21,10 @@ ipak(circlize)
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
+# change plot defaults:
+theme_set(theme_bw())
+theme_update(text = element_text(size = 12))
+
 # dynamically assign number of processors
 # if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
 #    parallelStartMulticore(cpus = 10)

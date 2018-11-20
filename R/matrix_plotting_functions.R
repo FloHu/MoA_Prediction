@@ -120,6 +120,20 @@ plot_perf_from_container <-
         }
       }
       
+      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+      names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+      
+      perf_measures <- 
+        select(containerObj, perf_measures) %>%
+        unnest() %>% 
+        select(moa_modelled, auc, part_auc_01) %>%
+        group_by(moa_modelled) %>%
+        summarise(mean_auc = round(mean(auc), digits = 2), 
+          mean_part_auc_01 = round(mean(part_auc_01), digits = 3))
+      
+      # make same order as in my_colours
+      perf_measures <- perf_measures[match(perf_measures$moa_modelled, names(my_colours)), ]
+      
       containerObj <- 
         select(containerObj, drug_dosages, feat_preselect, chemical_feats, fitted_model, 
           thresh_vs_perf) %>%
@@ -133,16 +147,12 @@ plot_perf_from_container <-
            ppv_min = min(ppv), ppv_max = max(ppv), ppv_mean = mean(ppv), fpr_mean = mean(fpr)) %>%
          ungroup() %>%
          mutate(moa_modelled = factor(moa_modelled, levels = moa))
-
-      
-      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
-      names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
       
       p <- ggplot(containerObj_averaged, 
                   aes(x = if(what == "ROC") fpr_mean else tpr_mean, 
                       y = if(what == "ROC") tpr_mean else ppv_mean, 
                       group = moa_modelled, colour = moa_modelled, fill = moa_modelled))
-      p <- p + geom_line(aes(colour = moa_modelled), size = 0.75)
+      p <- p + geom_line(aes(colour = moa_modelled), size = 0.75) + 
       if (show_repeats) {
         p <- p + geom_path(data = containerObj, 
           aes(x = if(what == "ROC") fpr else tpr, y = if(what == "ROC") tpr else ppv, 
@@ -151,22 +161,31 @@ plot_perf_from_container <-
         # side note: inherits.aes = FALSE is necessary here otherwise ggplot will complain about 
         # aesthetics from top level not present in containerObj (bug???)
       }
-      # if (show_ribbon) {
-      #   p <- p + geom_ribbon(data = containerObj_averaged, 
-      #     aes(ymin = if(what == "ROC") tpr_min else ppv_min, 
-      #       ymax = if(what == "ROC") tpr_max else ppv_max), 
-      #     alpha = 0.25, colour = NA)
-      # }
       if (facet_flag) p <- p + facet_grid(facet_formula)
       p <- p + 
-        scale_colour_manual("MoA", labels = names(my_colours), values = my_colours) + 
         coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) + 
         labs(x = if(what == "ROC") "FPR (1-specificity)" else "TPR (recall)", 
           y = if(what == "ROC") "TPR (recall)" else "PPV (precision)") + 
         guides(fill = FALSE)
-      p
+      
+      if (!facet_flag & what == "ROC") {
+        p <- p + 
+        scale_colour_manual("Mode of action:", labels = paste0(names(my_colours), " \n(AUC: ", 
+          perf_measures$mean_auc, "; AUC @10% FPR: ", perf_measures$mean_part_auc_01, ")\n"), 
+          values = my_colours) + 
+        theme(legend.position = c(0.7, 0.2))
+      } else {
+        p <- p + 
+        scale_colour_manual("Mode of action:", labels = paste0(names(my_colours)), 
+          values = my_colours) + 
+        #theme(legend.position = c(0.7, 0.2))
+        theme(legend.position = "bottom")
+      }
+      
+      #return(list(plot = p, containerObj_averaged = containerObj_averaged, 
+      #  containerObj = containerObj))
+      return(p)
 }
-
 
 plot_prediction_probabilities <- 
   function(pred_data, thresh_vs_perf_data, moa, fileprefix, fpr_cutoff = 0.1) {
