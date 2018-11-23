@@ -186,13 +186,14 @@ And now for all drugs:
 ```{r}
 # may also want to show this as a heatmap, compare fig. 11.4 in Kuhn book
 p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
-   geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
-   geom_line(aes(group = predicted_prob), size = 1) + 
-   facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
-   geom_hline(yintercept = c(0.25, 0.5, 0.75), linetype = "dotted") + 
-   scale_colour_manual("Predicted probability\nfor class", 
-                       labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
-                       values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a"))
+  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
+  geom_line(aes(group = predicted_prob), size = 1) + 
+  facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
+  geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
+  scale_colour_manual("Predicted probability\nfor class", 
+    labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
+    values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
+  coord_cartesian(ylim = c(0, 1))
 
 suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot = p, width = 30, 
   height = 20))
@@ -369,6 +370,7 @@ First we need a quick and informative way of comparing models with each other. I
 above we have a set of 1-vs-rest and one multi-model 'production' model. Both are likely to change 
 because of data processing steps and certain things we wanna try to improve. 
 
+## Demonstration of how models can be compared
 
 ```{r}
 # so first let's get on the same page with which models we are dealing with:
@@ -394,8 +396,203 @@ model2_mc <- resampled_multiclass
 compare_multiclass_models(model1_mc, model2_mc, file = "./plots/compare_multiclass.pdf")
 ```
 
+## Trying to improve classification
+
+<!-- 
+Structure not yet clear, but start with the following:
+
+1) IMPROVING STUFF:
+  - require a minimum number of interactions, exclude strange genes
+  - correlate dosages/predictions with MIC data (special attention to protein synthesis)
+  - exclude some drugs? 
+  - weighting observations? 
+  - remove/merge correlated features (could try PCA for predictor collinearity)
+2) TRYING OUT STUFF:
+  - permuted labels
+  - switching to LOOCV
+  - binarise predictors, take q-values into consideration somehow
+  - feature selection in inner loop
+3) CLASSIFICATION OF SUBGROUPS
+4) UNSUPERVISED APPROACHES
+5) BENCHMARK EXPERIMENT
+-->
+
+### Checking MICs
+
+Looking at the MICs does support the idea that the closer a drug dosage is to the MIC the more 
+likely it is to get a high probability for the correct class. It could be interesting to plot on 
+top of that the number of significant interactions per drug-dosage combination. Could be useful 
+to only keep the 2 dosages which are closest to the MIC. Weighting? 
+
+```{r, check_mics}
+# # already run:
+# source("./parse_MIC_data.R")
+head(multicl_pred_melt)
+head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
+
+multicl_pred_melt_micinfo <- 
+  left_join(multicl_pred_melt, mics)
+
+# use slice() instead of top_n(), the latter implies some type of ordering!
+(helper_frame <- multicl_pred_melt_micinfo %>%
+    group_by(drugname_typaslab) %>%
+    slice(1) %>%
+    mutate(label = as.character(mic_curated)))
+
+helper_frame$label[is.na(helper_frame$label)] <- "NA"
+helper_frame$label <- paste0("MIC: ", helper_frame$label, "\n", "resistant: ", 
+  ifelse(helper_frame$resistant, "yes", "no"))
+
+# note that hjust = 0 is needed for geom_text() for left justification
+# geom_text will respect
+p <- 
+  multicl_pred_melt_micinfo %>%
+  #filter(drugname_typaslab %in% c("NOVOBIOCIN", "BACITRACIN", "AMIKACIN")) %>%
+  ggplot(aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
+  geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
+  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
+  geom_line(aes(group = predicted_prob), size = 1) + 
+  facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
+    geom_text(data = helper_frame, #helper_frame[helper_frame$drugname_typaslab %in% c("AMIKACIN", "NOVOBIOCIN", "BACITRACIN"), ], 
+      aes(x = 1, y = 0.9, label = label), hjust = 0, inherit.aes = FALSE) + 
+  scale_colour_manual("Predicted probability\nfor class", 
+                     labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
+                     values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
+  coord_cartesian(ylim = c(0, 1))
+
+suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf", plot = p, 
+  width = 30, height = 20))
+```
+
+<!--
+The way I see this going forward: 
+1) Check how to remove collinear features (perhaps merge them)
+2) Do all this bad feature, bad drugs removal, feature merging, weighting (?), and, on *that* 
+   data, do the topx% selection. 
+3) Do one run with only (2), then one run with (2) and +- the 2 "best" dosages, then one run with a 
+feature selection wrapper (again perhaps +-) - revival of matrix container? 
+-->
+
+### Merging collinear features
+
+First we need to select a cutoff. How do pairs correlate: 
+
+* Between different dosages of one drug (within drug correlation)
+* Between drugs (between drug correlation)
+* Between genes of the same protein complex
+
+Question is also: which correlation metric do we use? 
+
+```{r}
+# I'd suggest:
+# (i) Correlation matrix 
+# (ii) PCA
+# (iii) Distributions of correlation
+# (iv) Do i-iii by group (see above)
+# (iii) Estimate threshold based on protein complexes
+
+# ignore chemical features
+
+drug_feats <- filter_container(matrix_container_ext, dosgs = "all", feats = "keepall", 
+  chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]]
+
+feats <- drug_feats[, -c(1:3)]
+dim(feats)
+feats_cor <- cor(feats, method = "spearman")
+
+# quite a large and unwieldy plot - but still shows a few useful clusters:
+png("./plots/Correlation_all_by_all.png", width = 90, height = 90, units = "cm", res = 500)
+corrplot::corrplot(feats_cor, method = "color", order = "hclust", tl.cex = 0.1)
+dev.off()
+
+# to get a distribution of the correlations:
+# get all possible combinations:
+# gtools::combinations() doesn't work because option expressions is too low
+# when increasing it, it still doesn't work because of some C stack issue
+# - the function is probably written in a recursive manner
+# so let's reimplement it with a loop
+from <- 1
+to <- ncol(feats)
+choose(to, 2)
+(my_combs <- matrix(vector("numeric"), nrow = choose(to, 2), ncol = 2))
+
+{
+  counter <- 1
+  for (i in seq_len(to-1)) {
+    for (j in (i+1):to) {
+      my_combs[counter, ] <- c(i, j)
+      counter <- counter + 1
+    }
+  }
+}
+
+stopifnot(nrow(my_combs) == choose(to, 2) && (!any(is.na(my_combs))))
+
+(my_rows <- my_combs[, 1])
+(my_cols <- my_combs[, 2])
+
+corpairs <- tibble(
+  drugA = rownames(feats_cor)[my_rows], 
+  drugB = colnames(feats_cor)[my_cols], 
+  spear_cor = feats_cor[my_combs])
+corpairs
+
+ggplot(corpairs, aes(x = abs(spear_cor))) + 
+  geom_histogram(bins = 90)
+
+# retrieving all protein complexes, code from notebook 1 (Leonard) -----------------------
+cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
+(load("../dbsetup/data/genesWithEG_ID.RData"))
+gene_synonyms$synonym = toupper(gene_synonyms$synonym)
+
+genes_cmplx = lapply(cmplx$`Genes of polypeptide, complex, or RNA`,
+        FUN = function(x){
+            genenames = str_match_all(string = x, pattern = "[a-zA-Z]{3,4}")
+            genenames = toupper(unlist(genenames))
+       })
+
+names(genes_cmplx) = cmplx$`Protein-Complexes`
+genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
+
+lens = lapply(genes_cmplx, function(x){length(x)})
+(genes_cmplx = genes_cmplx[lens != 1])
+
+genes_cmplx
+
+# add to each pair the information if the two genes are also part of the same protein complex
+genes_cmplx_v <- unique(unname(unlist(genes_cmplx)))
+
+corpairs$in_same_cmplx <- 
+  map2_lgl(corpairs$drugA, corpairs$drugB, function(.drugA, .drugB) {
+    drugpair <- c(.drugA, .drugB)
+    if (!all(c(.drugA, .drugB) %in% genes_cmplx_v)) {
+      FALSE
+      } else {
+        any(map_lgl(genes_cmplx, ~ (sum(.x %in% drugpair) == 2)))
+      }
+    })
+# only 403 pairs? 
+View(corpairs[corpairs$in_same_cmplx, ])
+
+ggplot(corpairs, aes(x = abs(spear_cor))) + 
+  geom_histogram(bins = 45) + 
+  facet_wrap( ~ in_same_cmplx, scales = "free")
+
+ggplot(corpairs, aes(x = abs(spear_cor))) + 
+  geom_histogram(bins = 45, aes(fill = in_same_cmplx)) + 
+  #facet_wrap( ~ in_same_cmplx, scales = "free") + 
+  scale_x_continuous(limits = c(0.5, 1))
+
+# so we'd probably choose a cutoff of 0.6 or so 
 
 
+```
+
+```{r}
+
+
+
+```
 
 # Session info 
 
