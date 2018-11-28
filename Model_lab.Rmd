@@ -473,7 +473,7 @@ The way I see this going forward:
 feature selection wrapper (again perhaps +-) - revival of matrix container? 
 -->
 
-### Merging collinear features
+### Removing collinear features
 
 First we need to select a cutoff. How do pairs correlate: 
 
@@ -481,64 +481,35 @@ First we need to select a cutoff. How do pairs correlate:
 * Between drugs (between drug correlation)
 * Between genes of the same protein complex
 
-Question is also: which correlation metric do we use? 
 
 ```{r}
-# I'd suggest:
-# (i) Correlation matrix 
-# (ii) PCA
-# (iii) Distributions of correlation
-# (iv) Do i-iii by group (see above)
-# (iii) Estimate threshold based on protein complexes
-
-# ignore chemical features
-
 drug_feats <- filter_container(matrix_container_ext, dosgs = "all", feats = "keepall", 
   chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]]
 
 feats <- drug_feats[, -c(1:3)]
-dim(feats)
+
+# ----------------------------------------------------------------------------------------
+# NOTE: will remove here already features with many NA values - will be removed at an earlier 
+# stage in later runs (see also notebook "Inspecting_the_matrix.Rmd"):
+(NA_feats <- readRDS("./data/programmatic_output/feats_to_remove_many_NAs.rds"))
+feats <- select(feats, -one_of(NA_feats))
+# ----------------------------------------------------------------------------------------
+
+feats_m <- as.matrix(feats)
 feats_cor <- cor(feats, method = "spearman")
 
 # quite a large and unwieldy plot - but still shows a few useful clusters:
-png("./plots/Correlation_all_by_all.png", width = 90, height = 90, units = "cm", res = 500)
-corrplot::corrplot(feats_cor, method = "color", order = "hclust", tl.cex = 0.1)
-dev.off()
+if (!file.exists("./plots/Correlation_all_by_all.png")) {
+  png("./plots/Correlation_all_by_all.png", width = 90, height = 90, units = "cm", res = 500)
+  corrplot::corrplot(feats_cor, method = "color", order = "hclust", tl.cex = 0.1)
+  dev.off()
+}
 
 # to get a distribution of the correlations:
 # get all possible combinations:
-# gtools::combinations() doesn't work because option expressions is too low
-# when increasing it, it still doesn't work because of some C stack issue
-# - the function is probably written in a recursive manner
-# so let's reimplement it with a loop
-from <- 1
-to <- ncol(feats)
-choose(to, 2)
-(my_combs <- matrix(vector("numeric"), nrow = choose(to, 2), ncol = 2))
 
-{
-  counter <- 1
-  for (i in seq_len(to-1)) {
-    for (j in (i+1):to) {
-      my_combs[counter, ] <- c(i, j)
-      counter <- counter + 1
-    }
-  }
-}
-
-stopifnot(nrow(my_combs) == choose(to, 2) && (!any(is.na(my_combs))))
-
-(my_rows <- my_combs[, 1])
-(my_cols <- my_combs[, 2])
-
-corpairs <- tibble(
-  drugA = rownames(feats_cor)[my_rows], 
-  drugB = colnames(feats_cor)[my_cols], 
-  spear_cor = feats_cor[my_combs])
-corpairs
-
-ggplot(corpairs, aes(x = abs(spear_cor))) + 
-  geom_histogram(bins = 90)
+corpairs <- melt_cormat_to_pairs(feats_cor)
+arrange(corpairs, desc(cor))
 
 # retrieving all protein complexes, code from notebook 1 (Leonard) -----------------------
 cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
@@ -556,43 +527,305 @@ genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
 
 lens = lapply(genes_cmplx, function(x){length(x)})
 (genes_cmplx = genes_cmplx[lens != 1])
-
-genes_cmplx
+saveRDS(genes_cmplx, file = "./data/programmatic_output/genes_cmplx.rds")
 
 # add to each pair the information if the two genes are also part of the same protein complex
 genes_cmplx_v <- unique(unname(unlist(genes_cmplx)))
 
 corpairs$in_same_cmplx <- 
-  map2_lgl(corpairs$drugA, corpairs$drugB, function(.drugA, .drugB) {
-    drugpair <- c(.drugA, .drugB)
-    if (!all(c(.drugA, .drugB) %in% genes_cmplx_v)) {
+  map2_lgl(corpairs$featA, corpairs$featB, function(.featA, .featB) {
+    drugpair <- c(.featA, .featB)
+    if (!all(c(.featA, .featB) %in% genes_cmplx_v)) {
       FALSE
       } else {
         any(map_lgl(genes_cmplx, ~ (sum(.x %in% drugpair) == 2)))
       }
     })
-# only 403 pairs? 
+# only 395 pairs
 View(corpairs[corpairs$in_same_cmplx, ])
 
-ggplot(corpairs, aes(x = abs(spear_cor))) + 
-  geom_histogram(bins = 45) + 
-  facet_wrap( ~ in_same_cmplx, scales = "free")
+ggplot(corpairs, aes(x = cor)) + 
+  geom_histogram(bins = 30) + 
+  facet_wrap( ~ in_same_cmplx, scales = "free") + 
+  labs(title = "Spearman correlations of all mutant pairs.\nLeft: not part of the same protein complex\nRight: within the same protein complex")
 
-ggplot(corpairs, aes(x = abs(spear_cor))) + 
-  geom_histogram(bins = 45, aes(fill = in_same_cmplx)) + 
-  #facet_wrap( ~ in_same_cmplx, scales = "free") + 
-  scale_x_continuous(limits = c(0.5, 1))
+# two selected examples (highest and lowest correlation above cutoff):
+ggplot(feats, aes(x = CYOC, y = CYOD)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.9)")
 
-# so we'd probably choose a cutoff of 0.6 or so 
+ggplot(feats, aes(x = NUOE, y = NUOJ)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.75)")
 
-
+ggplot(feats, aes(x = FLIF, y = FLIQ)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.6)")
 ```
+
+When choosing a cutoff of 0.6 and requiring that genes are in the same complex we get 80 pairs. 
+A lot of the genes are part of the NADH:quinone oxidoreductase complex (nuoX genes). Other prominent 
+complexes are:
+
+* the terminal oxidase complex (cyoX)
+* sulfate adenylyltransferase (cysD, cysN)
+* acrAB-tolC 
+* ATP synthase (atpX)
+* the Tol-Pal system (Pal, TolB, TolR, TolQ)
+* TatB-TatC (part of the twin arginine translocation (Tat) complex for the export of folded proteins)
+* some flagellum-related genes (FlhA, FLiF, FliQ)
 
 ```{r}
+# so we'd probably choose a cutoff of 0.6 or so 
+View(corpairs[corpairs$in_same_cmplx & corpairs$cor > 0.6, ])
+sum(corpairs$in_same_cmplx & corpairs$cor > 0.6)
+sum(corpairs$cor > 0.6)
+```
+
+If we don't require them to be in the same complex we get `r sum(corpairs$cor > 0.6)` pairs with 
+lots of the following: 
+
+* ribonucleotide biosynthesis (pyrX, purX)
+* LPS biosynthesis: rfaX
+* and many others, see here:
+
+```{r}
+View(corpairs[corpairs$cor > 0.6, ])
+sum(corpairs$cor > 0.6)
+```
+
+Anticorrelation is exceedingly rare, only 16 pairs have a Spearman correlation of less than -0.6. 
+
+Notably, Pur and Pyr genes are anticorrelated with RsxB (together with rseC turns off SoxR-mediated 
+induction of SoxS), YrbA (= ibaG, defends against acid stress), and UbiE/F (ubiquinone biosynthesis). 
+Moreover, GuaB (IMP dehydrogenase) is anticorrelated with LipA (lipoate biosynthesis) and Rph 
+(an RNAse). 
+
+```{r}
+View(corpairs[corpairs$cor < -0.6, ])
+sum(corpairs$cor < -0.6)
+```
 
 
+Now delete (instead of merging) correlated predictors. Follow procedure from Kuhn et al, p47. 
+
+```{r}
+removed_correlated_feats <- character()
+cor_thresh <- 0.6
+stop <- FALSE
+
+while (!stop) {
+  maxcor <- which.max(corpairs$cor)
+  
+  if (corpairs$cor[maxcor] <= cor_thresh) {
+    stop <- TRUE
+  } else {
+    a <- corpairs$featA[maxcor]
+    b <- corpairs$featB[maxcor]
+    where_a <- corpairs$featA %in% a | corpairs$featB %in% a
+    where_b <- corpairs$featB %in% b | corpairs$featB %in% b
+    
+    a_cor <- mean(corpairs$cor[where_a])
+    b_cor <- mean(corpairs$cor[where_b])
+    
+    if (a_cor >= b_cor) {
+      corpairs <- corpairs[!where_a, ]
+      removed_correlated_feats <- c(removed_correlated_feats, a)
+    } else {
+      corpairs <- corpairs[!where_b, ]
+      removed_correlated_feats <- c(removed_correlated_feats, b)
+    }
+  }
+}
+```
+
+This procedure removed `r length(removed_correlated_feats)` features:
+
+```{r}
+removed_correlated_feats
+saveRDS(removed_correlated_feats, file = "./data/programmatic_output/feats_to_remove_collinear_thresh06.rds")
+```
+
+
+## Multi-class model after improved data pre-processing
+
+### "Try 1"
+
+Things changed:
+1. Features with lots of NA values were removed
+2. Collinear features were removed
+
+```{r}
+# Taken from chunk further above: 
+# rep_rin
+# my_data_multiclass = data that was used in the "winning" 1-vs-all model
+
+my_data_mcl_preproc <- my_data_multiclass
+# 106 out of 174 features that were removed because of collinearity are still present in this set:
+sum(removed_correlated_feats %in% names(my_data_mcl_preproc))
+my_data_mcl_preproc <- select(my_data_mcl_preproc, -one_of(c(removed_correlated_feats, NA_feats)))
+
+# still, more than 100 features were removed:
+ncol(my_data_multiclass)
+ncol(my_data_mcl_preproc)
+
+# training the next model: 
+my_data_mcl_preproc_train <- select(my_data_mcl_preproc, -one_of(c("conc", "drugname_typaslab")))
+rf_multi.task <- makeClassifTask(data = my_data_mcl_preproc_train, target = "process_broad")
+rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+
+my_filename <- "./data/programmatic_output/resampled_multiclass_try1.rds"
+if (file.exists(my_filename)) {
+  resampled_multiclass_try1 <- readRDS(my_filename)
+} else {
+  resampled_multiclass_try1 <- resample(learner = rf_multi.learner, task = rf_multi.task,
+    measures = mmce, resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+  # add drugname and concentration information to $pred$data slot
+  resampled_multiclass_try1$pred$data <-
+    bind_cols(my_data_mcl_preproc[resampled_multiclass_try1$pred$data$id, c(1, 2)],
+      resampled_multiclass_try1$pred$data) %>%
+    arrange(drugname_typaslab, conc, iter)
+  saveRDS(resampled_multiclass_try1, file = my_filename)
+}
+```
+
+Comparing this with the previous multi-class model:
+
+```{r}
+resampled_multiclass$aggr
+resampled_multiclass_try1$aggr
+
+compare_multiclass_models(resampled_multiclass, resampled_multiclass_try1, 
+  "./plots/compare_multiclass_try1.pdf")
+```
+
+
+### "Try 2"
+
+In addition to "Try 1": 
+1. Remove drug-dosage combinations with less than a certain number of significant interactions?
+2. Keep just the two highest dosages (?)
+3. Remove some selected drugs (?)
+
+Concerning (1): probably not such a good idea because we would lose a number of drugs: doxorubicin, 
+gentamicin, levofloxacin, methotrexate. Only methotrexate at 25 should be removed because it has 0 
+interactions. A lot of the other stuff is taken care of by keeping only the two highest dosages. 
+
+```{r}
+# remove drug-dosage combinations with less than 11 significant interactions 
+(n_signif <- matrix_container_ext$pred_data_with_n_signif[[the_line]])
+
+print(filter(n_signif, moa_modelled_is_truth, n_signif < 10) %>%
+  arrange(drugname_typaslab), n = 100)
+
+# remove methotrexate, 25, it has no interactions:
+nrow(my_data_mcl_preproc)
+my_data_mcl_try2 <- my_data_mcl_preproc
+my_data_mcl_try2 <- my_data_mcl_try2[!(my_data_mcl_try2$drugname_typaslab == "METHOTREXATE" & 
+    my_data_mcl_try2$conc == 25), ]
+```
+
+
+```{r}
+# Keeping just the two highest dosages, leaves us with only 126 rows:
+(my_data_mcl_try2 <- 
+  group_by(my_data_mcl_preproc, drugname_typaslab) %>%
+  top_n(2, conc) %>%
+  ungroup())
+
+my_data_mcl_try2_train <- select(my_data_mcl_try2, -one_of(c("conc", "drugname_typaslab")))
+rf_multi.task <- makeClassifTask(data = my_data_mcl_try2_train, target = "process_broad")
+rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+```
+
+<!-- TO BE REMOVED ----------------->
+
+(need a new resampling instance)
+
+```{r, eval = FALSE, echo = FALSE}
+rf.rdesc <- makeResampleDesc("CV", iters = 8) 
+
+rep_rin_try2 <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), 
+  rf_multi.task)
+
+(ref_fracs <- table(my_data_mcl_try2$process_broad) / length(my_data_mcl_try2$process_broad))
+cv_instances <- list()
+counter <- 0
+max_deviance <- 0.05
+
+while (length(cv_instances) < 10) {
+   rin <- makeResampleInstance(rf.rdesc, rf_multi.task)
+   counter <- counter + 1 # to keep track of how often we had to try :)
+   for (split in c(1:8)) {
+      train_fracs <- table(my_data_mcl_try2$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
+      # we don't want any "empty" classes in the test set:
+      if (length(table(my_data_mcl_try2$process_broad[rin$test.inds[[split]]])) != length(moas)) {
+         break
+      }
+      # and relative fractions of classes shouldn't differ too much in the training set
+      if (any(abs(ref_fracs - train_fracs) > max_deviance)) {
+         break
+      }
+      # only happens upon success
+      if (split == 8) {
+         cat("Success at attempt ", counter, "! - ", date(), " (maximum deviance was ", 
+           round(max(abs(ref_fracs - train_fracs)), digits = 3), ")\n")
+         cv_instances <- c(cv_instances, list(rin))
+      }
+   }
+}
+
+rep_rin_try2$train.inds <- flatten(map(cv_instances, "train.inds"))
+rep_rin_try2$test.inds <- flatten(map(cv_instances, "test.inds"))
 
 ```
+
+<!-- -------------------->
+
+
+```{r}
+my_filename <- "./data/programmatic_output/resampled_multiclass_try2.rds"
+
+if (file.exists(my_filename)) {
+  resampled_multiclass_try2 <- readRDS(my_filename)
+} else {
+  resampled_multiclass_try2 <- resample(learner = rf_multi.learner, task = rf_multi.task,
+    measures = mmce, resampling = rep_rin_try2, models = TRUE, keep.pred = TRUE)
+  # add drugname and concentration information to $pred$data slot
+  resampled_multiclass_try2$pred$data <-
+    bind_cols(my_data_mcl_try2[resampled_multiclass_try2$pred$data$id, c(1, 2)],
+      resampled_multiclass_try2$pred$data) %>%
+    arrange(drugname_typaslab, conc, iter)
+  saveRDS(resampled_multiclass_try2, file = my_filename)
+}
+```
+
+Compare!
+
+```{r}
+compare_multiclass_models(resampled_multiclass_try1, resampled_multiclass_try2, 
+  "./plots/compare_multiclass_try1-vs-try2.pdf")
+
+multicl_pred_melt <- melt_pred_data(resampled_multiclass_try2, model_type = "multiclass")
+
+p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
+  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
+  geom_line(aes(group = predicted_prob), size = 1) + 
+  facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
+  geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
+  scale_colour_manual("Predicted probability\nfor class", 
+    labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
+    values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
+  coord_cartesian(ylim = c(0, 1))
+
+suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_try2.pdf", plot = p, width = 30, 
+  height = 20))
+```
+
+
+
 
 # Session info 
 

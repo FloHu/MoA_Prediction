@@ -242,6 +242,9 @@ ggplot(NAs_by_mutant, aes(x = "", y = total_conds_NA)) +
    scale_y_continuous(breaks = c(0, 5, 10, 15, 20, 30, 40)) + 
    labs(title = "Number of conditions with 'NA' per mutant.\n(total number of conds = 256)")
 
+saveRDS(NAs_by_mutant$gene_synonym[NAs_by_mutant$total_conds_NA > 10], 
+  "./data/programmatic_output/feats_to_remove_many_NAs.rds")
+
 ggsave("./plots/NA_conditions_per_mutant.pdf")
 ```
 
