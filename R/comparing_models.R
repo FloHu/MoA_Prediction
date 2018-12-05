@@ -59,29 +59,82 @@ melt_pred_data <- function(resample_result, model_type = c("onevsrest", "multicl
   return(melted)
 }
 
-compare_probabilities <- function(a, b, title = "") {
+compare_probabilities <- function (l) {
   # input: melted prediction data frames from melt_pred_data
-  xlab <- deparse(substitute(a))
-  ylab <- deparse(substitute(b))
+  # currently can only compare two models
+  if (length(l) != 2) {
+    stop("Only pairwise probability comparison supported")
+  }
   
-  joined <- inner_join(a, b, by = c("conc", "predicted_prob", "truth", 
-    "drugname_typaslab"), suffix = c(paste0(".", xlab), paste0(".", ylab)))
+  if (is.null(names(l))) {
+    names(l) <- c('model1', 'model2')
+    warning("No names provided, called input model1 and model2, respectively")
+  }
   
-  p <- ggplot(joined, aes_string(x = paste0("prob.med.", xlab), y = paste0("prob.med.", ylab))) + 
+  if (any(sapply(names(l), nchar) == 0)) {
+    names(l) <- make.names(names(l))
+    warning("Unnamed elements present, generated names ", names(l))
+  }
+  
+  xlab <- names(l[1])
+  ylab <- names(l[2])
+  
+  ## can't provide proper suffixes here because ggplot() has problem parsing strings with commas
+  joined <- inner_join(l[[xlab]], l[[ylab]], by = c("conc", "predicted_prob", "truth", 
+    "drugname_typaslab"), suffix = c(".x", ".y"))
+  
+  p <- ggplot(joined, aes(x = prob.med.x, y = prob.med.y, colour = truth)) + 
     geom_point() + 
     facet_wrap( ~ predicted_prob, ncol = 2) + 
+    geom_abline(slope = 1, intercept = 0) + 
     labs(x = paste0("Prediction probs ", xlab), y = paste0("Prediction probs ", ylab), 
-      title = title) + 
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+      title = "Comparison of predicted probabilities") + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    coord_fixed()
   
   corrs <- by(joined, joined$predicted_prob, function(data) {
-    cor(data[[paste0("prob.med.", xlab)]], data[[paste0("prob.med.", ylab)]], method = "spearman")
+    cor(data[["prob.med.x"]], data[["prob.med.y"]], method = "spearman")
   })
   
   return(list(joined = joined, plot = p, spearman_corrs = corrs))
 }
 
-compare_onevsrest_models <- function(model1, model2, file) {
+compare_importances <- function(l) {
+  # input: feature importance data frames from get_feat_imps()
+  # currently can only compare two models
+  if (length(l) != 2) {
+    stop("Only pairwise feature importance comparison supported")
+  }
+  
+  if ("moa" %in% c(names(l[[1]]), names(l[[2]]))) stop("Currently only multi-class models supported")
+  
+  if (is.null(names(l))) {
+    names(l) <- c('model1', 'model2')
+    warning("No names provided, called input model1 and model2, respectively")
+  }
+  
+  if (any(sapply(names(l), nchar) == 0)) {
+    names(l) <- make.names(names(l))
+    warning("Unnamed elements present, generated names ", names(l))
+  }
+  
+  xlab <- names(l[1])
+  ylab <- names(l[2])
+  
+  ## can't provide proper suffixes here because ggplot() has problem parsing strings with commas
+  joined <- inner_join(l[[xlab]], l[[ylab]], by = c("gene"), suffix = c(".x", ".y"))
+  
+  p <- ggplot(joined, aes(x = log2(median_importance.x), y = log2(median_importance.y))) + 
+    geom_point() + 
+    geom_abline(slope = 1, intercept = 0) + 
+    labs(x = paste0("log2 median feat importances ", xlab), y = paste0("log2 median feat importances ", ylab), 
+      title = "Comparison of feature importances") + 
+    coord_fixed()
+
+  return(p)
+}
+
+compare_onevsrest_models <- function(model1, model1_title, model2, model2_title, file) {
   # INPUT: 2 matrix_container_ext rows
   # OUTPUT: a pdf file comparing ROC and precision-recall curves and probabilities
   stopifnot(nrow(model1) == 1 & nrow(model2) == 1)
@@ -99,7 +152,8 @@ compare_onevsrest_models <- function(model1, model2, file) {
   
   model1_melted <- melt_pred_data(model1$pred_data[[1]])
   model2_melted <- melt_pred_data(model2$pred_data[[1]])
-  prob_comparison <- compare_probabilities(model1_melted, model2_melted)$plot
+  prob_comparison <- compare_probabilities(
+    rlang::list2(!!ensym(model1_title) := model1_melted, !!ensym(model2_title) := model2_melted))$plot
   
   tmp_files <- c("A_tmp.pdf", "B_tmp.pdf")
   outdir <- c("./plots/")
@@ -127,25 +181,40 @@ compare_onevsrest_models <- function(model1, model2, file) {
   message("Output successfully saved to", file)
 }
 
-compare_multiclass_models <- function(model1_mc, model2_mc, file) {
-  # input: 2 multi-class models
+compare_multiclass_models <- function(model1_mc, model1_mc_title, model2_mc, model2_mc_title, file) {
+  # input: 2 multi-class models + their titles
   # output: comparison of confusion matrices
-  models <- list(model1 = model1_mc, model2 = model2_mc)
-  conf_mats <- purrr::map(models, ~ plot_wide_confmat(get_wide_confmat(.x)))
-  calib_plots <- purrr::map(models, plot_prob_calib)
+  models <- rlang::list2(!!(ensym(model1_mc_title)) := model1_mc, 
+    !!(ensym(model2_mc_title)) := model2_mc)
+  
+  conf_mats <- purrr::imap(models, ~ plot_wide_confmat(get_wide_confmat(.x), title = .y))
+  calib_plots <- purrr::imap(models, ~ plot_prob_calib(resample_result = .x, title = .y))
   melted_models <- purrr::map(models, melt_pred_data, model_type = "multiclass")
-  ## TO DO: FIX: this doesn't work:
-  # compare_probabilities(melted_models$model1, melted_models$model2)
-  model1_melt <- melted_models$model1
-  model2_melt <- melted_models$model2
-  prob_compar <- compare_probabilities(model1_melt, model2_melt)
+
+  model1_melt <- melted_models[[1]]
+  model2_melt <- melted_models[[2]]
+  melted_models <- list(model1_melt, model2_melt)
+  names(melted_models) <- names(models)
+  prob_compar <- compare_probabilities(melted_models)
+  
+  a <- summarise_feat_imps(get_feat_imps(model1_mc))
+  b <- summarise_feat_imps(get_feat_imps(model2_mc))
+  feat_imps <- list(a, b)
+  names(feat_imps) <- names(models)
+  feat_compar <- compare_importances(feat_imps)
   
   # too lazy to implement the same routine as in compare_onevsrest_models, should abstract 
   # the steps there first
   pdf(file, width = 12, height = 7)
+  par(mfrow = c(1, 2))
+  plot(1:10, 1:10, pch = "", axes = FALSE, ann = FALSE)
+  text(5, 5, paste0(model1_mc_title, ":\n", "mmce = ", round(model1_mc$aggr, digits = 3)))
+  plot(1:10, 1:10, pch = "", axes = FALSE, ann = FALSE)
+  text(5, 5, paste0(model2_mc_title, ":\n", "mmce = ", round(model2_mc$aggr, digits = 3)))
   print(gridExtra::grid.arrange(conf_mats[[1]], conf_mats[[2]], ncol = 2))
   print(gridExtra::grid.arrange(calib_plots[[1]], calib_plots[[2]], ncol = 2))
   print(prob_compar$plot)
+  print(feat_compar)
   dev.off()
 }
 

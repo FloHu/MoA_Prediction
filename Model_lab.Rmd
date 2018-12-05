@@ -162,7 +162,7 @@ aggregation?
 
 ```{r}
 (cm <- get_wide_confmat(resampled_multiclass))
-plot_wide_confmat(cm)
+plot_wide_confmat(cm, title = "'Naive' multiclass model")
 ```
 
 #### Investigating predictions
@@ -199,7 +199,7 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot 
   height = 20))
 ```
 
-<a href="./plots/Multiclass_probabilities.pdf">link</a>
+<a href="./plots/Multiclass_probabilities.pdf">LINK FOR THE PLOT</a>
 
 An attempt to characterise model quality of the multi-class model: 'winner' approach. One can see 
 that this improves accuracy by about 10 percent - but probably should compare this to random 
@@ -234,7 +234,7 @@ From Kuhn, chapter 11, p294ff.: probability calibration plot. Should also compar
 ```{r}
 # 10 bins with probabilities from 0 - 100, compare with actually observed frequencies
 # one plot per MoA (?) - in Kuhn book: only use this for binary classification
-plot_prob_calib(resampled_multiclass)
+plot_prob_calib(resampled_multiclass, title = "'naive' multi-class model")
 ggsave("./plots/probability_calibration.pdf")
 ```
 
@@ -247,86 +247,33 @@ For each mode of action: compare probabilities for each observation returned by 
 (i) multi-class model or (ii) the respective 1-vs-all model.
 
 ```{r}
-(onevsall_pred_melt <- melt_pred_data(matrix_container_ext$pred_data[[the_line]]))
+(onevsall_pred_melt <- melt_pred_data(matrix_container_ext$pred_data[[the_line]], 
+  model_type = "onevsrest"))
 
-prob_comparison <- compare_probabilities(multicl_pred_melt, onevsall_pred_melt, 
-  title = "Comparing probabilities of standard one-vs-rest\nand multi-class model")
+prob_comparison <- compare_probabilities(
+  list("'naive' multiclass" = multicl_pred_melt, "'naive' 1-vs-rest" = onevsall_pred_melt))
 prob_comparison$plot
 prob_comparison$spearman_corrs
-
-# # btw, it also works for 2 onevsall models:
-# foo <- onevsall_pred_melt
-# compare_probabilities(onevsall_pred_melt, foo)$plot
 ```
 
-<!--
-### Comparing feature importances
--->
+### Comparing multi-class feature importances with 1-vs-rest feature importances
 
-```{r, echo = FALSE, eval = FALSE}
-getFeatureImportance(resampled_multiclass$models[[1]])
+Note that the importance is not too high: which is perhaps not too surprising because some features 
+will be considered importance in the multi-class model but might be considered important in only 
+*one* 1-vs-rest model.
 
-feat_imps_multi <- imap_dfr(resampled_multiclass$models, function(val, pos) {
-  f <- getFeatureImportance(val)$res
-  f <- tibble(gene = names(f), importance = unlist(f), modelnum = pos)
-})
+```{r}
+(feat_imps_multi <- summarise_feat_imps(get_feat_imps(resampled_multiclass)))
+(feat_imps_1vsrest <- summarise_feat_imps(get_feat_imps(chosen_res)))
 
-head(feat_imps_multi)
-```
-
-<!--
-In that case we don't have any features that only occur in some models. Perhaps because we are 
-using more trees? So in that case, one histogram is enough
--->
-
-```{r, echo = FALSE, eval = FALSE}
-all(rle(sort(feat_imps_multi$gene))$lengths == 80)
-colnames(my_data_multiclass)[! colnames(my_data_multiclass) %in% feat_imps_multi$gene]
-
-# so we can easily summarise
-feat_imps_multi <- 
-  group_by(feat_imps_multi, gene) %>%
-  summarise(median_importance = median(importance))
-
-ggplot(feat_imps_multi, aes(x = log2(median_importance))) + 
-  geom_histogram()
-
-fingerprint1_multi <- feat_imps_multi$gene[log2(feat_imps_multi$median_importance) > -2.5]
-fingerprint2_multi <- feat_imps_multi$gene[log2(feat_imps_multi$median_importance) > 0]
-
-# compare with fingerprints from 1-vs-all models
-fingerprints_onevsall <- readRDS("./data/programmatic_output/fingerprints_1vsall.rds")
-
-library(VennDiagram)
-venn.plot <- venn.diagram(
-  list("fingerprint1_1vsall" = fingerprints_onevsall$fingerprint1, 
-    "fingerprint1_multi" = fingerprint1_multi), 
-  imagetype = "png", 
-  "./plots/fingerprint1.png"
-)
-
-venn.plot <- venn.diagram(
-  list("fingerprint2_1vsall" = fingerprints_onevsall$fingerprint2, 
-    "fingerprint2_multi" = fingerprint2_multi), 
-  imagetype = "png", 
-  "./plots/fingerprint2.png"
-)
-
-feat_imps_nest <- fingerprints_onevsall$feat_imps_nest
-# alternatively, we can plot a correlation:
-tmp <- left_join(feat_imps_multi, feat_imps_nest[, c("moa", "gene", "median_importance")], 
-  by = "gene", suffix = c("_multi", "_1vsall"))
+(tmp <- left_join(feat_imps_multi, feat_imps_1vsrest[, c("moa", "gene", "median_importance")], 
+  by = "gene", suffix = c("_multi", "_1vsall")))
 
 ggplot(tmp, aes(x = log2(median_importance_1vsall), y = log2(median_importance_multi))) + 
   geom_point() + 
   facet_wrap( ~ moa) + 
   labs(title = "Comparison of feature importances 1-vs-all and multi-class model")
-
-by(data = tmp, tmp$moa, function(data) {
-  cor(x = data$median_importance_1vsall, y = data$median_importance_multi, method = "spearman")
-})
 ```
-
 
 <!--
 ## Comparing with baseline models
@@ -370,6 +317,9 @@ First we need a quick and informative way of comparing models with each other. I
 above we have a set of 1-vs-rest and one multi-model 'production' model. Both are likely to change 
 because of data processing steps and certain things we wanna try to improve. 
 
+So first we want to have a good way of comparing models.
+
+
 ## Demonstration of how models can be compared
 
 ```{r}
@@ -382,18 +332,29 @@ pryr::object_size(chosen_res)
 
 class(resampled_multiclass)
 class(chosen_res)
+```
 
-# we can now compare two one-vs-rest models --------------------------------
+For a pair of one-vs-rest models:
+
+```{r}
 model1 <- matrix_container_ext[9, ]
 model2 <- matrix_container_ext[10, ]
 
-compare_onevsrest_models(model1, model2, file = "./plots/compare_one-vs-rest.pdf")
+compare_onevsrest_models(model1 = model1, model2 = model2, 
+  model1_title = "RF without chem. feats", 
+  model2_title = "RF with chem. feats", file = "./plots/compare_one-vs-rest.pdf")
+```
 
+
+For a pair of multi-class models:
+
+```{r}
 # we only have one multiclass model so far, let's use it twice:
 model1_mc <- resampled_multiclass
 model2_mc <- resampled_multiclass
 
-compare_multiclass_models(model1_mc, model2_mc, file = "./plots/compare_multiclass.pdf")
+compare_multiclass_models(model1_mc, model2_mc, 
+  model1_mc_title = "a", model2_mc_title = "b", file = "./plots/compare_multiclass_test.pdf")
 ```
 
 ## Trying to improve classification
@@ -473,7 +434,7 @@ The way I see this going forward:
 feature selection wrapper (again perhaps +-) - revival of matrix container? 
 -->
 
-### Removing collinear features
+### Removing/merging (?) collinear features
 
 First we need to select a cutoff. How do pairs correlate: 
 
@@ -482,7 +443,7 @@ First we need to select a cutoff. How do pairs correlate:
 * Between genes of the same protein complex
 
 
-```{r}
+```{r, gene_cplx_stuff}
 drug_feats <- filter_container(matrix_container_ext, dosgs = "all", feats = "keepall", 
   chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]]
 
@@ -495,7 +456,6 @@ feats <- drug_feats[, -c(1:3)]
 feats <- select(feats, -one_of(NA_feats))
 # ----------------------------------------------------------------------------------------
 
-feats_m <- as.matrix(feats)
 feats_cor <- cor(feats, method = "spearman")
 
 # quite a large and unwieldy plot - but still shows a few useful clusters:
@@ -526,7 +486,7 @@ names(genes_cmplx) = cmplx$`Protein-Complexes`
 genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
 
 lens = lapply(genes_cmplx, function(x){length(x)})
-(genes_cmplx = genes_cmplx[lens != 1])
+genes_cmplx = genes_cmplx[lens != 1]
 saveRDS(genes_cmplx, file = "./data/programmatic_output/genes_cmplx.rds")
 
 # add to each pair the information if the two genes are also part of the same protein complex
@@ -547,7 +507,8 @@ View(corpairs[corpairs$in_same_cmplx, ])
 ggplot(corpairs, aes(x = cor)) + 
   geom_histogram(bins = 30) + 
   facet_wrap( ~ in_same_cmplx, scales = "free") + 
-  labs(title = "Spearman correlations of all mutant pairs.\nLeft: not part of the same protein complex\nRight: within the same protein complex")
+  labs(title = "Spearman correlations of all mutant pairs.\nLeft: not part of the same protein 
+    complex\nRight: within the same protein complex")
 
 # two selected examples (highest and lowest correlation above cutoff):
 ggplot(feats, aes(x = CYOC, y = CYOD)) + 
@@ -594,7 +555,7 @@ View(corpairs[corpairs$cor > 0.6, ])
 sum(corpairs$cor > 0.6)
 ```
 
-Anticorrelation is exceedingly rare, only 16 pairs have a Spearman correlation of less than -0.6. 
+Anticorrelation is very rare, only 16 pairs have a Spearman correlation of less than -0.6. 
 
 Notably, Pur and Pyr genes are anticorrelated with RsxB (together with rseC turns off SoxR-mediated 
 induction of SoxS), YrbA (= ibaG, defends against acid stress), and UbiE/F (ubiquinone biosynthesis). 
@@ -607,39 +568,85 @@ sum(corpairs$cor < -0.6)
 ```
 
 
-Now delete (instead of merging) correlated predictors. Follow procedure from Kuhn et al, p47. 
+Now merge correlated predictors. Follow procedure from Kuhn et al, p47. 
 
 ```{r}
-removed_correlated_feats <- character()
+# removed_correlated_feats <- character()
 cor_thresh <- 0.6
-stop <- FALSE
+continue <- TRUE
 
-while (!stop) {
-  maxcor <- which.max(corpairs$cor)
+# involved data sets:
+# 1) feats = all features in a tibble
+# 2) feats_cor = correlation matrix derived from 1)
+# 3) corpairs = melted version of 2)
+
+my_backup <- list(corpairs = corpairs, feats = feats, feats_cor = feats_cor)
+corpairs <- my_backup$corpairs
+feats <- my_backup$feats
+feats_cor <- my_backup$feats_cor
+
+while (continue) {
+  list_of_pairs <- list()
+  corpairs <- arrange(corpairs, desc(cor))
+  above_thresh <- sum(corpairs$cor > cor_thresh)
   
-  if (corpairs$cor[maxcor] <= cor_thresh) {
-    stop <- TRUE
-  } else {
-    a <- corpairs$featA[maxcor]
-    b <- corpairs$featB[maxcor]
-    where_a <- corpairs$featA %in% a | corpairs$featB %in% a
-    where_b <- corpairs$featB %in% b | corpairs$featB %in% b
-    
-    a_cor <- mean(corpairs$cor[where_a])
-    b_cor <- mean(corpairs$cor[where_b])
-    
-    if (a_cor >= b_cor) {
-      corpairs <- corpairs[!where_a, ]
-      removed_correlated_feats <- c(removed_correlated_feats, a)
+  for (r in seq_len(above_thresh)) {
+    pair <- c(corpairs$featA[r], corpairs$featB[r])
+    if (any(pair %in% unlist(list_of_pairs))) {
+      # we don't want to go through the whole procedure of merging features for every pair 
+      # as long as pairs don't overlap we can merge several pairs at once
+      break
     } else {
-      corpairs <- corpairs[!where_b, ]
-      removed_correlated_feats <- c(removed_correlated_feats, b)
+      list_of_pairs <- c(list_of_pairs, list(pair))
     }
   }
+  
+  # now merge the feats
+  for (el in list_of_pairs) {
+    # just to be safe ...
+    stopifnot(length(el) == 2)
+    newfeat <- paste(el[[1]], el[[2]], sep = "_")
+    feats[[newfeat]] <- apply(feats[el], 1, mean)
+  }
+  
+  # and calculate everything again
+  feats <- select(feats, -one_of(unlist(list_of_pairs)))
+  feats_cor <- cor(feats, method = "spearman")
+  corpairs <- melt_cormat_to_pairs(feats_cor)
+  
+  # if not TRUE means we're done
+  continue <- max(corpairs$cor > cor_thresh)
 }
+
+## code below was used for removing correlated features ----------
+
+# while (!stop) {
+#   maxcor <- which.max(corpairs$cor)
+#   
+#   if (corpairs$cor[maxcor] <= cor_thresh) {
+#     stop <- TRUE
+#   } else {
+#     a <- corpairs$featA[maxcor]
+#     b <- corpairs$featB[maxcor]
+#     where_a <- corpairs$featA %in% a | corpairs$featB %in% a
+#     where_b <- corpairs$featB %in% b | corpairs$featB %in% b
+#     
+#     a_cor <- mean(corpairs$cor[where_a])
+#     b_cor <- mean(corpairs$cor[where_b])
+#     
+#     if (a_cor >= b_cor) {
+#       corpairs <- corpairs[!where_a, ]
+#       removed_correlated_feats <- c(removed_correlated_feats, a)
+#     } else {
+#       corpairs <- corpairs[!where_b, ]
+#       removed_correlated_feats <- c(removed_correlated_feats, b)
+#     }
+#   }
+# }
 ```
 
-This procedure removed `r length(removed_correlated_feats)` features:
+This procedure removed `r length(removed_correlated_feats)` features 
+(out of `r length(unique(c(corpairs$featA, corpairs$featB)))`):
 
 ```{r}
 removed_correlated_feats
@@ -649,11 +656,13 @@ saveRDS(removed_correlated_feats, file = "./data/programmatic_output/feats_to_re
 
 ## Multi-class model after improved data pre-processing
 
-### "Try 1"
+### No NA values, collinear features merged
+
+Note that removing the collinear features had virtually no effect on model performance. 
 
 Things changed:
 1. Features with lots of NA values were removed
-2. Collinear features were removed
+2. Collinear features were merged (averaged)
 
 ```{r}
 # Taken from chunk further above: 
@@ -675,29 +684,27 @@ rf_multi.task <- makeClassifTask(data = my_data_mcl_preproc_train, target = "pro
 rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
   par.vals = list(ntree = my_ntree, mtry = my_mtry))
 
-my_filename <- "./data/programmatic_output/resampled_multiclass_try1.rds"
+my_filename <- "./data/programmatic_output/resampled_multiclass_noNAs_corrs_merged.rds"
 if (file.exists(my_filename)) {
-  resampled_multiclass_try1 <- readRDS(my_filename)
+  resampled_multiclass_noNAs <- readRDS(my_filename)
 } else {
-  resampled_multiclass_try1 <- resample(learner = rf_multi.learner, task = rf_multi.task,
+  resampled_multiclass_noNAs <- resample(learner = rf_multi.learner, task = rf_multi.task,
     measures = mmce, resampling = rep_rin, models = TRUE, keep.pred = TRUE)
   # add drugname and concentration information to $pred$data slot
-  resampled_multiclass_try1$pred$data <-
-    bind_cols(my_data_mcl_preproc[resampled_multiclass_try1$pred$data$id, c(1, 2)],
-      resampled_multiclass_try1$pred$data) %>%
+  resampled_multiclass_noNAs$pred$data <-
+    bind_cols(my_data_mcl_preproc[resampled_multiclass_noNAs$pred$data$id, c(1, 2)],
+      resampled_multiclass_noNAs$pred$data) %>%
     arrange(drugname_typaslab, conc, iter)
-  saveRDS(resampled_multiclass_try1, file = my_filename)
+  saveRDS(resampled_multiclass_noNAs, file = my_filename)
 }
 ```
 
 Comparing this with the previous multi-class model:
 
 ```{r}
-resampled_multiclass$aggr
-resampled_multiclass_try1$aggr
-
-compare_multiclass_models(resampled_multiclass, resampled_multiclass_try1, 
-  "./plots/compare_multiclass_try1.pdf")
+compare_multiclass_models(model1_mc = resampled_multiclass, model2_mc = resampled_multiclass_noNAs, 
+  model1_mc_title = "'naive' multiclass model", model2_mc_title = "multiclass model w/o NAs, corr 
+  feats merged", file = "./plots/compare_multiclass_noNAs_corrs_merged.pdf")
 ```
 
 
@@ -708,7 +715,7 @@ In addition to "Try 1":
 2. Keep just the two highest dosages (?)
 3. Remove some selected drugs (?)
 
-Concerning (1): probably not such a good idea because we would lose a number of drugs: doxorubicin, 
+*Concerning (1)*: probably not such a good idea because we would lose a number of drugs: doxorubicin, 
 gentamicin, levofloxacin, methotrexate. Only methotrexate at 25 should be removed because it has 0 
 interactions. A lot of the other stuff is taken care of by keeping only the two highest dosages. 
 
@@ -805,7 +812,10 @@ if (file.exists(my_filename)) {
 Compare!
 
 ```{r}
-compare_multiclass_models(resampled_multiclass_try1, resampled_multiclass_try2, 
+compare_multiclass_models(model1_mc = resampled_multiclass_noNAs, 
+  model1_mc_title = "Multiclass, NA values and coll. feats removed", 
+  model2_mc = resampled_multiclass_try2, 
+  model2_mc_title = "Multiclass, only 2 highest dosages", 
   "./plots/compare_multiclass_try1-vs-try2.pdf")
 
 multicl_pred_melt <- melt_pred_data(resampled_multiclass_try2, model_type = "multiclass")
@@ -820,10 +830,9 @@ p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = pred
     values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
   coord_cartesian(ylim = c(0, 1))
 
-suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_try2.pdf", plot = p, width = 30, 
-  height = 20))
+suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_try2.pdf", plot = p, 
+  width = 30, height = 20))
 ```
-
 
 
 

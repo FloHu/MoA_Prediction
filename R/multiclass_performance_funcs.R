@@ -23,18 +23,18 @@ get_wide_confmat <- function(resample_result) {
   return(cm)
 }
 
-plot_wide_confmat <- function(wide_confmat) {
+plot_wide_confmat <- function(wide_confmat, title) {
   ggplot(wide_confmat, aes(x = predicted, y = true)) + 
     geom_tile(aes(fill = byclass_recall)) + 
     geom_text(aes(label = n_obs)) + 
     labs(x = "Predicted class, colours = recall/false-negative rate\n(normalisation by row)", 
-      y = "True class") + 
+      y = "True class", title = title) + 
     theme(axis.text.x = element_text(angle = 45, hjust = 0)) + 
     scale_x_discrete(position = "top") + 
     scale_fill_brewer()
 }
 
-plot_prob_calib <- function(resample_result) {
+plot_prob_calib <- function(resample_result, title) {
   # input: resample result
   if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
   
@@ -60,8 +60,11 @@ plot_prob_calib <- function(resample_result) {
     scale_x_continuous(breaks = seq(from = 0.5, to = 9.5, by = 1), 
       labels = as.character(10 * seq(from = 0, to = 9, by = 1))) + 
     labs(x = "Probability bin midpoint (10% bins)", y = "Observed event percentage", 
-      title = "Probability calibration plot for multi-class RF")
+      title = paste0("Probability calibration plot for ", title))
   p0
 }
 
+# plot_ROC_multiclass <- function() {
+#   pred_dat <- melt_pred_data(resampled_multiclass_try1, model_type = "multiclass")
+# }
 

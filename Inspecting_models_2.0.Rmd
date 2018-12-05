@@ -48,8 +48,9 @@ chosen_res <- filter_container(matrix_container, dosgs = "all", feats = "top25pc
 stopifnot(nrow(chosen_res) == 1)
 chosen_res
 drugnfeats <- chosen_res$drug_feature_matrices[[1]]
+res_obj <- get_resobj_from_row(chosen_res, dir = "./run_results_from_server/matrix_container_result/")
+
 moas <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
-res_obj <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_FALSE.rds")
 moa_colours <- c("cell_wall" = "#984ea3", "dna" = "#4daf4a", "membrane_stress" = "#377eb8", 
   "protein_synthesis" = "#e41a1c", "oxidative_stress" = "#636363", "protein_qc" = "#252525", 
   "pmf" = "#969696")
@@ -81,42 +82,17 @@ walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]],
 ## Feature importances
 
 ```{r}
-# make a data frame with features + present in % of models
-all_combs <- 
-  list(cvrep = names(res_obj), fold = names(res_obj$`Nested CV 1`), moa = moas)
-all_combs <- as_tibble(expand.grid(all_combs, stringsAsFactors = FALSE))
-
-feat_imps <- pmap_dfr(all_combs, function(cvrep, fold, moa) {
-  f <- getFeatureImportance(res_obj[[cvrep]][[fold]][[paste0("model_", moa)]])$res
-  f <- tibble(gene = names(f), importance = unlist(f), cvrep = cvrep, fold = fold, moa = moa)
-  return(f)
-})
-
+feat_imps <- get_feat_imps(res_obj)
 head(feat_imps)
 
-# 10 repeats * 8 folds
-max_nmodels <- 80
-feat_imps_nest <- 
-  group_by(feat_imps, moa, gene) %>%
-  # remove rows where feature importance = 0
-  filter(importance != 0) %>%
-  nest(.key = "importances") %>%
-  mutate(pct_models = map_dbl(importances, ~ length(.x[["importance"]]) / max_nmodels), 
-    n_models = map_dbl(importances, ~ length(.x[["importance"]])), 
-    median_importance = map_dbl(importances, ~ median(.x[["importance"]]))) %>%
-  select(-one_of("importances")) %>%
-  arrange(moa, desc(pct_models), desc(median_importance))
-head(feat_imps_nest)
-
-feat_imps_nest$pct_models_bin <- cut(feat_imps_nest$pct_models, 
-  breaks = c(0, 0.75, 0.8, 0.85, 0.9, 0.95, 1), labels = c("0-75%", "75-80%", "80-85%", 
-    "85-90%", "90-95%", "95-100%"))
+feat_imps_s <- summarise_feat_imps(feat_imps)
+head(feat_imps_s)
 ```
 
 We can see that the number of features that are considered differ between MoAs:
 
 ```{r}
-ggplot(feat_imps_nest, aes(x = moa)) + 
+ggplot(feat_imps_s, aes(x = moa)) + 
   geom_bar(aes(fill = factor(pct_models_bin))) + 
   scale_fill_discrete(name = "Present in how\nmany models?") + 
   labs(c = "Mode of action", y = "Number of genes")
@@ -125,7 +101,7 @@ ggplot(feat_imps_nest, aes(x = moa)) +
 Feature importances, broken down by the number of models they appear in:
 
 ```{r}
-feat_imps_nest %>%
+feat_imps_s %>%
   ggplot(aes(x = log2(median_importance))) + 
   geom_histogram(aes(fill = pct_models_bin)) + 
   facet_wrap( ~ moa)
@@ -134,21 +110,15 @@ feat_imps_nest %>%
 Let's pull out all genes with a log2(median_importance) > -2.5
 
 ```{r}
-tmp <- filter(feat_imps_nest, log2(median_importance) > -2.5) %>%
-  arrange(gene)
-head(tmp)
-nrow(tmp)
-# which corresponds to how many genes? - 
-length(unique(tmp$gene))
+fingerprint1 <- get_fingerprint(feat_imps_s, log2thresh = -2.5, method = "thresh")
+head(fingerprint1)
 
 # the genes that appear in more than one MoA are
-more_than_once <- rle(tmp$gene)$values[rle(tmp$gene)$lengths > 1]
-tmp[tmp$gene %in% more_than_once, ]
+more_than_once <- rle(fingerprint1$gene)$values[rle(fingerprint1$gene)$lengths > 1]
+fingerprint1[fingerprint1$gene %in% more_than_once, ]
 
-three_or_more <- rle(tmp$gene)$values[rle(tmp$gene)$lengths > 2]
-tmp[tmp$gene %in% three_or_more, ]
-
-fingerprint1 <- unique(tmp$gene)
+fingerprint1 <- unique(fingerprint1$gene)
+head(fingerprint1)
 ```
 
 Display result with heatmaps and tSNE maps.
@@ -180,7 +150,7 @@ save(p1, file = "./plots/tSNE_v2_morefeats.RData")
 Try same thing with stricter threshold.
 
 ```{r}
-tmp <- filter(feat_imps_nest, log2(median_importance) > 0) %>%
+tmp <- filter(feat_imps_s, log2(median_importance) > 0) %>%
   arrange(gene)
 head(tmp)
 nrow(tmp)
@@ -212,7 +182,7 @@ Save the fingerprints that we obtained.
 
 ```{r}
 saveRDS(object = list(fingerprint1 = fingerprint1, fingerprint2 = fingerprint2, 
-  feat_imps_nest = feat_imps_nest, feat_imps = feat_imps), 
+  feat_imps_s = feat_imps_s, feat_imps = feat_imps), 
   file = "./data/programmatic_output/fingerprints_1vsall.rds")
 ```
 
