@@ -37,7 +37,6 @@ get_auc_info <- function(resultsobj, moas = c("cell_wall", "dna", "membrane_stre
   return(my_dfr)
 }
 
-
 get_pred_data <- function(resultsobj, matrix_container_row, moas = c("cell_wall", "dna", 
   "membrane_stress", "protein_synthesis")) {
   # depends on functions prediction_merger and pred_extractor
@@ -54,7 +53,6 @@ get_pred_data <- function(resultsobj, matrix_container_row, moas = c("cell_wall"
   return(my_dfr)
 }
 
-
 add_info_to_pred_data <- function(pred_data, most_ia_mat) {
   # most_ia_mat = a drug_feature matrix containing the one concentration corresponding to most 
   # interactions
@@ -70,7 +68,6 @@ add_info_to_pred_data <- function(pred_data, most_ia_mat) {
   
   return(pred_data)
 }
-
 
 get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
   # function to add some more information to PredData: number of significant interactions, 
@@ -114,29 +111,6 @@ get_nsignif <- function(drugfeatmat, predDataTbl, the_matrix) {
   return(tab_nsignif)
 }
 
-# extractor functions get the predictions/ThreshVsPerfData from each test fold of each prediction
-# object of each repat of the cross-validation
-# the actual extraction is performed in prediction_merger()
-# Measures as an argument with default values ? Thus same function for ROC or prec racal or mcc, etc VS threshold curves
-
-# perf_extractor <- function(x, moa) {
-# probably not needed any longer
-#   # x = a prediction object
-#   # moa = mode of action
-#   perfs <- generateThreshVsPerfData(x[[paste0("prediction_", moa)]], measures = list(fpr, tpr, ppv))$data
-#   return(perfs)
-# }
-
-# get_threshvsperf_data <- function(resultsobj, moas = c("cell_wall", "dna", "membrane_stress", 
-#   "protein_synthesis")) {
-#   # depends on prediction_merger and perf_extractor
-#   ## TO DO: proper error handling
-#   match.fun(prediction_merger)
-#   match.fun(perf_extractor)
-#   
-#   map_dfr(moas, prediction_merger, resultsobj = resultsobj, extractorfunc = perf_extractor)
-# }
-
 pred_extractor <- function(x, moa) {
   # x = a prediction object
   # moa = mode of action
@@ -172,12 +146,6 @@ prediction_merger <- function(resultsobj, moa, extractorfunc) {
   return(dfr)
 }
 
-make_filename <- function(matrix_container_row) {
-  filename <- paste0(paste(unlist(matrix_container_row[, c("hyperparam_grid_name", "drug_dosages", 
-    "feat_preselect", "chemical_feats")]), collapse = "_"), ".rds")
-  return(filename)
-}
-
 extract_params_from_resultsobj <- 
   function(resobj, moa = c("dna", "cell_wall", "membrane_stress", "protein_synthesis"), param = c("ntree", "mtry")) {
     # takes a result object from matrix_container and extracts all the ntree/mtry values used 
@@ -206,5 +174,17 @@ extract_params_from_resultsobj <-
     return(params)
   }
 
-
+get_prob.moa_sds <- function(predDataTbl) {
+  # take prediction data ("predDataTbl") and get for each drug the sd of the probabilities for which it is predicted 
+  # to be a particular moa, once if moa_modelled == moa_actual and once moa_modelled != moa_actual 
+  avg_sd_by_moa <- 
+    predDataTbl %>%
+    mutate(moa_modelled_is_truth = (moa_modelled == process_broad)) %>% # to distinguish the two cases 
+    group_by(drugname_typaslab, moa_modelled_is_truth) %>% # we want to see stability for each drug depending on whether moa_modelled_is_truth 
+    summarise(process_broad = unique(process_broad), 
+      prob.moa_sd = sd(prob.moa), 
+      prob.moa_sd2 = mean(tapply(prob.moa, conc, sd))) %>% # this is probably a better way to calculate the stability
+    filter(process_broad != "other") # let's not consider these cases for now
+  return(avg_sd_by_moa)
+}
 

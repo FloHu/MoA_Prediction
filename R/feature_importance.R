@@ -33,7 +33,6 @@ get_feat_imps.list <- function(res_obj) {
   return(feat_imps)
 }
 
-
 summarise_feat_imps <- function(feat_imps) {
   UseMethod("summarise_feat_imps")
 }
@@ -80,8 +79,6 @@ summarise_feat_imps.feat_imps_multiclass <- function(feat_imps) {
       "85-90%", "90-95%", "95-100%"))
   return(feat_imps)
 }
-
-
 
 get_fingerprint <- function(feat_imps_s, log2thresh = NULL, top_n = NULL, method = c("thresh", "top_n")) {
   # takes a data frame with median feature importance across all models

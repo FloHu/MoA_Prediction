@@ -99,7 +99,6 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
   cowplot::save_plot(filename, ultimate_plot_new, base_width = base_width, base_height = base_height, limitsize = FALSE)
 }
 
-
 plot_perf_from_container <- 
    function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
             what = c("ROC", "prec-recall"), show_repeats = FALSE, row_var = NULL, col_var = NULL) {
