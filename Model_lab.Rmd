@@ -447,7 +447,9 @@ First we need to select a cutoff. How do pairs correlate:
 drug_feats <- filter_container(matrix_container_ext, dosgs = "all", feats = "keepall", 
   chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]]
 
-feats <- drug_feats[, -c(1:3)]
+# remove again the stuff that is not 'main' mode of action
+feats <- drug_feats[drug_feats$process_broad %in% moas, ]
+feats <- feats[, -c(1:3)]
 
 # ----------------------------------------------------------------------------------------
 # NOTE: will remove here already features with many NA values - will be removed at an earlier 
@@ -617,42 +619,28 @@ while (continue) {
   # if not TRUE means we're done
   continue <- max(corpairs$cor > cor_thresh)
 }
-
-## code below was used for removing correlated features ----------
-
-# while (!stop) {
-#   maxcor <- which.max(corpairs$cor)
-#   
-#   if (corpairs$cor[maxcor] <= cor_thresh) {
-#     stop <- TRUE
-#   } else {
-#     a <- corpairs$featA[maxcor]
-#     b <- corpairs$featB[maxcor]
-#     where_a <- corpairs$featA %in% a | corpairs$featB %in% a
-#     where_b <- corpairs$featB %in% b | corpairs$featB %in% b
-#     
-#     a_cor <- mean(corpairs$cor[where_a])
-#     b_cor <- mean(corpairs$cor[where_b])
-#     
-#     if (a_cor >= b_cor) {
-#       corpairs <- corpairs[!where_a, ]
-#       removed_correlated_feats <- c(removed_correlated_feats, a)
-#     } else {
-#       corpairs <- corpairs[!where_b, ]
-#       removed_correlated_feats <- c(removed_correlated_feats, b)
-#     }
-#   }
-# }
 ```
 
-This procedure removed `r length(removed_correlated_feats)` features 
-(out of `r length(unique(c(corpairs$featA, corpairs$featB)))`):
+This means that `r ncol(my_backup$feats) - ncol(feats)` features were merged into other features. 
+The newly emerged features are:
 
 ```{r}
-removed_correlated_feats
-saveRDS(removed_correlated_feats, file = "./data/programmatic_output/feats_to_remove_collinear_thresh06.rds")
+names(feats)[nchar(names(feats)) > 4]
+saveRDS(feats, file = "./data/programmatic_output/feats_after_merging.rds")
 ```
 
+Also plot the correlation matrix again, let's check:
+
+```{r}
+feats_cor <- cor(feats, method = "spearman")
+
+# quite a large and unwieldy plot - but still shows a few useful clusters:
+if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
+  png("./plots/Correlation_all_by_all_aftermerge.png", width = 90, height = 90, units = "cm", res = 500)
+  corrplot::corrplot(feats_cor, method = "color", order = "hclust", tl.cex = 0.1)
+  dev.off()
+}
+```
 
 ## Multi-class model after improved data pre-processing
 
@@ -668,13 +656,20 @@ Things changed:
 # Taken from chunk further above: 
 # rep_rin
 # my_data_multiclass = data that was used in the "winning" 1-vs-all model
+# feats: containing the merged features
+
+stopifnot(nrow(my_data_multiclass) == nrow(feats))
+ncol(my_backup$feats) - ncol(feats)
 
 my_data_mcl_preproc <- my_data_multiclass
-# 106 out of 174 features that were removed because of collinearity are still present in this set:
-sum(removed_correlated_feats %in% names(my_data_mcl_preproc))
-my_data_mcl_preproc <- select(my_data_mcl_preproc, -one_of(c(removed_correlated_feats, NA_feats)))
+(drugdata <- my_data_mcl_preproc[, c(1:3)])
+# columns that are new due to merging:
+(to_add <- feats[, nchar(colnames(feats)) > 4])
+# exclude columns that are not in feats: these are the ones that were merged
+my_data_mcl_preproc <- my_data_mcl_preproc[, colnames(my_data_mcl_preproc) %in% colnames(feats)]
+# add merged features back together
+my_data_mcl_preproc <- cbind(drugdata, my_data_mcl_preproc, to_add)
 
-# still, more than 100 features were removed:
 ncol(my_data_multiclass)
 ncol(my_data_mcl_preproc)
 
@@ -708,9 +703,9 @@ compare_multiclass_models(model1_mc = resampled_multiclass, model2_mc = resample
 ```
 
 
-### "Try 2"
+### "Two highest"
 
-In addition to "Try 1": 
+In addition to previous section: 
 1. Remove drug-dosage combinations with less than a certain number of significant interactions?
 2. Keep just the two highest dosages (?)
 3. Remove some selected drugs (?)
@@ -728,21 +723,21 @@ print(filter(n_signif, moa_modelled_is_truth, n_signif < 10) %>%
 
 # remove methotrexate, 25, it has no interactions:
 nrow(my_data_mcl_preproc)
-my_data_mcl_try2 <- my_data_mcl_preproc
-my_data_mcl_try2 <- my_data_mcl_try2[!(my_data_mcl_try2$drugname_typaslab == "METHOTREXATE" & 
-    my_data_mcl_try2$conc == 25), ]
+my_data_mcl_2high <- my_data_mcl_preproc
+my_data_mcl_2high <- my_data_mcl_2high[!(my_data_mcl_2high$drugname_typaslab == "METHOTREXATE" & 
+    my_data_mcl_2high$conc == 25), ]
 ```
 
 
 ```{r}
-# Keeping just the two highest dosages, leaves us with only 126 rows:
-(my_data_mcl_try2 <- 
-  group_by(my_data_mcl_preproc, drugname_typaslab) %>%
+# Keeping just the two highest dosages
+(my_data_mcl_2high <- 
+  group_by(my_data_mcl_2high, drugname_typaslab) %>%
   top_n(2, conc) %>%
   ungroup())
 
-my_data_mcl_try2_train <- select(my_data_mcl_try2, -one_of(c("conc", "drugname_typaslab")))
-rf_multi.task <- makeClassifTask(data = my_data_mcl_try2_train, target = "process_broad")
+my_data_mcl_2high_train <- select(my_data_mcl_2high, -one_of(c("conc", "drugname_typaslab")))
+rf_multi.task <- makeClassifTask(data = my_data_mcl_2high_train, target = "process_broad")
 rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
   par.vals = list(ntree = my_ntree, mtry = my_mtry))
 ```
@@ -751,13 +746,16 @@ rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
 
 (need a new resampling instance)
 
+Will remove this and put it into a function when all the issues with the 1-vs-rest models have been 
+sorted out as well.
+
 ```{r, eval = FALSE, echo = FALSE}
 rf.rdesc <- makeResampleDesc("CV", iters = 8) 
 
 rep_rin_try2 <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), 
   rf_multi.task)
 
-(ref_fracs <- table(my_data_mcl_try2$process_broad) / length(my_data_mcl_try2$process_broad))
+(ref_fracs <- table(my_data_mcl_2high$process_broad) / length(my_data_mcl_2high$process_broad))
 cv_instances <- list()
 counter <- 0
 max_deviance <- 0.05
@@ -766,9 +764,9 @@ while (length(cv_instances) < 10) {
    rin <- makeResampleInstance(rf.rdesc, rf_multi.task)
    counter <- counter + 1 # to keep track of how often we had to try :)
    for (split in c(1:8)) {
-      train_fracs <- table(my_data_mcl_try2$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
+      train_fracs <- table(my_data_mcl_2high$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
       # we don't want any "empty" classes in the test set:
-      if (length(table(my_data_mcl_try2$process_broad[rin$test.inds[[split]]])) != length(moas)) {
+      if (length(table(my_data_mcl_2high$process_broad[rin$test.inds[[split]]])) != length(moas)) {
          break
       }
       # and relative fractions of classes shouldn't differ too much in the training set
@@ -786,26 +784,25 @@ while (length(cv_instances) < 10) {
 
 rep_rin_try2$train.inds <- flatten(map(cv_instances, "train.inds"))
 rep_rin_try2$test.inds <- flatten(map(cv_instances, "test.inds"))
-
 ```
 
-<!-- -------------------->
+<!---------------------->
 
 
 ```{r}
-my_filename <- "./data/programmatic_output/resampled_multiclass_try2.rds"
+my_filename <- "./data/programmatic_output/resampled_multiclass_2high.rds"
 
 if (file.exists(my_filename)) {
-  resampled_multiclass_try2 <- readRDS(my_filename)
+  resampled_multiclass_2high <- readRDS(my_filename)
 } else {
-  resampled_multiclass_try2 <- resample(learner = rf_multi.learner, task = rf_multi.task,
+  resampled_multiclass_2high <- resample(learner = rf_multi.learner, task = rf_multi.task,
     measures = mmce, resampling = rep_rin_try2, models = TRUE, keep.pred = TRUE)
   # add drugname and concentration information to $pred$data slot
-  resampled_multiclass_try2$pred$data <-
-    bind_cols(my_data_mcl_try2[resampled_multiclass_try2$pred$data$id, c(1, 2)],
-      resampled_multiclass_try2$pred$data) %>%
+  resampled_multiclass_2high$pred$data <-
+    bind_cols(my_data_mcl_2high[resampled_multiclass_2high$pred$data$id, c(1, 2)],
+      resampled_multiclass_2high$pred$data) %>%
     arrange(drugname_typaslab, conc, iter)
-  saveRDS(resampled_multiclass_try2, file = my_filename)
+  saveRDS(resampled_multiclass_2high, file = my_filename)
 }
 ```
 
@@ -813,12 +810,12 @@ Compare!
 
 ```{r}
 compare_multiclass_models(model1_mc = resampled_multiclass_noNAs, 
-  model1_mc_title = "Multiclass, NA values and coll. feats removed", 
-  model2_mc = resampled_multiclass_try2, 
-  model2_mc_title = "Multiclass, only 2 highest dosages", 
-  "./plots/compare_multiclass_try1-vs-try2.pdf")
+  model1_mc_title = "Multiclass, no NAs, feats merged", 
+  model2_mc = resampled_multiclass_2high, 
+  model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
+  "./plots/compare_multiclass_merged_vs_2highest.pdf")
 
-multicl_pred_melt <- melt_pred_data(resampled_multiclass_try2, model_type = "multiclass")
+multicl_pred_melt <- melt_pred_data(resampled_multiclass_2high, model_type = "multiclass")
 
 p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
   geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
@@ -830,7 +827,7 @@ p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = pred
     values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
   coord_cartesian(ylim = c(0, 1))
 
-suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_try2.pdf", plot = p, 
+suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf", plot = p, 
   width = 30, height = 20))
 ```
 
