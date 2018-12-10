@@ -195,10 +195,11 @@ run_cv_tests <- function(rep_nest_cvinst, data) {
       map_lgl(rep_nest_cvinst, cvtest_all_drugs_in_test, data = data)
    
    if (!all(unlist(cv_tests_report))) {
-      cat("Potential problem with CV instance detected.")
-      return(cv_tests_report)
+     warning("Potential problem with CV instance detected.")
+     return(cv_tests_report)
    } else {
-      invisible(TRUE)
+     message("CV instance tests passed successfully")
+     invisible(TRUE)
    }
 }
 

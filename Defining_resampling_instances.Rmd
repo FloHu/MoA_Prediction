@@ -22,8 +22,6 @@ editor_options:
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-# custom functions
-# walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 matrix_container <- readRDS("./data/programmatic_output/matrix_container.rds")
 ```
@@ -58,18 +56,16 @@ refers to updated drug labels from 05/2018.
 
 ```{r making_nested_cvinst_onedosg}
 Rep_Nest_CV_instance_newDrugs = list()
-
 dataset_newDrugs <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_mostinteractions.rds")
-
 dataset_newDrugs$process_broad <- 
    ifelse(dataset_newDrugs$process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), 
           "other", 
           dataset_newDrugs$process_broad)
 
 for(i in 1:10){
-    name = paste0("NCV_", as.character(i))
-    Rep_Nest_CV_instance_newDrugs[[name]] <- 
-       instance_creation(dataset = dataset_newDrugs, printTest = FALSE)
+  name = paste0("NCV_", as.character(i))
+  Rep_Nest_CV_instance_newDrugs[[name]] <- 
+    instance_creation(dataset = dataset_newDrugs, printTest = FALSE)
 }
 ```
 
@@ -84,22 +80,20 @@ the mapping function `RepNCV_instance_map_drugname()`.
 Actual generation of nested cv instance for all dosages from the one with one dosage:
 
 ```{r making_nested_cvinst_alldosg}
-dataset_allDosage = 
-   filter(matrix_container, drug_dosages == "all") %>% 
-   select(drug_feature_matrices) %>% 
-   `[[`(1,1)
+dataset_allDosage <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg.rds")
 
 dataset_allDosage$process_broad <- 
    ifelse(dataset_allDosage$process_broad %in% c("oxidative_stress", "pmf", "protein_qc"), 
           "other", 
           dataset_allDosage$process_broad)
 
-Rep_Nest_CV_instance_allDosage = Rep_Nest_CV_instance_newDrugs
+# instance_oneDrug <- Rep_Nest_CV_instance_newDrugs
+# dataset_oneDosage <- dataset_newDrugs
+# dataset_allDosage
 
-Rep_Nest_CV_instance_allDosage = 
-   RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance_newDrugs, 
-                                dataset_oneDosage = dataset_newDrugs, 
-                                dataset_allDosage = dataset_allDosage)
+Rep_Nest_CV_instance_allDosage <- 
+  RepNCV_instance_map_drugname(instance_oneDrug = Rep_Nest_CV_instance_newDrugs, 
+    dataset_oneDosage = dataset_newDrugs, dataset_allDosage = dataset_allDosage)
 ```
 
 
@@ -116,17 +110,11 @@ the outer and in all the inner CV instances.
 
 These functions are found in `cvinstance_generation.R`.
 
-Running the actual tests:
+Run tests on the cv instances:
 
 ```{r testing_cvinsts_I}
-# we have two types of data frames in terms of number of samples: one with all dosages, one with 
-# most interactions
-# just keep the columns that we need
-(the_matrix_all <- matrix_container$drug_feature_matrices[[3]][, 1:3])
-(the_matrix_mostias <- matrix_container$drug_feature_matrices[[180]][, 1:3])
-
-run_cv_tests(Rep_Nest_CV_instance_newDrugs, the_matrix_mostias)
-run_cv_tests(Rep_Nest_CV_instance_allDosage, the_matrix_all)
+run_cv_tests(Rep_Nest_CV_instance_newDrugs, dataset_newDrugs)
+run_cv_tests(Rep_Nest_CV_instance_allDosage, dataset_allDosage)
 ```
 
 
@@ -144,20 +132,26 @@ oldname <- load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData
 cvinst_alldosg <- get(oldname)
 rm(oldname)
 
-run_cv_tests(cvinst_mostias, the_matrix_mostias)
-run_cv_tests(cvinst_alldosg, the_matrix_all)
+run_cv_tests(cvinst_mostias, dataset_newDrugs)
+run_cv_tests(cvinst_alldosg, dataset_allDosage)
 
 # these are indeed the cv instances used in matrix_container:
 all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "most_interactions"], 
-            ~identical(.x, cvinst_mostias)))
+  ~identical(.x, cvinst_mostias)))
 all(map_lgl(matrix_container$resamp_instance[matrix_container$drug_dosages == "all"], 
-            ~identical(.x, cvinst_alldosg)))
-
+  ~identical(.x, cvinst_alldosg)))
 
 # an example instance + data set
 nest_cvinst <- cvinst_alldosg$NCV_1
-data <- the_matrix_all
+data <- dataset_allDosage
+```
 
+
+Note that the cv instance currently used in the matrix_container for all dosages is not derived 
+from the one for most interactions. See also the following chunk. But since tests passed there is 
+no need to change anything.
+
+```{r}
 # something's strange, e.g. in the first split there is one observation for cell_wall 
 # in the most interactions thing and 7 observations in the all dosages thing
 # (even though the all dosage instance generation works by mapping ...)
@@ -171,8 +165,6 @@ filter(tab, test.or.train == "test", MoA == "cell_wall", split == "a")
 # whereas
 tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all, FALSE)$outer
 filter(tab2, test.or.train == "test", MoA == "cell_wall", split == "a")
-
-# no idea why - since all the other tests are passed, however, I wouldn't change anything here now 
 ```
 
 

@@ -1,3 +1,11 @@
+get_innerCV = function(repeat_ind, data = Rep_Nest_CV_instance){
+  return(data[[repeat_ind]]$inner)
+}
+
+get_outerCV = function(repeat_ind, data = Rep_Nest_CV_instance){
+  return(data[[repeat_ind]]$outer)
+}
+
 myhead <- function (x, n = 6L, ncol = 6L, rhs = FALSE) 
 {
   # simply a modified version of head.data.frame showing just the first
