@@ -22,16 +22,14 @@ This part is the general setup, whichever model we are using.
 ```{r setup}
 # function to check if a package is installed, if so, load it, else install and then load it
 source("./R/ipak.R")
-# set chunk options and load libraries
+# set chunk options and load libraries, load custom functions
 source("./setup.R")
-# custom functions
-walk(list.files("./R", pattern = "*.R", full.names = T), source)
 ```
 
 Modify some options for knitr. 
 
 ```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = TRUE)
+knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = FALSE)
 theme_set(theme_bw())
 theme_update(text = element_text(size = 16))
 ```
@@ -93,11 +91,9 @@ for (rownum in seq_len(nrow(matrix_container))) {
          message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
       } else {
          message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
-         # warning("Didn't find a match for line ", rownum) # this doesn't work - no clue why - use cat()
          next
       }
    } else {
-      # cat("Row ", rownum, " already populated, continuing to next line.\n")
       message("Row ", rownum, " already populated, continuing to next line.")
       next
    }
@@ -116,8 +112,10 @@ for (rownum in seq_len(nrow(matrix_container))) {
    pred_data_with_n_signif <- get_nsignif(drugfeatmat = matrix_container_row$drug_feature_matrices[[1]], 
      predDataTbl = pred_data, the_matrix = the_matrix_complete_strainsgenesremoved)
    
-   matrix_container[rownum, c("perf_measures", "pred_data", "prob.moa_stabilities", "pred_data_with_n_signif", "thresh_vs_perf")] <- 
-     list(list(perf_measures), list(pred_data), list(prob.moa_stabilities), list(pred_data_with_n_signif), list(thresh_vs_perf))
+   matrix_container[rownum, c("perf_measures", "pred_data", "prob.moa_stabilities", 
+     "pred_data_with_n_signif", "thresh_vs_perf")] <- 
+     list(list(perf_measures), list(pred_data), list(prob.moa_stabilities), 
+       list(pred_data_with_n_signif), list(thresh_vs_perf))
    
    rm(resultsobj)
    gc()
@@ -197,8 +195,7 @@ plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "drug_dosa
 
 ```{r, for_poster, echo = FALSE}
 # this is just for the poster
-foo <- 
-   filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
+foo <- filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
 
 foo$moa_modelled <- 
    fct_recode(foo$moa_modelled, 
@@ -384,12 +381,11 @@ plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar 
 ```{r, for_poster_again, echo = FALSE}
 # just for the poster
 foo <- 
-   stability_assessment %>%
-   filter(chemical_feats == FALSE) %>%
-   select(-one_of("PredData", "auc_stabilities", "auc_stabilities_new")) %>%
+   matrix_container %>%
+   select(drug_dosages, feat_preselect, chemical_feats, fitted_model, prob.moa_stabilities) %>%
    unnest() %>%
    filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), moa_modelled_is_truth, 
-          drug_dosages == "all")
+          drug_dosages == "all", !chemical_feats)
 
 foo$process_broad <- 
    fct_recode(foo$process_broad, 
@@ -503,20 +499,13 @@ be decent feature preselections. So what do the ROC curves look like?
 tmp <- filter(matrix_container, 
               fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
               feat_preselect %in% c("top25pct", "keepall"), 
-              chemical_feats, 
               drug_dosages == "all")
 
-plot_ROC_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
-plot_ROC_from_container(tmp[tmp$fitted_model == "classif.glmnet", ])
+plot_perf_from_container(tmp[!tmp$chemical_feats, ], what = "ROC", col_var = "feat_preselect", 
+  row_var = "fitted_model")
 
-
-tmp <- filter(matrix_container, 
-              fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-              feat_preselect %in% c("top25pct", "keepall"), 
-              ! chemical_feats, 
-              drug_dosages == "all")
-
-plot_ROC_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
+plot_perf_from_container(tmp[tmp$chemical_feats, ], what = "ROC", col_var = "feat_preselect", 
+  row_var = "fitted_model")
 ```
 
 Note: for cell_wall/dna/protein_synthesis: even though lasso and random forests are very similar 
@@ -527,8 +516,10 @@ But note the issue with probabilities, showing ROC curves for each repeat might 
 To be complete, here the precision-recall curves: 
 
 ```{r}
-plot_precRecall_from_container(tmp[tmp$fitted_model == "classif.randomForest", ])
-plot_precRecall_from_container(tmp[tmp$fitted_model == "classif.glmnet", ])
+tmp <- tmp[!tmp$chemical_feats, ]
+
+plot_perf_from_container(tmp, what = "prec-recall", col_var = "feat_preselect", 
+  row_var = "fitted_model")
 ```
 
 ## Selected AUC/partial AUC comparison
@@ -544,7 +535,7 @@ tmp <- filter_container(matrix_container, models = c("classif.randomForest", "cl
   unnest()
 
 plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "auc", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
+  facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
 ```
 
 So one may be able to compensate for the loss of chemical features by using lasso. Here are the 
@@ -552,7 +543,7 @@ partial AUCs:
 
 ```{r}
 plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "part_auc_01", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
+  facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), additional_info = "")
 ```
 
 
@@ -720,21 +711,15 @@ ggplot(tmp3, aes(x = two_highest_dosgs, y = mean.median_prob.moa, colour = two_h
    geom_point() +
    geom_line(aes(group = drugname_typaslab), colour = "black") + 
    facet_wrap( ~ moa_modelled) + 
-   labs(title = "Effect of using 2 highest concentrations (= label 'TRUE')\nvs. other concentrations (= label 'FALSE')")
+   labs(title = "Effect of using 2 highest concentrations (= label 'TRUE')\nvs. other 
+     concentrations (= label 'FALSE')")
 ```
 
 Another argument against using all dosages is that it leads to a higher degree of correlation of 
 the features between the observations: within dosage correlation is significantly higher than 
 between dosage correlation (see notebook "Misc.Rmd") so our degree of dependency between 
 observations is likely to drop. 
-<!--
-Open points: 
-- Correlation of median_prob.moa and ranks should perhaps be done for individual drugs and across
-  all models. 
-- The concentration with "highest number of interactions" is based on "keepall". How often is it 
-  different from the actual concentration with highest number of interactions using a specific 
-  feature selection?
--->
+
 
 ## Further investigations on chemical features
 

@@ -1,6 +1,6 @@
 ---
-title: "Inspecting models"
-author: "Leonard Dubois, Florian Huber"
+title: "Inspecting models 2.0"
+author: "Florian Huber"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -25,868 +25,201 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = T)
-
-matrix_container <- readRDS("./data/programmatic_output/matrix_container_withextractions.rds")
-matrix_container_new = readRDS("data/programmatic_output/matrix_container_new_withextractions.rds")
-
-ipak(plotmo)
-ipak(reshape2)
-ipak(gplots)
-ipak(gridExtra)
-ipak(plotly)
-ipak(ComplexHeatmap)
-ipak(circlize)
+knitr::opts_chunk$set(cache = FALSE)
 ```
 
+# Aim
 
-Aim of this notebook is to have a deeper look at all the different results from the matrix 
-container and understand which features are used, for what, which of them help us defining groups 
-based on MoA.
+To generate a report of performances, prediction probabilities for each drug, and feature 
+importances. Use most important features to get a fingerprint for a MoA and generate 
+heatmaps and PCA/tSNE/MDS maps.
 
-For keeping the same color code for MoA in all kind of plots 
+# Report
+
+## Which models are we talking about?
+
+We will focus on random forests, top25pct, no chemical features, all dosages. 
+
+```{r input_data}
+matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+chosen_res <- filter_container(matrix_container, dosgs = "all", feats = "top25pct", 
+  chemfeats = FALSE, models = "classif.randomForest")
+stopifnot(nrow(chosen_res) == 1)
+chosen_res
+drugnfeats <- chosen_res$drug_feature_matrices[[1]]
+res_obj <- get_resobj_from_row(chosen_res, dir = "./run_results_from_server/matrix_container_result/")
+
+moas <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
+moa_colours <- c("cell_wall" = "#984ea3", "dna" = "#4daf4a", "membrane_stress" = "#377eb8", 
+  "protein_synthesis" = "#e41a1c", "oxidative_stress" = "#636363", "protein_qc" = "#252525", 
+  "pmf" = "#969696")
+```
+
+## What are the performances?
 
 ```{r}
-colMap = rainbow(4)
-names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+plot_perf_from_container(chosen_res, what = "ROC")
+plot_perf_from_container(chosen_res, what = "prec-recall")
 ```
 
+## How are prediction probabilities distributed? 
 
-# Lasso model regularization paths
+### Dosage with highest probability
 
-First, we have a look at the regularization path of a LASSO model, which is the evolution of the 
-coefficient for one feature depending on the value of the regularization parameter lambda. 
+```{r, fig.height = 10}
+walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+  dosg_to_plot = "highest_prob")
+```
 
-Regularization paths are contained in a matrix in lasso model objects built with glmnet.
+### All dosages
 
-Main problem here is that there are 80 slightly different regularization paths per run: one for each 
-outer fold times the number of repetitions.
+```{r, fig.height = 20}
+walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+  dosg_to_plot = "all")
+```
 
-It would be great to find a way to average all of this...
+## Feature importances
 
 ```{r}
-# Result object to test
-resObj <- readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top5pct_TRUE.rds")
+feat_imps <- get_feat_imps(res_obj)
+head(feat_imps)
 
-# For a given model, example with NCV 1, Outer fold 1 DNA MoA
-modelInstance = resObj$`Nested CV 1`$`Outer fold 1`$model_dna
-
-# I wrote my own function for the plot_glmnet one form the plotmo package is not that great.
-dna11 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 1`$model_dna)
-dna12 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 2`$model_dna)
-dna13 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 3`$model_dna)
-dna14 = plot_reg_path(resObj$`Nested CV 1`$`Outer fold 4`$model_dna)
-
-grid.arrange(dna11, dna12, dna13, dna14, nrow = 2)
-rm(resObj)
+feat_imps_s <- summarise_feat_imps(feat_imps)
+head(feat_imps_s)
 ```
 
-
-# Model exploration of feature importance
-
-Overview of the analysis:
-
-- For each MoA, take a "good" model, here, the one displaying the highest AUC for the MoA chosen.   
-- Display features importance distribution as well as in how many models they appear
-- For the best features, have a look at the distribution of the s-score across MoA 
-  (*plots removed for the pdfs generated were too big, too long*)
-- Also look at what happens if we try to clusterize drugs based on these features only: Heatmap 
-  function
-
-
-## CELL WALL 
+Plot features that occur in all models:
 
 ```{r}
-lasso_30pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top30pct_FALSE.rds")
+# keep top_n features per MoA:
+nb_to_keep <- 25
 
-model_analysis(res_obj = lasso_30pc_all, matrix_container_line = matrix_container[155, ], 
-               matrix_container_line_noChemFeat = matrix_container[156, ], moa = "cell_wall", 
-               pdf_filename = "./plots/model_explanation_cell_wall.pdf", model_type = "lasso")
+helper_fr <- 
+  feat_imps_s %>%
+  group_by(moa) %>%
+  dplyr::arrange(desc(median_importance), .by_group = TRUE) %>%
+  slice(seq_len(nb_to_keep))
+
+new_order <- helper_fr$gene[!duplicated(helper_fr$gene)]
+
+to_plot <- 
+  feat_imps %>%
+  dplyr::filter(paste(gene, moa) %in% paste(helper_fr$gene, helper_fr$moa)) %>%
+  group_by(gene, moa, cvrep) %>%
+  summarise(med_imp = median(importance))
+
+ggplot(to_plot, aes(x = fct_reorder(gene, med_imp), y = med_imp)) + 
+  geom_boxplot(aes(colour = moa)) + 
+  facet_wrap( ~ moa, ncol = 2, scales = "free") + 
+  coord_flip() + 
+  labs(x = "Feature", y = "Feature importance", 
+    title = "Feature importances for random forests models, 
+    25 most important features per MoA (no chem. feats, top25pct)")
 ```
 
-We can see on the Heatmap that a robust and pure cluster of cell wall drug is "driven" by SLT and 
-MRCB.
 
-
-## PROTEIN SYNTHESIS
+We can see that the number of features that are considered differ between MoAs:
 
 ```{r}
-lasso_5pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top5pct_TRUE.rds")
-
-model_analysis(res_obj = lasso_5pc_most, 
-               matrix_container_line = matrix_container[180, ], 
-               matrix_container_line_noChemFeat = matrix_container[179, ] , 
-               moa = "protein_synthesis", 
-               pdf_filename = "./plots/model_explanation_protein_synthesis.pdf", 
-               model_type = "lasso")
+ggplot(feat_imps_s, aes(x = moa)) + 
+  geom_bar(aes(fill = factor(pct_models_bin))) + 
+  scale_fill_discrete(name = "Present in how\nmany models?") + 
+  labs(c = "Mode of action", y = "Number of genes")
 ```
 
-Here it is not really clear which features are driving the clusterization. Potentially ASMA and 
-GLMS, maybe RFAE and ACRA. The result also depends on the threshold used (% of models with a given 
-feature).
-
-
-## MEMBRANE STRESS
+Feature importances, broken down by the number of models they appear in:
 
 ```{r}
-lasso_25pc_all = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_all_top25pct_TRUE.rds")
-
-model_analysis(res_obj = lasso_25pc_all, 
-               matrix_container_line = matrix_container[154, ], 
-               matrix_container_line_noChemFeat = matrix_container[153, ], 
-               moa = "membrane_stress", 
-               pdf_filename = "./plots/model_explanation_membrane_stress.pdf", model_type = "lasso")
+feat_imps_s %>%
+  ggplot(aes(x = log2(median_importance))) + 
+  geom_histogram(aes(fill = pct_models_bin)) + 
+  facet_wrap( ~ moa)
 ```
 
-Clusters of membrane stress drugs seem driven by SURA, PAL, RFAF but also maybe HFQ, SlogP.
-
-
-## DNA
+Let's pull out all genes with a log2(median_importance) > -2.5
 
 ```{r}
-lasso_10pc_most = readRDS("run_results_from_server/matrix_container_result/lasso_hyp_param_most_interactions_top10pct_FALSE.rds")
+fingerprint1 <- get_fingerprint(feat_imps_s, log2thresh = -2.5, method = "thresh")
+head(fingerprint1)
 
-model_analysis(res_obj = lasso_10pc_most, 
-               matrix_container_line = matrix_container[165, ], 
-               matrix_container_line_noChemFeat = matrix_container[166, ], 
-               moa = "dna", pdf_filename = "./plots/model_explanation_dna.pdf", model_type = "lasso")
+# the genes that appear in more than one MoA are
+more_than_once <- rle(fingerprint1$gene)$values[rle(fingerprint1$gene)$lengths > 1]
+fingerprint1[fingerprint1$gene %in% more_than_once, ]
+
+fingerprint1 <- unique(fingerprint1$gene)
+head(fingerprint1)
 ```
 
-DNA drugs cluster easily with RECC and RECA values.
-
-Somehow, NAGA, YCHJ, TOLQ, GUAB, CYSB, NUDB drive small cluster of dna drugs (subclasses ?) or help 
-separating it from other MoA.
-
-
-# Run of model analysis using best RF models
-
-Focusing only on RF models.
+Display result with heatmaps and tSNE maps.
 
 ```{r}
-# Line 18 corresp 17
-bestRF_dna = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top5pct_TRUE.rds")
-#Line 24 corresp 23
-bestRF_cell_wall = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_most_interactions_top15pct_TRUE.rds")
-#Line 6 corresp 5
-bestRF_membrane_stress = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top15pct_TRUE.rds")
-#Line 10 corresp 9
-bestRF_protein_synthesis = readRDS("run_results_from_server/matrix_container_result/rf_hyp_param_all_top25pct_TRUE.rds")
+library(Rtsne)
 
-model_analysis(res_obj = bestRF_dna, 
-               matrix_container_line = matrix_container[18, ], 
-               matrix_container_line_noChemFeat = matrix_container[17, ], 
-               moa = "dna",
-               pdf_filename = "./plots/model_explanation_RF_dna.pdf", 
-               model_type = "tree", 
-               feat_imp_thres = 0.9)
+tsne_mat <- select(drugnfeats, drugname_typaslab, process_broad, fingerprint1)
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+tsne_res = Rtsne(X = tsne_mat[, -c(1,2)], dims = 3, perplexity = 10, max_iter = 2000)
 
-model_analysis(res_obj = bestRF_cell_wall, 
-               matrix_container_line = matrix_container[24, ], 
-               matrix_container_line_noChemFeat = matrix_container[23, ], 
-               moa = "cell_wall",
-               pdf_filename = "./plots/model_explanation_RF_cell_wall.pdf", 
-               model_type = "tree", 
-               feat_imp_thres = 0.9)
-
-model_analysis(res_obj = bestRF_membrane_stress, 
-               matrix_container_line = matrix_container[6, ], 
-               matrix_container_line_noChemFeat = matrix_container[5, ], 
-               moa = "membrane_stress",
-               pdf_filename = "./plots/model_explanation_RF_membrane_stress.pdf", 
-               model_type = "tree", 
-               feat_imp_thres = 0.99)
-
-model_analysis(res_obj = bestRF_protein_synthesis, 
-               matrix_container_line = matrix_container[10, ], 
-               matrix_container_line_noChemFeat = matrix_container[9, ], 
-               moa = "protein_synthesis",
-               pdf_filename = "./plots/model_explanation_RF_protein_synthesis.pdf", 
-               model_type = "tree", 
-               feat_imp_thres = 0.95)
-```
-
-Random Forest is really worse in feature selection and even if one select only features found in 
-all the models, it is still is too much. Thresholds are quite high here, but otherwise pdf file are 
-too big.
-
-
-# Run of model analysis - New matrix container
-
-Same thing as above, but using the new matrix container which is smaller, use only 2 dosages per 
-drug (thus reducing the representation bias) and not using the chemical features, way too much 
-correlated among themselves.
-
-## Total overview
-
-```{r}
-pdf(file= "./plots/matrix_container_new_allROC.pdf", height = 32, width = 17)
-plot_ROC_from_container(containerObj = matrix_container_new, moa = "all", 
-                        by = c("feat_preselect", "fitted_model"))
-dev.off()
-```
-
-## Overview by Model type and MoA
-
-```{r}
-pdf(file = "./plots/matrix_container_new_EN_overview.pdf", width = 24, height = 15)
-p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "dna")
-p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "cell_wall")
-p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "membrane_stress")
-p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.glmnet"), moa = "protein_synthesis")
-grid.arrange(p1, p2, p3, p4, nrow = 2)
-dev.off()
-
-pdf(file = "./plots/matrix_container_new_RF_overview.pdf", width = 24, height = 15)
-p1 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "dna")
-p2 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "cell_wall")
-p3 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "membrane_stress")
-p4 = plot_ROC_from_container(containerObj = matrix_container_new %>% filter(fitted_model == "classif.randomForest"), moa = "protein_synthesis")
-grid.arrange(p1, p2, p3, p4, nrow = 2)
-dev.off()
-```
-
-*DNA*: 
-
-* Random Forest model displays good performances with all feat (AUC 0.853), corr 0.7 (AUC 0.85) or 
-  protein complexes (AUC 0.851).
-* Elastic net has better AUC with complexes_corrBonf preselction methods (AUC 0.874 and 0.843) but 
-  the partial AUC is slightly worse.
-
-*CELL WALL*: 
-
-* Random Forest displays always a bigger AUC than EN (at least 0.04). Moreover it is highly robust 
-  and a lot of models reach an AUC of 0.9.
-* Protein complexes preselection displays the best partial AUC.
-
-*PROTEIN SYNTHESIS*:
-
-* EN is better (it is obviously seen with the shape of the ROC curve). But be careful for EN models 
-  for protein_synthesis MoA tend to use a lot of features (regularization not so efficient).
-* Best models are corr 0.7 (AUC 0.895), all (AUC 0.894), corr 0.6 (AUC 0.887) and protein_complexes 
-  (AUC 0.87).
-
-*MEMBRANE STRESS*:
-
-* Both type of model are equivalent in terms of AUC (which is always lower than other MoA). However,  
-partial AUC is better in EN models, in particular for preselection complexes_corr_outlier 
-(AUC 0.821) and corr 0.6 (AUC 0.774)
-
-
-Analysis of these plots allows to decide which models should we focus on. Since multiple models 
-display similar perfromances, one should look for interpretability
-
-
-# In depth analysis
-
-The aim is to identify a group of genes in a model which is driving the clusterization. We can 
-easily visualize it with the dendrogram from the heatmap function. However, whether it is really 
-obvious depends mainly on the threshold one chooses: in how many models is a feature used? (Most 
-of the time it's between 90 and 100% )
-
-
-## 'Model explanations' of best models
-
-Each time, the focus is put on the model with the highest AUC, if several AUC are really similar, 
-the model displaying the most stringent features preselection and/or the best partial AUC is chosen.  
-
-```{r}
-rm(lasso_10pc_most, lasso_25pc_all, lasso_30pc_all, lasso_5pc_most, 
-   bestRF_cell_wall, bestRF_dna, bestRF_membrane_stress, bestRF_protein_synthesis)
-
-# Best model (highest AUC)
-res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], 
-               moa = "dna", pdf_filename = "./plots/model_explanation_best_dna_results.pdf",
-               model_type = "tree", feat_imp_thres = 1)
-rm(res_best_dna)
-gc()
-
-# test of best EN model because of the end of the roc curve
-res_best_dna = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corrBonf_outlier01_FALSE.rds")
-model_analysis(res_obj = res_best_dna, matrix_container_line = matrix_container_new[7, ], 
-               moa = "dna", pdf_filename = "./plots/model_explanation_best_dna_results2.pdf",
-               model_type = "lasso", feat_imp_thres = 1)
-rm(res_best_dna)
-gc()
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], 
-               moa = "membrane_stress", 
-               pdf_filename = "./plots/model_explanation_best_membrane_stress_results.pdf",
-               model_type = "lasso", feat_imp_thres = 1, 
-               model_name_title = "Membrane stress prediction using EN with Complexes Correlation + outlier")
-rm(res_best)
-gc()
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], 
-               moa = "protein_synthesis", 
-               pdf_filename = "./plots/model_explanation_best_protein_synthesis_results.pdf",
-               model_type = "lasso", feat_imp_thres = 1)
-rm(res_best)
-gc()
-
-#Only to assess if there's a difference
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_all_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[1, ], 
-               moa = "protein_synthesis", 
-               pdf_filename = "./plots/model_explanation_best_protein_synthesis_results2.pdf",
-               model_type = "lasso", feat_imp_thres = 1)
-rm(res_best)
-gc()
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-model_analysis(res_obj = res_best, matrix_container_line = matrix_container_new[7, ], 
-               moa = "cell_wall", pdf_filename = "./plots/model_explanation_best_cell_wall_results.pdf",
-               model_type = "tree", feat_imp_thres =1)
-rm(res_best)
-gc()
-```
-
-
-## Most important features
-
-Try to obtain a nice representation showing the group of features driving a pure cluster of the 
-targeted MoA.
-
-Testing the simplest thing: Features used in all the 80 models (10 repetitions * 8 outer fold of 
-the Nested CV). At the moment it is the signature that gives the best results in a t-SNE map, I 
-guess it's because of a limited amount a dimensions and not too much noise.
-
-Just some geom_point of the feature importances. For RF model it's mean decrease in Gini impurity, 
-for EN coefficients value or abolute value. Features are not extracted with the same function, for 
-RF it is easy, for EN you have to find it according to the tuned lambda (*s* parameter in glmnet). 
-Need to find which lambda tested in the model is the closest one from *s* in order to get get the 
-corresponding coefficients.
-
-```{r}
-final_res = c()
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_all_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "dna", 
-                                   main = deparse(substitute(resObj)), 
-                                   thres = 1, return_obj = T, model_type = "tree")  
-rm(res_best)
-gc()
-final_res = c(final_res, names(featImp))
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "membrane_stress", 
-                                   main = deparse(substitute(resObj)), 
-                                   thres = 1, return_obj = T, model_type = "lasso")  
-rm(res_best)
-gc()
-final_res = c(final_res, names(featImp))
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "protein_synthesis", 
-                                   main = deparse(substitute(resObj)), 
-                                   thres = 1, return_obj = T, model_type = "lasso")  
-rm(res_best)
-gc()
-final_res = c(final_res, names(featImp))
-
-res_best = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_best, moa = "cell_wall", 
-                                   main = deparse(substitute(resObj)), 
-                                   thres = 1, return_obj = T, model_type = "tree")  
-rm(res_best)
-gc()
-final_res = c(final_res, names(featImp))
-final_res = unique(final_res)
-```
-
-
-## Screening Heatmap cutting schemes
-
-Old method to assess if one subset of feature can be enough to predict most of a targeted MoA.
-Testing different way of grouping drugs and features, splitting them based on some HCA 
-(Hierarchical cluster analysis aka tree: 1 to 6 groups for feat/genes, 2 to 6 for drugs).
-
-Then assessing precision and recall for the targeted MoA in the defined clusters of drugs.
-Main problem here is that such a screen can be made for each model (result file), for each 
-threshold (in how many model features are used), using several distance metrics (euclidean or 
-1 - pearson correlation).
-
-There are way too many combinations and the chances of finding something at random because of lots 
-of repeated sampling possibilities is high (similar to multiple testing problems in a way).
-
-Screens possibilities: output is the "Xmas tree plot"
-
-```{r}
-if (!file.exists("./data/programmatic_output/HM_cut.RData")) {
-   # DNA Model
-   cut_DNA = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-      model_type = "tree", moa = "dna", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
-   gc()
-   
-   cut_DNA_corr = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-      model_type = "tree", moa = "dna", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]], 
-      dist_method = "correlation_based")
-   gc()
-   
-   # Cell Wall
-   cut_WALL = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-      model_type = "tree", moa = "cell_wall", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
-   gc()
-   
-   cut_WALL_corr = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds", 
-      model_type = "tree", moa = "cell_wall", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]], 
-      dist_method = "correlation_based")
-   gc()
-   
-   #Protein Synthesis
-   cut_PROT = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds", 
-      model_type = "lasso", moa = "protein_synthesis", 
-      mat_from_container = matrix_container_new[1, ]$drug_feature_matrices[[1]])
-   gc()
-   
-   cut_PROT_corr = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_corr07_FALSE.rds", 
-      model_type = "lasso", moa = "protein_synthesis", 
-      mat_from_container = matrix_container_new[1, ]$drug_feature_matrices[[1]], 
-      dist_method = "correlation_based")
-   gc()
-   
-   #Membrane Stress
-   cut_MEMBRANE = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds", 
-      model_type = "lasso", moa = "membrane_stress", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]])
-   gc()
-   
-   cut_MEMBRANE_corr = screening_heatmap_cuts(
-      res_obj_file = "run_results_from_server/matrix_container_result/most2_interactions_classif.glmnet_cplx_corr_outlier_FALSE.rds", 
-      model_type = "lasso", moa = "membrane_stress", 
-      mat_from_container = matrix_container_new[7, ]$drug_feature_matrices[[1]], 
-      dist_method = "correlation_based")
-   gc()
-   
-   save(cut_DNA, cut_WALL, cut_PROT, cut_MEMBRANE, 
-        cut_DNA_corr, cut_WALL_corr, cut_PROT_corr, cut_MEMBRANE_corr, 
-        file = "data/HM_cut.RData")
-} else {
-   load("./data/programmatic_output/HM_cut.RData")
-}
-
-# example for plotting the result:
-p1 <- ggplot(data = cut_DNA, aes(ppv, recall)) + 
-   geom_point(size = 2, alpha = 0.4) + theme_bw() + 
-   ggtitle("DNA - Euclidean distance for tree building") + 
-   labs(x = "Precision (PPV)", y = "Recall") + theme(text = element_text(size = 18))
-p1 
-
-# etc.
-```
-
-
-Then use best cuttting scheme and generate plots for each MoA using *ComplexHeatmap* package which 
-appears to be one of the best packages for nice Heatmap representation.
-
-```{r for_poster, eval = F, echo = F}
-# use_corr_result <- TRUE
-# # cut_DNA_corr contains the results of the "screen":
-# cut_plan <- 
-#    filter(cut_DNA_corr, recall >= 0.75, ppv >= 0.75) %>%
-#    arrange(nbGene) %>%
-#    slice(1)
-# cut_plan
-# 
-# res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-# featImp = plot_top_feat_importance(resObj = res_obj, moa = "dna", main= deparse(substitute(resObj)), 
-#                                    thres = cut_plan$threshold, return_obj = T, model_type = "tree")  
-# rm(res_obj)
-# gc()
-# 
-# cluster_matrix = matrix_container_new[7, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, conc, names(featImp))
-# 
-# cluster_matrix = as.data.frame(cluster_matrix)
-# rownames(cluster_matrix) = paste(cluster_matrix$drugname_typaslab, cluster_matrix$conc, sep = "_")
-# annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
-# rownames(annot) = rownames(cluster_matrix)
-# cluster_matrix = cluster_matrix %>% select(-drugname_typaslab, -conc)
-# 
-# if(use_corr_result){
-#     dist_corr = sqrt(2*(1 - cor(cluster_matrix %>% select(-"process_broad"))))
-#     genes_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nGeneCut )
-# }else{
-#     genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-"process_broad") ))), k = cut_plan$nGeneCut )
-# }
-# for (i in 1:cut_plan$nGeneCut){
-#     mats_subGene = cluster_matrix[, names(genes_grp[genes_grp == i])]
-#     if(use_corr_result){
-#         dist_corr = sqrt(2*(1 - cor(t(mats_subGene))))
-#         drugs_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nDrugsCut)
-#     }else{
-#         drugs_grp = cutree(hclust(dist(mats_subGene )), k = cut_plan$nDrugsCut)
-#     }
-#     assign(x = paste0("h", as.character(i)),
-#            value = Heatmap(matrix = mats_subGene, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
-#                         gap = unit(10, "mm"), split = drugs_grp, row_names_gp = gpar(fontsize = 6), column_title_gp = gpar(fontsize = 30),
-#                         heatmap_legend_param = list(title = "Color scale"))
-#            )
-# }
-# ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
-# 
-# if(use_corr_result) {
-#     pdf(file = "plots/HMcut_dna_corr.pdf", height = 15, width = 15)
-# }else{
-#     pdf(file = "plots/HMcut_dna.pdf", height = 15, width = 15)
-# }
-# h1  + ha_row
-# dev.off()
-# 
-
-```
-
-For DNA:
-
-```{r}
-use_corr_result = T
-
-if(use_corr_result){
-    cut_plan = arrange(cut_DNA_corr %>% filter(recall >= 0.75 & ppv >= 0.75), nbGene)
-}else{
-    cut_plan = arrange(cut_DNA %>% filter(recall >= 0.75 & ppv >= 0.75), nbGene)
-}
-cut_plan = cut_plan[1, ]
-res_obj = readRDS(file = "run_results_from_server/matrix_container_result/most2_interactions_classif.randomForest_protCmplx_FALSE.rds")
-featImp = plot_top_feat_importance(resObj = res_obj, moa = "dna", main= deparse(substitute(resObj)), 
-                                   thres = cut_plan$threshold, return_obj = T, model_type = "tree")  
-
-# for poster:
-featImp_poster <- tibble(feature = names(featImp), 
-                         values = featImp)
-
-featImp_poster$in_how_many_models <- round(lengths(featImp_poster$values) / 80, digits = 4) * 100
-featImp_poster$medians <- sapply(featImp_poster$values, median)
-featImp_poster$ranks <- order(featImp_poster$in_how_many_models, 
-                              sapply(featImp_poster$values, median))
-
-### ???? why does neither of the following work?
-# featImp_poster <- 
-#    mutate(featImp_poster, 
-#           feature3 = forcats::fct_reorder2(feature, in_how_many_models, medians, function(.x, .y) order(order(.x, .y))), 
-#           feature2 = forcats::fct_reorder2(feature, in_how_many_models, medians, 
-#                                           .fun = function(.x, .y) {
-#                                              final_ranking <- order(order(.x, .y))
-#                                              return(final_ranking)
-#                                           }))
-
-featImp_poster$feature <- forcats::fct_reorder(featImp_poster$feature, featImp_poster$ranks)
-featImp_poster <- unnest(featImp_poster)
-
-ggplot(featImp_poster, aes(x = feature, y = values, fill = factor(in_how_many_models))) + 
-   geom_boxplot(outlier.size = 1) + 
-   coord_flip() + 
-   scale_fill_manual("Present in %\nof models", values = c("#bdbdbd", "#636363")) + 
-   labs(title = "Feature importance across\nnested CV repeats", x = "Mean decrease in Gini impurity", y = "") + 
-   theme_bw() + 
-   theme(text = element_text(size = 16), legend.position = c(0.75, 0.2))
-
-ggsave(filename = "./plots/POSTER_featImp.pdf", width = 4.8, height = 5.5)
-
-
-
-rm(res_obj)
-gc()
-cluster_matrix = matrix_container_new[7, ]$drug_feature_matrices[[1]] %>% select(drugname_typaslab, process_broad, conc, names(featImp))
-
-cluster_matrix = as.data.frame(cluster_matrix)
-rownames(cluster_matrix) = paste(cluster_matrix$drugname_typaslab, cluster_matrix$conc, sep = "_")
-annot = data.frame(MoA = cluster_matrix[ ,"process_broad"])
-rownames(annot) = rownames(cluster_matrix)
-cluster_matrix = cluster_matrix %>% select(-drugname_typaslab, -conc)
-
-if(use_corr_result){
-    dist_corr = sqrt(2*(1 - cor(cluster_matrix %>% select(-"process_broad"))))
-    genes_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nGeneCut )
-}else{
-    genes_grp = cutree(hclust(dist(t(cluster_matrix %>% select(-"process_broad") ))), k = cut_plan$nGeneCut )
-}
-for (i in 1:cut_plan$nGeneCut){
-    mats_subGene = cluster_matrix[, names(genes_grp[genes_grp == i])]
-    if(use_corr_result){
-        dist_corr = sqrt(2*(1 - cor(t(mats_subGene))))
-        drugs_grp = cutree(hclust(as.dist(dist_corr)), k = cut_plan$nDrugsCut)
-    }else{
-        drugs_grp = cutree(hclust(dist(mats_subGene )), k = cut_plan$nDrugsCut)
-    }
-    # ncolors <- 40
-    # my_cols <- viridis::cividis(ncolors)
-    assign(x = paste0("h", as.character(i)),
-           value = Heatmap(matrix = mats_subGene, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")),
-           # value = Heatmap(matrix = mats_subGene, col = colorRamp2(seq(from = -4, to = 4, length.out = ncolors), my_cols),
-                        gap = unit(5, "mm"), split = drugs_grp, row_names_gp = gpar(fontsize = 3), column_title_gp = gpar(fontsize = 20),
-                        heatmap_legend_param = list(title = "Color scale"))
-           )
-}
-
-# different colours for poster:
-colMap = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
-names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-#
-
-ha_row = rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
-
-if(use_corr_result) {
-    pdf(file = "plots/HMcut_dna_corr.pdf", height = 10, width = 10)
-}else{
-    pdf(file = "plots/HMcut_dna.pdf", height = 10, width = 10)
-}
-h1  + ha_row
-dev.off()
-
-# reconstitute old colours:
-colMap = rainbow(4)
-names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
-chemogeno_fingerprint = c()
-chemogeno_fingerprint = c(chemogeno_fingerprint, colnames(h3@matrix) )
-```
-
-_Note Florian: What followed was the previous chunks repeated for protein synthesis, membrane _
-_stress, and cell wall. Was very difficult to read --> to be refactored and put into functions if _
-_we need it. Also some objects were missing (h3?)._
-
-
-## Fingerprints using a subset of all features
-
-Several different approaches detailed above can help you define a "chemogenomic fingerprint", a 
-subset a gene whose chemogenomic information could be enough to predict/classify/identify the main 
-part of a MoA signal.
-
-There are several ways of assessing whether a signature is efficient or not: visualizing it with a 
-dimensionnality reduction technique (PCA, MDS, **tSNE**), try to build some Heatmap with signature 
-as columns, or also kmeans clustering or KNN.
-
-### Heatmaps
-
-```{r}
-# Based on intuitive extraction on cluster driving genes
-chemogeno_fingerprint_old = c("MRCB", "SLT", "YEJE", "YBAB", "RECG", "XERC", "YDFI", "MOTA", "TPX", 
-                              "YGFA", "RECN", "HUPA", "RYFC", "YAIU", "GLXK", "YGAZ_YGAH", "YHFW", 
-                              "YGAT", "DSRB", "KSGA", "RFAF", "YJHQ", "YRAP", "YJJG", "YDCH", 
-                              "PLDB", "YBGC")
-
-
-# Take gene in 100% models for each MoA
-chemogeno_fingerprint = c('UVRD', 'HUPA', 'FIMF', 'YCEF', 'GLPD', 'YFHJ', 'LOLB', 'FIMC', 'TPX', 
-                         'RECA', 'RECC', 'RECG', 'PDXH', 'UBIE', 'YJJY', 'DDLB', 'YRAP', 'FABH', 
-                         'SURA', 'RBFA', 'FADD', 'YNCM', 'GLTA', 'MUTS', 'RYFC', 'DSRB', 'YGEK', 
-                         'NARL', 'SLT', 'YCFM', 'MRCB')
-        
-# From model trained on everything, and kmeans (retraining model RmD)
-chemogeno_fingerprint = c('RECC_RECB', 'RECG', 'RECA', 'TPX', 'XERC_XERD', 'LOLB', 'UVRD', 'YBAD', 
-                          'FIMC', 'FIMF', 'HUPA_HUPB', 'RUVC_RUVB_RUVA', 'YCGF', 'YDFI', 
-                          'PAL_TOLR_TOLQ', 'YBHE', 'YJFK', 'YFHJ', 'GLPD', 'UPP', 'MRCB', 'YCFM', 
-                          'BCSF', 'BETA', 'CHIA', 'CLPA', 'COBT', 'CYDB', 'LEPA', 'SUFD', 'YEEH', 
-                          'YEJL', 'YFHD', 'YGEO', 'YHJH', 'YJGK', 'YNCM', 'YOEA', 'CMR', 'DDLB', 
-                          'FABF', 'FABH', 'FADD', 'ISCR', 'NLPI', 'PDXH', 'PGM', 'RBFA', 'SURA', 
-                          'UBIE', 'YBED', 'YJJY', 'YRAP')
-
-# # if needed
-# chemogeno_fingerprint = chemogeno_fingerprint[-grep(chemogeno_fingerprint, pattern =  "^Y")]
-
-# Need to build a new matrix containing data from gene AND complexes. This allows to extract simply 
-# everything we need. Here we also build a matrix containing a few unknown drug to see where they 
-# will be in the t-SNE
-
-matrix_allDrugs = readRDS(file = "data/programmatic_output/matrix_2mostia_allDrugs.rds")
-full_mat = matrix_allDrugs %>% 
-            filter(process_broad %in% c("dna", "cell_wall", "membrane_stress", "protein_synthesis") | 
-                      drugname_typaslab %in% c("UV", "BILE", "PEROXIDE", "NIGERICIN"))
-
-# full_mat = left_join(x = matrix_container_new[1, ]$drug_feature_matrices[[1]],
-#                       y = matrix_container_new[7, ]$drug_feature_matrices[[1]]) 
-
-# =========================== HEATMAP ==========================================
-
-chemGeno_mat = as.data.frame(full_mat %>% select(chemogeno_fingerprint, "process_broad", "conc", "drugname_typaslab"))
-rownames(chemGeno_mat) = paste(chemGeno_mat$drugname_typaslab, chemGeno_mat$conc, sep = "_")
-annot = data.frame(MoA = chemGeno_mat[ ,"process_broad"])
-rownames(annot) = rownames(chemGeno_mat)
-
-chemGeno_mat = chemGeno_mat %>% select(-"process_broad", -"conc", -"drugname_typaslab")
-
-dist_corr = sqrt(2*(1 - cor(t(chemGeno_mat ))))
-drugs_grp = cutree(hclust(as.dist(dist_corr)), k = 8 )
-
-## need to redefine colours
-unique(annot$MoA)
-colMap = c(rainbow(4), rep("#636363", 3))
-names(colMap) = c("cell_wall", "dna", "membrane_stress", "protein_synthesis", "unknown", "pmf", "oxidative_stress")
-##
-
-pdf("./plots/Full_fingerprint_matrix.pdf", width = 10, height = 10)
-Heatmap(matrix = chemGeno_mat, col = colorRamp2(c(-5, 0, 4), c("red", "white", "blue")), 
-        row_names_gp = gpar(fontsize = 6), clustering_distance_rows = "pearson", 
-        clustering_distance_columns = "pearson", split = drugs_grp, 
-        gap = unit(10, "mm")) + rowAnnotation(df = annot, col = list(MoA = colMap), width = unit(1, "cm"))
-dev.off()
-```
-
-
-
-### t-SNE
-
-It can be interesting, particularly for 2-dim, to run the t-SNE several times as the output can be 
-different. The perplexity parameter has to be tuned as well (test several values, easiest way is to 
-assume that perplexity is more or less the average number of neighbor of points)
-
-```{r}
-ipak(Rtsne)
-
-mat = full_mat %>% select(drugname_typaslab, process_broad, chemogeno_fingerprint)
-mat$process_broad = as.factor(mat$process_broad)
-
-tsne_res = Rtsne(X = mat[, -c(1,2)], dims = 3, perplexity = 10, max_iter = 2000)
-plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", drugnfeats$conc))
 colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
 
-p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
-             colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" ,"black", "black", "#8000FFFF", "black"), 
-             marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
-   add_markers(text = ~drug) %>% 
-   layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
-                                                yaxis = list(title = 'tSNE2'), 
-                                                zaxis = list(title = 'tSNE3')))
-p
+set.seed(3)
+p1 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_colours[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
+  add_markers(text = ~drug) %>% 
+  layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
+    yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
+p1
 
-save(p, file = "./plots/tSNE.RData")
-
-# =====================================================
-
-tsne_res = Rtsne(X = mat[, -1], dims = 2, perplexity = 10, max_iter = 2000, pca = F)
-plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
-colnames(plotData)[1:2] = c("tSNE1", "tSNE2")
-
-plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, 
-        color = ~MoA, colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" ,"black", "black", "#8000FFFF", "black"),
-        marker = list(size = 12, line = list(color = 'rgba(0, 0, 0, .8)', width = 1.5))) %>% 
-   add_markers(text = ~drug) %>% 
-   layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
-                                                yaxis = list(title = 'tSNE2')))
-
-# =====================================================
-
-mat = full_mat 
-mat$process_broad = as.factor(mat$process_broad)
-tsne_res = Rtsne(X = mat[, -1], dims = 3, pca = F)
-plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
-colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
-
-pAll <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
-                colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF")) %>% 
-   add_markers(text = ~drug) %>% 
-   layout(title = "All Features", scene = list(xaxis = list(title = 'tSNE1'), 
-                                               yaxis = list(title = 'tSNE2'), 
-                                               zaxis = list(title = 'tSNE3')))
-pAll
-
-# =====================================================
-
-randomFeat = sample(colnames(full_mat)[-c(1,2,3)], size = length(chemogeno_fingerprint), replace = F)
-mat = full_mat %>% select(drugname_typaslab, process_broad, randomFeat)
-mat$process_broad = as.factor(mat$process_broad)
-tsne_res = Rtsne(X = mat[, -1], dims = 3, pca = F)
-plotData = data.frame(tsne_res$Y, MoA = mat$process_broad, drug = full_mat$drugname_typaslab)
-colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
-
-pRandom <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
-                   colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" , "#8000FFFF")) %>% 
-   add_markers(text = ~drug) %>% 
-   layout(title = "Random Features", scene = list(xaxis = list(title = 'tSNE1'), 
-                                                  yaxis = list(title = 'tSNE2'), 
-                                                  zaxis = list(title = 'tSNE3')))
-pRandom
+# View(arrange(drugnfeats[, 1:3], process_broad, drugname_typaslab, conc))
+save(p1, file = "./plots/tSNE_v2_morefeats.RData")
 ```
 
-
-### PCA visualization
+Try same thing with stricter threshold.
 
 ```{r}
-fingerprint_mat = full_mat %>% select(drugname_typaslab, process_broad, conc, chemogeno_fingerprint)
-saveRDS(fingerprint_mat, file = "data/programmatic_output/chemGen_fingerprint_mat.rds")
-# Save fingerprint mat to export it in the interaction prediction notebook
+tmp <- filter(feat_imps_s, log2(median_importance) > 0) %>%
+  arrange(gene)
+head(tmp)
+nrow(tmp)
+# which corresponds to how many genes? - 
+length(unique(tmp$gene))
 
-m = fingerprint_mat %>% select(chemogeno_fingerprint)
-pca_data <- prcomp(m, scale = TRUE)
+fingerprint2 <- unique(tmp$gene)
 
-barplot(pca_data$sdev / sum(pca_data$sdev))
-var_3pca = sum((pca_data$sdev / sum(pca_data$sdev))[1:3])
+tsne_mat <- select(drugnfeats, drugname_typaslab, process_broad, fingerprint2)
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+tsne_res = Rtsne(X = tsne_mat[, -c(1,2)], dims = 3, perplexity = 10, max_iter = 2000)
 
-plotData <- as.data.frame(pca_data$x)
-plotData = cbind(plotData, process_broad = fingerprint_mat$process_broad, drugnames = fingerprint_mat$drugname_typaslab)
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", drugnfeats$conc))
+colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
 
-p <- plot_ly(plotData, x = ~PC1, y = ~PC2, z = ~PC3, color = ~process_broad, 
-             colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" ,"black", "black", "#8000FFFF", "black"),
-             marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
-   add_markers(text = ~drugnames) %>% 
-   layout(scene = list(xaxis = list(title = 'PC1'), 
-                       yaxis = list(title = 'PC2'), 
-                       zaxis = list(title = 'PC3')))
-p
-save(p, file = "./plots/PCA_plotly.RData")
-
-# MDS as well but t-SNE might be even better, in any case PCA is not the best here, for it focuses on variance
-dist_mat = dist(full_mat %>% select(chemogeno_fingerprint), method = "euclidian")
-mat_MDS_res = cmdscale(dist_mat, k = 3)
-mat_MDS_res = as.data.frame(cbind(mat_MDS_res, full_mat$process_broad))
-colnames(mat_MDS_res) = c("MDS1", "MDS2", "MDS3", "process_broad")
-
-p <- plot_ly(mat_MDS_res, x = ~MDS1, y = ~MDS2, z = ~MDS3, color = ~process_broad, 
-             colors = c("#FF0000FF", "#80FF00FF", "#00FFFFFF" ,"black", "black", "#8000FFFF", "black"), 
-             marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
-   add_markers() %>% 
-   layout(scene = list(xaxis = list(title = 'MDS axis 1'), 
-                       yaxis = list(title = 'MDS axis 2'), 
-                       zaxis = list(title = 'MDS axis 3')))
-p
-save(p, file = "./plots/MDS_plotly.RData")
+set.seed(3)
+p2 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_colours[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
+  add_markers(text = ~drug) %>% 
+  layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
+    yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
+p2
+save(p2, file = "./plots/tSNE_v2_fewerfeats.RData")
 ```
 
-
-<!--
-Plot Boosting tree : always the same gene during ~50 trees, which corresponds to the time needed 
-for the weight put on the misclassified individuals to be big enough to change the way the 
-prediction is done. 
--->
-
-```{r eval = FALSE, echo =FALSE }
-# line 40
-xgb_10pc = readRDS("run_results_from_server/matrix_container_result/xgboost_hyp_param_std_all_top10pct_TRUE.rds")
-
-input_data = matrix_container[40, ]$drug_feature_matrices[[1]]
-if("drugname_typaslab" %in% colnames(input_data)){
-        input_data = select(input_data, -drugname_typaslab)
-    }
-if("conc" %in% colnames(input_data)){
-    input_data = select(input_data, -conc)
-}
-
-ipak("DiagrammeR")
-a = xgb_10pc$`Nested CV 1`$`Outer fold 1`$model_dna$learner.model
-
-ipak("DiagrammeR")
-library(xgboost)
-
-xgb.plot.tree(model = a, trees = 1:10, feature_names = colnames(input_data)[-1])
-xgb.plot.tree(model = a, trees = 10:20, feature_names = colnames(input_data)[-1])
-```
-
-
-# Session info
+Save the fingerprints that we obtained.
 
 ```{r}
+saveRDS(object = list(fingerprint1 = fingerprint1, fingerprint2 = fingerprint2, 
+  feat_imps_s = feat_imps_s, feat_imps = feat_imps), 
+  file = "./data/programmatic_output/fingerprints_1vsall.rds")
+```
+
+
+
+# Session information
+
+```{r session_info}
 R.version
 sessionInfo()
 ```

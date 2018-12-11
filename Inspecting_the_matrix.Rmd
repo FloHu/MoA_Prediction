@@ -1,6 +1,6 @@
 ---
 title: "Inspecting our data: skewness, NA values"
-author: "Florian Huber, Leonard Dubois"
+author: "Florian Huber"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -179,7 +179,8 @@ for example OXYR.
 ggplot(skewness_vals_melted, aes(x = s_score)) + 
    geom_histogram() + 
    facet_wrap( ~ gene_synonym, scales = "free") + 
-   geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), x = x, y = y), color = "blue", size = 3)
+   geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), x = x, y = y), 
+     color = "blue", size = 3)
 
 ggsave(filename = "./plots/Sscore_dists_skewed_features.pdf", width = 12, height = 12)
 ```
@@ -189,7 +190,8 @@ Pair plots of sscores of the skewed features.
 ```{r}
 all_by_all <- 
    full_join(skewness_vals_melted, skewness_vals_melted, 
-             by = c("drugname_typaslab" = "drugname_typaslab", "conc" = "conc", "process_broad" = "process_broad"))
+     by = c("drugname_typaslab" = "drugname_typaslab", "conc" = "conc", 
+               "process_broad" = "process_broad"))
 
 # plot_pairplots takes the data frame above and plots all by all combinations of the genes of 
 # interest
@@ -258,7 +260,8 @@ NAs_by_drugndosg <-
 NAs_by_drugndosg$label <- paste(NAs_by_drugndosg$drugname_typaslab, NAs_by_drugndosg$conc, sep = "_")
 ggplot(NAs_by_drugndosg, aes(x = "", y = total_conds_NA)) + 
    geom_text(aes(label = label), size = 3, position = position_jitter(width = 0.3)) + 
-   labs(title = "Number of mutants with 'NA' per drug-dosage combination\n(total number of mutants = 1711)")
+   labs(title = "Number of mutants with 'NA' per drug-dosage combination\n(total number of 
+     mutants = 1711)")
 
 ggsave("./plots/NA_mutants_per_condition.pdf")
 ```
@@ -273,7 +276,8 @@ and see if NAs often occur after high/low s_scores.
 
 ```{r}
 the_matrix_signifs_melted <- 
-   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "significant")
+   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), key = "gene_synonym", 
+     value = "significant")
 
 the_matrix_melted <- 
    left_join(the_matrix_melted, the_matrix_signifs_melted)
@@ -309,7 +313,8 @@ tmp <-
 counting_NA$is_most_ia <- counting_NA$uniqueDrug %in% paste(tmp$drugname_typaslab, tmp$conc, sep = "_")
 
 ggplot(counting_NA, aes(x = nb_NA)) + 
-   geom_histogram(aes(fill = is_most_ia, y = ..density..), position = "identity", alpha = 0.5, binwidth = 1)
+   geom_histogram(aes(fill = is_most_ia, y = ..density..), position = "identity", alpha = 0.5, 
+     binwidth = 1)
 
 # so there seems to be a slight trend but probably not important
 ```
