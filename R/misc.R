@@ -99,3 +99,8 @@ make_filename <- function(matrix_container_row) {
   return(filename)
 }
 
+get_resobj_from_row <- function(matrix_container_row, dir) {
+  # takes a matrix container row and reads in the results object
+  # depends on function make_filename()
+  return(readRDS(file.path(dir, make_filename(matrix_container_row))))
+}

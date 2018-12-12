@@ -1,10 +1,3 @@
-# by FH
-get_resobj_from_row <- function(matrix_container_row, dir) {
-  # takes a matrix container row and reads in the results object
-  # depends on function make_filename()
-  return(readRDS(file.path(dir, make_filename(matrix_container_row))))
-}
-
 get_feat_imps <- function(res_obj) {
   UseMethod("get_feat_imps")
 }
@@ -80,24 +73,49 @@ summarise_feat_imps.feat_imps_multiclass <- function(feat_imps) {
   return(feat_imps)
 }
 
-get_fingerprint <- function(feat_imps_s, log2thresh = NULL, top_n = NULL, method = c("thresh", "top_n")) {
+get_fingerprint <- function(feat_imps_s, log2thresh = NULL, top_n = NULL) {
   # takes a data frame with median feature importance across all models
   # user can choose to take all features above a certain threshold (after the importances have 
-  # been log2 transformed) or the top_n features per MoA
-  method <- match.arg(method)
-  if (method == "thresh") {
-    if (is.null(log2thresh)) {stop("Need to provide a threshold if using method 'thresh'")}
+  # been log2 transformed) - this doesn't consider the MoA 
+  # if top_n is chosen, the top_n features per MoA are picked
+  if (!xor(is.null(log2thresh), is.null(top_n))) {
+    stop("Have to provide either log2thresh or top_n, not both")
+  }
+  if (is.null(top_n)) {
     feat_imps_s$log2median_importance <- log2(feat_imps_s$median_importance)
     fingerprint <- 
       dplyr::filter(feat_imps_s, log2median_importance > log2thresh) %>% 
       dplyr::arrange(gene)
   } else {
-    if (is.null(top_n)) {stop("Need to provide top_n featurs per MoA if using method 'top_n'")}
     fingerprint <- 
-      dplyr::group_by(fingerprint, moa) %>%
-      dplyr::arrange(median_importance, .by_group = TRUE) %>%
-      top_n(top_n, desc(median_importance))
+      dplyr::group_by(feat_imps_s, moa) %>%
+      dplyr::arrange(desc(median_importance), .by_group = TRUE) %>%
+      top_n(top_n, median_importance)
   }
   return(fingerprint)
 }
+
+plot_importance_distribs <- function(feat_imps, fingerprint, title) {
+  UseMethod("plot_importance_distribs")
+}
+
+plot_importance_distribs.feat_imps_onevsrest <- 
+  function(feat_imps, fingerprint, title = "") {
+    # takes a feat_imps_onevsrest tibble and plots distribution of feature 
+    # importances across all nested CV repeats for each MoA
+    # only the features in fingerprint are kept
+    to_plot <- 
+      dplyr::filter(feat_imps, paste(gene, moa) %in% 
+          paste(fingerprint$gene, fingerprint$moa)) %>%
+      group_by(gene, moa, cvrep) %>%
+      dplyr::summarise(med_imp = median(importance))
+    
+    p <- ggplot(to_plot, aes(x = forcats::fct_reorder(gene, med_imp), 
+      y = med_imp)) + 
+      geom_boxplot(aes(colour = moa)) + 
+      facet_wrap( ~ moa, ncol = 2, scales = "free") + 
+      coord_flip() + 
+      labs(x = "Feature", y = "Feature importance", title = title)
+    return(p)
+  }
 

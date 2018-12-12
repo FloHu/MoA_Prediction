@@ -23,7 +23,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(message = FALSE, cache = TRUE)
+knitr::opts_chunk$set(message = FALSE, cache = FALSE)
 
 matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
 moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
@@ -117,30 +117,36 @@ my_mtry <- 150
 Get resampling instance from Untracked.Rmd.
 
 ```{r}
-rep_rin <- readRDS("./data/programmatic_output/rep_rin_empirical.rds")
-
 # we need to remove all but the 4 main modes of action:
-my_data_multiclass <- filter(my_data, process_broad %in% moas)
+my_data_mcl <- filter(my_data, process_broad %in% moas)
+length(unique(my_data_mcl$drugname_typaslab))
+unique(my_data_mcl$process_broad)
 
-length(unique(my_data_multiclass$drugname_typaslab))
-unique(my_data_multiclass$process_broad)
+my_data_mcl$process_broad <- factor(my_data_mcl$process_broad)
 
-(my_data_multiclass_train <- select(my_data_multiclass, -one_of(c("conc", "drugname_typaslab"))))
-(rf_multi.task <- makeClassifTask(data = my_data_multiclass_train, target = "process_broad"))
+# for blocking
+my_rle <- rle(my_data_mcl$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+
+(my_data_mcl_task <- select(my_data_mcl, -one_of(c("conc", "drugname_typaslab"))))
+
+(rf_multi.task <- makeClassifTask(data = my_data_mcl_task, target = "process_broad", 
+  blocking = my_blocks))
+
 (rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
   par.vals = list(ntree = my_ntree, mtry = my_mtry)))
+
+# we need a resampling instance:
+rep_rin_mcl <- make_rep_ncv(task_data_all_cols = my_data_mcl, 
+  mlr_task = rf_multi.task, reps = 10, folds = 8, strat_var = "process_broad")
 
 my_filename <- "./data/programmatic_output/resampled_multiclass.rds"
 if (file.exists(my_filename)) {
   resampled_multiclass <- readRDS(my_filename)
 } else {
-  resampled_multiclass <- resample(learner = rf_multi.learner, task = rf_multi.task, 
-    measures = mmce, resampling = rep_rin, models = TRUE, keep.pred = TRUE)
-  # add drugname and concentration information to $pred$data slot
-  resampled_multiclass$pred$data <- 
-    bind_cols(my_data_multiclass[resampled_multiclass$pred$data$id, c(1, 2)], 
-      resampled_multiclass$pred$data) %>%
-    arrange(drugname_typaslab, conc, iter)
+  resampled_multiclass <- fit_multiclass_rf(learner = rf_multi.learner, 
+    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl, 
+    task_data_all_cols = my_data_mcl)
   saveRDS(resampled_multiclass, file = my_filename)
 }
 ```
@@ -334,7 +340,9 @@ class(resampled_multiclass)
 class(chosen_res)
 ```
 
-For a pair of one-vs-rest models:
+### For a pair of one-vs-rest models
+
+For example, random forests without and with chemical features.
 
 ```{r}
 model1 <- matrix_container_ext[9, ]
@@ -342,11 +350,14 @@ model2 <- matrix_container_ext[10, ]
 
 compare_onevsrest_models(model1 = model1, model2 = model2, 
   model1_title = "RF without chem. feats", 
-  model2_title = "RF with chem. feats", file = "./plots/compare_one-vs-rest.pdf")
+  model2_title = "RF with chem. feats", 
+  file = "./plots/compare_one-vs-rest.pdf")
 ```
 
 
-For a pair of multi-class models:
+### For a pair of multi-class models
+
+Just for examples sake we compare here the same models with each other.
 
 ```{r}
 # we only have one multiclass model so far, let's use it twice:
@@ -354,29 +365,13 @@ model1_mc <- resampled_multiclass
 model2_mc <- resampled_multiclass
 
 compare_multiclass_models(model1_mc, model2_mc, 
-  model1_mc_title = "a", model2_mc_title = "b", file = "./plots/compare_multiclass_test.pdf")
+  model1_mc_title = "a", model2_mc_title = "b", 
+  file = "./plots/compare_multiclass_test.pdf")
 ```
+
 
 ## Trying to improve classification
 
-<!-- 
-Structure not yet clear, but start with the following:
-
-1) IMPROVING STUFF:
-  - require a minimum number of interactions, exclude strange genes
-  - correlate dosages/predictions with MIC data (special attention to protein synthesis)
-  - exclude some drugs? 
-  - weighting observations? 
-  - remove/merge correlated features (could try PCA for predictor collinearity)
-2) TRYING OUT STUFF:
-  - permuted labels
-  - switching to LOOCV
-  - binarise predictors, take q-values into consideration somehow
-  - feature selection in inner loop
-3) CLASSIFICATION OF SUBGROUPS
-4) UNSUPERVISED APPROACHES
-5) BENCHMARK EXPERIMENT
--->
 
 ### Checking MICs
 
@@ -425,14 +420,6 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf
   width = 30, height = 20))
 ```
 
-<!--
-The way I see this going forward: 
-1) Check how to remove collinear features (perhaps merge them)
-2) Do all this bad feature, bad drugs removal, feature merging, weighting (?), and, on *that* 
-   data, do the topx% selection. 
-3) Do one run with only (2), then one run with (2) and +- the 2 "best" dosages, then one run with a 
-feature selection wrapper (again perhaps +-) - revival of matrix container? 
--->
 
 ### Removing/merging (?) collinear features
 
@@ -655,13 +642,12 @@ Things changed:
 ```{r}
 # Taken from chunk further above: 
 # rep_rin
-# my_data_multiclass = data that was used in the "winning" 1-vs-all model
 # feats: containing the merged features
 
-stopifnot(nrow(my_data_multiclass) == nrow(feats))
+stopifnot(nrow(my_data_mcl) == nrow(feats))
 ncol(my_backup$feats) - ncol(feats)
 
-my_data_mcl_preproc <- my_data_multiclass
+my_data_mcl_preproc <- my_data_mcl
 (drugdata <- my_data_mcl_preproc[, c(1:3)])
 # columns that are new due to merging:
 (to_add <- feats[, nchar(colnames(feats)) > 4])
@@ -670,34 +656,31 @@ my_data_mcl_preproc <- my_data_mcl_preproc[, colnames(my_data_mcl_preproc) %in% 
 # add merged features back together
 my_data_mcl_preproc <- cbind(drugdata, my_data_mcl_preproc, to_add)
 
-ncol(my_data_multiclass)
+ncol(my_data_mcl)
 ncol(my_data_mcl_preproc)
 
 # training the next model: 
-my_data_mcl_preproc_train <- select(my_data_mcl_preproc, -one_of(c("conc", "drugname_typaslab")))
-rf_multi.task <- makeClassifTask(data = my_data_mcl_preproc_train, target = "process_broad")
+my_data_mcl_preproc_task <- select(my_data_mcl_preproc, -one_of(c("conc", "drugname_typaslab")))
+rf_multi.task <- makeClassifTask(data = my_data_mcl_preproc_task, target = "process_broad")
 rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
   par.vals = list(ntree = my_ntree, mtry = my_mtry))
 
 my_filename <- "./data/programmatic_output/resampled_multiclass_noNAs_corrs_merged.rds"
+
 if (file.exists(my_filename)) {
-  resampled_multiclass_noNAs <- readRDS(my_filename)
+  resampled_multiclass_preproc <- readRDS(my_filename)
 } else {
-  resampled_multiclass_noNAs <- resample(learner = rf_multi.learner, task = rf_multi.task,
-    measures = mmce, resampling = rep_rin, models = TRUE, keep.pred = TRUE)
-  # add drugname and concentration information to $pred$data slot
-  resampled_multiclass_noNAs$pred$data <-
-    bind_cols(my_data_mcl_preproc[resampled_multiclass_noNAs$pred$data$id, c(1, 2)],
-      resampled_multiclass_noNAs$pred$data) %>%
-    arrange(drugname_typaslab, conc, iter)
-  saveRDS(resampled_multiclass_noNAs, file = my_filename)
+  resampled_multiclass_preproc <- fit_multiclass_rf(learner = rf_multi.learner, 
+    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl, 
+    task_data_all_cols = my_data_mcl_preproc)
+  saveRDS(resampled_multiclass_preproc, file = my_filename)
 }
 ```
 
 Comparing this with the previous multi-class model:
 
 ```{r}
-compare_multiclass_models(model1_mc = resampled_multiclass, model2_mc = resampled_multiclass_noNAs, 
+compare_multiclass_models(model1_mc = resampled_multiclass, model2_mc = resampled_multiclass_preproc, 
   model1_mc_title = "'naive' multiclass model", model2_mc_title = "multiclass model w/o NAs, corr 
   feats merged", file = "./plots/compare_multiclass_noNAs_corrs_merged.pdf")
 ```
@@ -736,85 +719,50 @@ my_data_mcl_2high <- my_data_mcl_2high[!(my_data_mcl_2high$drugname_typaslab == 
   top_n(2, conc) %>%
   ungroup())
 
-my_data_mcl_2high_train <- select(my_data_mcl_2high, -one_of(c("conc", "drugname_typaslab")))
-rf_multi.task <- makeClassifTask(data = my_data_mcl_2high_train, target = "process_broad")
-rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
-  par.vals = list(ntree = my_ntree, mtry = my_mtry))
-```
+# need new blocking procedure and new resampling instance:
+my_data_mcl_2high$process_broad <- factor(my_data_mcl_2high$process_broad)
 
-<!-- TO BE REMOVED ----------------->
+# for blocking
+my_rle <- rle(my_data_mcl_2high$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
 
-(need a new resampling instance)
+(my_data_mcl_2high_task <- select(my_data_mcl_2high, -one_of(c("conc", "drugname_typaslab"))))
 
-Will remove this and put it into a function when all the issues with the 1-vs-rest models have been 
-sorted out as well.
+(rf_multi.task <- makeClassifTask(data = my_data_mcl_2high_task, target = "process_broad", 
+  blocking = my_blocks))
 
-```{r, eval = FALSE, echo = FALSE}
-rf.rdesc <- makeResampleDesc("CV", iters = 8) 
+(rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry)))
 
-rep_rin_try2 <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8), 
-  rf_multi.task)
+# we need a resampling instance:
+rep_rin_mcl_2high <- make_rep_ncv(task_data_all_cols = my_data_mcl_2high, 
+  mlr_task = rf_multi.task, reps = 10, folds = 8, strat_var = "process_broad")
 
-(ref_fracs <- table(my_data_mcl_2high$process_broad) / length(my_data_mcl_2high$process_broad))
-cv_instances <- list()
-counter <- 0
-max_deviance <- 0.05
-
-while (length(cv_instances) < 10) {
-   rin <- makeResampleInstance(rf.rdesc, rf_multi.task)
-   counter <- counter + 1 # to keep track of how often we had to try :)
-   for (split in c(1:8)) {
-      train_fracs <- table(my_data_mcl_2high$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
-      # we don't want any "empty" classes in the test set:
-      if (length(table(my_data_mcl_2high$process_broad[rin$test.inds[[split]]])) != length(moas)) {
-         break
-      }
-      # and relative fractions of classes shouldn't differ too much in the training set
-      if (any(abs(ref_fracs - train_fracs) > max_deviance)) {
-         break
-      }
-      # only happens upon success
-      if (split == 8) {
-         cat("Success at attempt ", counter, "! - ", date(), " (maximum deviance was ", 
-           round(max(abs(ref_fracs - train_fracs)), digits = 3), ")\n")
-         cv_instances <- c(cv_instances, list(rin))
-      }
-   }
-}
-
-rep_rin_try2$train.inds <- flatten(map(cv_instances, "train.inds"))
-rep_rin_try2$test.inds <- flatten(map(cv_instances, "test.inds"))
-```
-
-<!---------------------->
-
-
-```{r}
 my_filename <- "./data/programmatic_output/resampled_multiclass_2high.rds"
-
 if (file.exists(my_filename)) {
-  resampled_multiclass_2high <- readRDS(my_filename)
+  resampled_multiclass <- readRDS(my_filename)
 } else {
-  resampled_multiclass_2high <- resample(learner = rf_multi.learner, task = rf_multi.task,
-    measures = mmce, resampling = rep_rin_try2, models = TRUE, keep.pred = TRUE)
-  # add drugname and concentration information to $pred$data slot
-  resampled_multiclass_2high$pred$data <-
-    bind_cols(my_data_mcl_2high[resampled_multiclass_2high$pred$data$id, c(1, 2)],
-      resampled_multiclass_2high$pred$data) %>%
-    arrange(drugname_typaslab, conc, iter)
+  resampled_multiclass_2high <- fit_multiclass_rf(learner = rf_multi.learner, 
+    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl_2high, 
+    task_data_all_cols = my_data_mcl_2high)
   saveRDS(resampled_multiclass_2high, file = my_filename)
 }
 ```
 
-Compare!
+
+Comparison with previous multi-class model. 
 
 ```{r}
-compare_multiclass_models(model1_mc = resampled_multiclass_noNAs, 
+compare_multiclass_models(model1_mc = resampled_multiclass_preproc, 
   model1_mc_title = "Multiclass, no NAs, feats merged", 
   model2_mc = resampled_multiclass_2high, 
   model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
   "./plots/compare_multiclass_merged_vs_2highest.pdf")
+```
 
+Detailed probabilities per drug per dosage. 
+
+```{r}
 multicl_pred_melt <- melt_pred_data(resampled_multiclass_2high, model_type = "multiclass")
 
 p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
