@@ -24,6 +24,7 @@ This part is the general setup, whichever model we are using.
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
+knitr::opts_chunk$set(cache = TRUE)
 
 matrix_container = readRDS("./data/programmatic_output/matrix_container_ext.rds")
 library(plotmo)

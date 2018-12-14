@@ -29,7 +29,7 @@ source("./setup.R")
 Modify some options for knitr. 
 
 ```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = FALSE)
+knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = TRUE)
 theme_set(theme_bw())
 theme_update(text = element_text(size = 16))
 ```

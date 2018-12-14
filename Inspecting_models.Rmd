@@ -1,5 +1,5 @@
 ---
-title: "Inspecting models 2.0"
+title: "Inspecting models"
 author: "Florian Huber"
 date: "`r Sys.Date()`"
 output:
@@ -25,7 +25,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 ```
 
 # Aim

@@ -23,7 +23,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(message = FALSE, cache = FALSE)
+knitr::opts_chunk$set(message = FALSE, cache = TRUE)
 
 matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
 moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
@@ -171,12 +171,112 @@ aggregation?
 plot_wide_confmat(cm, title = "'Naive' multiclass model")
 ```
 
+#### ROC-curve for multi-class models
+
+This can only be defined for a mode-of-action --- not-mode-of-action pair. 
+Otherwise, how should "true negative" be defined - this only makes sense if one 
+class is defined as positive. The following chunks demonstrates the problem:
+
+```{r}
+# see also below
+(mcl_melt <- melt_pred_data(resampled_multiclass, model_type = "multiclass"))
+mcl_melt$predicted_prob <- str_replace(string = mcl_melt$predicted_prob, 
+  pattern = "prob\\.", replacement = "")
+mcl_melt$truth <- as.character(mcl_melt$truth)
+
+(mcl_melt_concavg <- 
+  mcl_melt %>%
+  select(drugname_typaslab, conc, predicted_prob, prob.med, truth) %>%
+  group_by(drugname_typaslab, truth, predicted_prob) %>%
+  summarise(prob.med_avg = mean(prob.med)))
+
+# note: truth = actual class label
+(mcl_melt_roc_input <- 
+  mcl_melt_concavg %>%
+  group_by(drugname_typaslab) %>%
+  mutate(highest_vs_2nd = prob.med_avg - max(prob.med_avg[-which.max(prob.med_avg)])) %>%
+  top_n(1, prob.med_avg) %>%
+  rename(class_highest_p = predicted_prob, highest_p = prob.med_avg))
+```
+
+Now consider what happens when we decide on a threshold at which we call an 
+observation to belong to the class that has the highest probability, e.g. 0.2:
+
+```{r}
+mutate(mcl_melt_roc_input, 
+  response = ifelse(highest_vs_2nd >= 0.2, class_highest_p, 
+    paste0("not_", class_highest_p)))
+```
+
+Obviously, such an output is useless for TP, FN etc. rate calculations. 
+
+So instead we write a function that defines one class as positive and the others 
+as negative.
+
+```{r}
+get_responses_mcl <- function(dfr, positive, thresh) {
+  # positive = MoA that is considered positive
+  dfr$positive <- positive
+  dfr$thresh <- thresh
+  negative <- paste0("not_", positive)
+  dfr$truth <- ifelse(dfr$truth == positive, positive, negative)
+  # give answer according to class_highest_p
+  dfr$response <- ifelse(dfr$highest_vs_2nd >= thresh, dfr$class_highest_p, 
+    paste0("not_", dfr$class_highest_p))
+  # now it gets philosophical: based on this routine an observation might be 
+  # "not_membrane_stress" while the positive class is "cell_wall". Strictly 
+  # speaking it's not clear if this is true negative or even true positive. 
+  # But we might argue that "not_membrane_stress" would also mean "not_" for 
+  # any other class - so we can still classify it as true negative. 
+  #### TO DO: discuss this or read up on this
+  dfr$response <- ifelse(dfr$response == positive, positive, negative)
+  dfr$tp <- (dfr$response == dfr$truth) & (dfr$truth == positive)
+  dfr$fn <- (dfr$response != dfr$truth) & (dfr$truth == positive)
+  dfr$fp <- (dfr$response != dfr$truth) & (dfr$truth != positive)
+  dfr$tn <- (dfr$response == dfr$truth) & (dfr$truth != positive)
+  stopifnot(sum(unlist(dfr[, c("tp", "fn", "fp", "tn")])) == nrow(dfr))
+  return(dfr)
+}
+
+(tmp <- get_responses_mcl(mcl_melt_roc_input, positive = "cell_wall", thresh = 0.2))
+
+get_metrics_mcl <- function(dfr) {
+  stopifnot(length(unique(dfr$thresh)) == 1)
+  dfr <- group_by(dfr, thresh, positive) %>%
+    summarise(tp = sum(tp), fn = sum(fn), tn = sum(tn), fp = sum(fp), 
+      tpr = tp / (tp + fn), fpr = fp / (fp + tn), ppv = tp / (tp + fp))
+  return(dfr)
+}
+
+get_metrics_mcl(tmp)
+
+get_thresh_vs_perf_mcl <- function(dfr, positive, thresholds) {
+  thresh_vs_perf <- map_dfr(thresholds, function(.thresh) {
+    get_metrics_mcl(get_responses_mcl(dfr, positive, .thresh))
+  })
+  thresh_vs_perf <- arrange(thresh_vs_perf, desc(thresh))
+  return(thresh_vs_perf)
+}
+
+from <- range(mcl_melt_roc_input$highest_vs_2nd)[1]
+to <- range(mcl_melt_roc_input$highest_vs_2nd)[2]
+tmp <- get_thresh_vs_perf_mcl(mcl_melt_roc_input, positive = "cell_wall", 
+  thresholds = seq(from = from, to = to, length.out = 100))
+
+print(tmp, n = 100)
+
+ggplot(tmp, aes(x = fpr, y = tpr)) + 
+  geom_path(aes(group = 1)) + 
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+```
+
+
+
 #### Investigating predictions
 
 For example, the predictions + IQRs for A22:
 
 ```{r}
-multicl_pred <- resampled_multiclass$pred$data
 (multicl_pred_melt <- melt_pred_data(resampled_multiclass, model_type = "multiclass"))
 
 filter(multicl_pred_melt, drugname_typaslab == "A22") %>% 
@@ -740,7 +840,7 @@ rep_rin_mcl_2high <- make_rep_ncv(task_data_all_cols = my_data_mcl_2high,
 
 my_filename <- "./data/programmatic_output/resampled_multiclass_2high.rds"
 if (file.exists(my_filename)) {
-  resampled_multiclass <- readRDS(my_filename)
+  resampled_multiclass_2high <- readRDS(my_filename)
 } else {
   resampled_multiclass_2high <- fit_multiclass_rf(learner = rf_multi.learner, 
     task = rf_multi.task, measures = mmce, rin = rep_rin_mcl_2high, 
@@ -758,6 +858,7 @@ compare_multiclass_models(model1_mc = resampled_multiclass_preproc,
   model2_mc = resampled_multiclass_2high, 
   model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
   "./plots/compare_multiclass_merged_vs_2highest.pdf")
+
 ```
 
 Detailed probabilities per drug per dosage. 
@@ -777,6 +878,7 @@ p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = pred
 
 suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf", plot = p, 
   width = 30, height = 20))
+
 ```
 
 

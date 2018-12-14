@@ -22,7 +22,7 @@ editor_options:
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-
+knitr::opts_chunk$set(cache = TRUE)
 matrix_container <- readRDS("./data/programmatic_output/matrix_container.rds")
 ```
 
@@ -155,15 +155,15 @@ no need to change anything.
 # something's strange, e.g. in the first split there is one observation for cell_wall 
 # in the most interactions thing and 7 observations in the all dosages thing
 # (even though the all dosage instance generation works by mapping ...)
-cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all)$outer
-cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias)$outer
+cvtest_report_stratification(cvinst_alldosg$NCV_1, dataset_allDosage)$outer
+cvtest_report_stratification(cvinst_mostias$NCV_1, dataset_newDrugs)$outer
 
 # to be more precise:
-tab <- cvtest_report_stratification(cvinst_mostias$NCV_1, the_matrix_mostias, FALSE)$outer
+tab <- cvtest_report_stratification(cvinst_mostias$NCV_1, dataset_newDrugs, FALSE)$outer
 filter(tab, test.or.train == "test", MoA == "cell_wall", split == "a")
 
 # whereas
-tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, the_matrix_all, FALSE)$outer
+tab2 <- cvtest_report_stratification(cvinst_alldosg$NCV_1, dataset_allDosage, FALSE)$outer
 filter(tab2, test.or.train == "test", MoA == "cell_wall", split == "a")
 ```
 
