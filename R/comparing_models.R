@@ -56,6 +56,7 @@ melt_pred_data <- function(resample_result, model_type = c("onevsrest", "multicl
     )
   }
   
+  melted <- ungroup(melted)
   return(melted)
 }
 

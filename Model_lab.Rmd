@@ -173,17 +173,21 @@ plot_wide_confmat(cm, title = "'Naive' multiclass model")
 
 #### ROC-curve for multi-class models
 
-This can only be defined for a mode-of-action --- not-mode-of-action pair. 
+##### A few reflections
+
+This can only be defined for a mode-of-action - not-mode-of-action pair. 
 Otherwise, how should "true negative" be defined - this only makes sense if one 
 class is defined as positive. The following chunks demonstrates the problem:
 
 ```{r}
 # see also below
+head(resampled_multiclass$pred$data)
 (mcl_melt <- melt_pred_data(resampled_multiclass, model_type = "multiclass"))
 mcl_melt$predicted_prob <- str_replace(string = mcl_melt$predicted_prob, 
   pattern = "prob\\.", replacement = "")
 mcl_melt$truth <- as.character(mcl_melt$truth)
 
+# average concentrations
 (mcl_melt_concavg <- 
   mcl_melt %>%
   select(drugname_typaslab, conc, predicted_prob, prob.med, truth) %>%
@@ -203,9 +207,11 @@ Now consider what happens when we decide on a threshold at which we call an
 observation to belong to the class that has the highest probability, e.g. 0.2:
 
 ```{r}
-mutate(mcl_melt_roc_input, 
-  response = ifelse(highest_vs_2nd >= 0.2, class_highest_p, 
-    paste0("not_", class_highest_p)))
+mcl_melt_roc_input$response <- 
+  ifelse(mcl_melt_roc_input$highest_vs_2nd >= 0.2, 
+    mcl_melt_roc_input$class_highest_p, 
+    paste0("not_", mcl_melt_roc_input$class_highest_p))
+head(mcl_melt_roc_input)
 ```
 
 Obviously, such an output is useless for TP, FN etc. rate calculations. 
@@ -258,8 +264,8 @@ get_thresh_vs_perf_mcl <- function(dfr, positive, thresholds) {
   return(thresh_vs_perf)
 }
 
-from <- range(mcl_melt_roc_input$highest_vs_2nd)[1]
-to <- range(mcl_melt_roc_input$highest_vs_2nd)[2]
+(from <- range(mcl_melt_roc_input$highest_vs_2nd)[1])
+(to <- range(mcl_melt_roc_input$highest_vs_2nd)[2])
 tmp <- get_thresh_vs_perf_mcl(mcl_melt_roc_input, positive = "cell_wall", 
   thresholds = seq(from = from, to = to, length.out = 100))
 
@@ -270,6 +276,114 @@ ggplot(tmp, aes(x = fpr, y = tpr)) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
 ```
 
+What happened? The issue is that we use `highest_vs_2nd` as the metric to put a 
+threshold on. This works fine at the beginning: we have a high confidence 
+(i.e. high `highest_vs_2nd` levels) so the tpr goes up without compromising the 
+fpr. However, when the threshold approaches 0 there are quite a few observations 
+that never "get the chance" to be put into the positive class. Why? Because 
+their probability for the positive class (`cell_wall` in this case) is lower 
+than the 2nd highest probability so they are just all classified as negative 
+cases. Therefore, neither the TPR nor the FPR can ever go up again. Conclusion: 
+`highest_vs_2nd` is not a sensible metric. 
+
+
+##### Better version
+
+Go back to simply putting a threshold on the probabilities themselves.
+
+```{r}
+# (1) process mcl predictions for roc input according to one positive class 
+# (2) threshold accordingly
+
+prep_roc <- function(resampled_multiclass, positive) {
+  # takes a resampled instance for multi-class prediction + a class that 
+  # has been defined as positive and returns the predictions accordingly in 
+  # the long format
+  # intended to be used for making a ROC-curve
+  stopifnot(is(resampled_multiclass, "ResampleResult"))
+  stopifnot(positive %in% resampled_multiclass$pred$data$truth)
+  stopifnot(length(positive) == 1)
+  
+  # a bit of renaming and data type changing
+  preproc <- 
+    resampled_multiclass %>%
+    melt_pred_data(model_type = "multiclass") %>%
+    mutate(truth = as.character(truth), 
+      predicted_prob = str_replace(string = predicted_prob, 
+        pattern = "prob\\.", replacement = "")) %>%
+    dplyr::rename(prob_for = predicted_prob) %>%
+    select(drugname_typaslab, conc, truth, prob_for, prob.med)
+  
+  # map all classes to either positive or not_positive
+  negative <- paste0("not_", positive)
+  preproc$truth <- ifelse(preproc$truth == positive, positive, negative)
+  preproc[, c("truth", "prob_for")] <- 
+    lapply(preproc[, c("truth", "prob_for")], function(col) {
+      col <- ifelse(col == positive, positive, negative)
+      return(col)
+    })
+  
+  # keep only the probabilities for the positive class, the one for the 
+  # negative is implicit
+  preproc <- preproc[preproc$prob_for == positive, ]
+  
+  return(preproc)
+}
+
+get_responses_mcl <- function(dfr, positive, thresh) {
+  # takes output of prep_roc
+  dfr$positive <- positive
+  dfr$thresh <- thresh
+  negative <- paste0("not_", positive)
+  
+  dfr$response <- ifelse(dfr$prob.med >= thresh, positive, negative)
+  dfr$tp <- (dfr$response == dfr$truth) & (dfr$truth == positive)
+  dfr$fn <- (dfr$response != dfr$truth) & (dfr$truth == positive)
+  dfr$fp <- (dfr$response != dfr$truth) & (dfr$truth != positive)
+  dfr$tn <- (dfr$response == dfr$truth) & (dfr$truth != positive)
+  stopifnot(sum(unlist(dfr[, c("tp", "fn", "fp", "tn")])) == nrow(dfr))
+  return(dfr)
+}
+
+get_metrics_mcl <- function(dfr) {
+  stopifnot(length(unique(dfr$thresh)) == 1)
+  dfr <- group_by(dfr, thresh, positive) %>%
+    summarise(tp = sum(tp), fn = sum(fn), tn = sum(tn), fp = sum(fp), 
+      tpr = tp / (tp + fn), fpr = fp / (fp + tn), ppv = tp / (tp + fp))
+  return(dfr)
+}
+
+get_thresh_vs_perf_mcl <- function(resampled_multiclass, positive, 
+                                   thresholds = seq(from = 0, to = 1, by = 0.01)) {
+  preproc <- prep_roc(resampled_multiclass, positive = positive)
+  thresh_vs_perf <- map_dfr(thresholds, function(.thresh) {
+    get_metrics_mcl(get_responses_mcl(preproc, positive, .thresh))
+  })
+  thresh_vs_perf <- arrange(thresh_vs_perf, desc(thresh))
+  return(thresh_vs_perf)
+}
+
+plot_roc_mcl <- function(resampled_multiclass, positive) {
+  get_thresh_vs_perf_mcl(resampled_multiclass, positive = positive) %>%
+    ggplot(aes(x = fpr, y = tpr)) + 
+    geom_path(aes(group = 1, colour = positive)) + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+}
+
+(tmp <- prep_roc(resampled_multiclass, positive = "cell_wall"))
+(tmp <- get_responses_mcl(tmp, positive = "cell_wall", thresh = 0.5))
+(tmp <- get_metrics_mcl(tmp))
+
+(tmp <- get_thresh_vs_perf_mcl(resampled_multiclass, positive = "cell_wall"))
+print(tmp, n = 100)
+
+plot_roc_mcl(resampled_multiclass, positive = "cell_wall")
+plot_roc_mcl(resampled_multiclass, positive = "dna")
+plot_roc_mcl(resampled_multiclass, positive = "membrane_stress")
+plot_roc_mcl(resampled_multiclass, positive = "protein_synthesis")
+
+
+```
 
 
 #### Investigating predictions
