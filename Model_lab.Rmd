@@ -521,8 +521,7 @@ to only keep the 2 dosages which are closest to the MIC. Weighting?
 head(multicl_pred_melt)
 head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
 
-multicl_pred_melt_micinfo <- 
-  left_join(multicl_pred_melt, mics)
+multicl_pred_melt_micinfo <- left_join(multicl_pred_melt, mics)
 
 # use slice() instead of top_n(), the latter implies some type of ordering!
 (helper_frame <- multicl_pred_melt_micinfo %>%
@@ -915,6 +914,47 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf",
   width = 30, height = 20))
 
 ```
+
+
+### Comparison with LOOCV
+
+For predicting MoA subgroups we may have to switch to LOOCV. 
+
+```{r}
+# use my_data_mcl_2high from previous chunk to compare with LOOCV:
+mcl_loo <- my_data_mcl_2high
+mcl_loo
+# to check that the blocks are still correct: split(mcl_loocv[, c(1:3)], my_blocks)
+
+mcl_loo_task_data <- select(mcl_loo, -one_of(c("conc", "drugname_typaslab")))
+mcl_loo_task <- makeClassifTask(data = mcl_loo_task_data, 
+  target = "process_broad", blocking = my_blocks)
+
+mcl_loo_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+
+rdesc <- makeResampleDesc("LOO")
+
+resampled_mcl_loo <- resample(learner = mcl_loo_learner, task = mcl_loo_task, 
+  resampling = rdesc, measures = mmce, models = TRUE)
+
+# don't forget to update data frame
+resampled_mcl_loo$pred$data <- 
+    dplyr::bind_cols(mcl_loo[resampled_mcl_loo$pred$data$id, c("conc", "drugname_typaslab")], 
+      resampled_mcl_loo$pred$data) %>%
+    dplyr::arrange(drugname_typaslab, conc, iter)
+
+compare_multiclass_models(model1_mc = resampled_multiclass_2high, 
+  model1_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
+  model2_mc = resampled_mcl_loo, 
+  model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg, LOOCV", 
+  "./plots/compare_multiclass_loocv.pdf")
+
+# to get ROC curves - look almost the same :)
+plot_roc_mcl(resampled_multiclass_2high, positive = "cell_wall")
+plot_roc_mcl(resampled_mcl_loo, "cell_wall")
+```
+
 
 
 # Predicting MoA subgroups

@@ -219,9 +219,15 @@ make_rep_ncv <- function(task_data_all_cols,
                          strat_var, 
                          max_dev = 0.05) 
   {
+  # make a resampling instance: not yet complete because it doesn't respect 
+  # blocking and stratification: it's just to get an object of the correct 
+  # structure
+  # ! blocking needs to be specified in the task 
   rep_rin <- mlr::makeResampleInstance(mlr::makeResampleDesc(method = "RepCV", 
     reps = reps, folds = folds), mlr_task)
   
+  # make the actual cv instances that are then used to overwrite the slots 
+  # of rep_rin
   cv_insts <- replicate(
     reps, 
     make_cvinst_blocked_stratified(task_data_all_cols = task_data_all_cols, 
@@ -229,7 +235,6 @@ make_rep_ncv <- function(task_data_all_cols,
       max_dev = max_dev), 
     simplify = FALSE
   )
-  
   rep_rin$train.inds <- purrr::flatten(purrr::map(cv_insts, "train.inds"))
   rep_rin$test.inds <- purrr::flatten(purrr::map(cv_insts, "test.inds"))
   
