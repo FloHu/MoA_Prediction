@@ -23,4 +23,4 @@
 *.xls
 *.xlsx
 *.tiff
-
+.httr-oauth

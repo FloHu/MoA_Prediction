@@ -17,7 +17,7 @@ editor_options:
 
 # Setup, library loading
 
-```{r setup}
+```{r setup, cache = FALSE}
 rm(list = ls())
 # function to check if a package is installed, if so, load it, else install and then load it
 source("./R/ipak.R")
@@ -292,97 +292,18 @@ cases. Therefore, neither the TPR nor the FPR can ever go up again. Conclusion:
 Go back to simply putting a threshold on the probabilities themselves.
 
 ```{r}
-# (1) process mcl predictions for roc input according to one positive class 
-# (2) threshold accordingly
-
-prep_roc <- function(resampled_multiclass, positive) {
-  # takes a resampled instance for multi-class prediction + a class that 
-  # has been defined as positive and returns the predictions accordingly in 
-  # the long format
-  # intended to be used for making a ROC-curve
-  stopifnot(is(resampled_multiclass, "ResampleResult"))
-  stopifnot(positive %in% resampled_multiclass$pred$data$truth)
-  stopifnot(length(positive) == 1)
-  
-  # a bit of renaming and data type changing
-  preproc <- 
-    resampled_multiclass %>%
-    melt_pred_data(model_type = "multiclass") %>%
-    mutate(truth = as.character(truth), 
-      predicted_prob = str_replace(string = predicted_prob, 
-        pattern = "prob\\.", replacement = "")) %>%
-    dplyr::rename(prob_for = predicted_prob) %>%
-    select(drugname_typaslab, conc, truth, prob_for, prob.med)
-  
-  # map all classes to either positive or not_positive
-  negative <- paste0("not_", positive)
-  preproc$truth <- ifelse(preproc$truth == positive, positive, negative)
-  preproc[, c("truth", "prob_for")] <- 
-    lapply(preproc[, c("truth", "prob_for")], function(col) {
-      col <- ifelse(col == positive, positive, negative)
-      return(col)
-    })
-  
-  # keep only the probabilities for the positive class, the one for the 
-  # negative is implicit
-  preproc <- preproc[preproc$prob_for == positive, ]
-  
-  return(preproc)
-}
-
-get_responses_mcl <- function(dfr, positive, thresh) {
-  # takes output of prep_roc
-  dfr$positive <- positive
-  dfr$thresh <- thresh
-  negative <- paste0("not_", positive)
-  
-  dfr$response <- ifelse(dfr$prob.med >= thresh, positive, negative)
-  dfr$tp <- (dfr$response == dfr$truth) & (dfr$truth == positive)
-  dfr$fn <- (dfr$response != dfr$truth) & (dfr$truth == positive)
-  dfr$fp <- (dfr$response != dfr$truth) & (dfr$truth != positive)
-  dfr$tn <- (dfr$response == dfr$truth) & (dfr$truth != positive)
-  stopifnot(sum(unlist(dfr[, c("tp", "fn", "fp", "tn")])) == nrow(dfr))
-  return(dfr)
-}
-
-get_metrics_mcl <- function(dfr) {
-  stopifnot(length(unique(dfr$thresh)) == 1)
-  dfr <- group_by(dfr, thresh, positive) %>%
-    summarise(tp = sum(tp), fn = sum(fn), tn = sum(tn), fp = sum(fp), 
-      tpr = tp / (tp + fn), fpr = fp / (fp + tn), ppv = tp / (tp + fp))
-  return(dfr)
-}
-
-get_thresh_vs_perf_mcl <- function(resampled_multiclass, positive, 
-                                   thresholds = seq(from = 0, to = 1, by = 0.01)) {
-  preproc <- prep_roc(resampled_multiclass, positive = positive)
-  thresh_vs_perf <- map_dfr(thresholds, function(.thresh) {
-    get_metrics_mcl(get_responses_mcl(preproc, positive, .thresh))
-  })
-  thresh_vs_perf <- arrange(thresh_vs_perf, desc(thresh))
-  return(thresh_vs_perf)
-}
-
-plot_roc_mcl <- function(resampled_multiclass, positive) {
-  get_thresh_vs_perf_mcl(resampled_multiclass, positive = positive) %>%
-    ggplot(aes(x = fpr, y = tpr)) + 
-    geom_path(aes(group = 1, colour = positive)) + 
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
-}
-
+# just to demonstrate the different steps contained in plot_roc_mcl()
+source("./R/ROC_mcl_models.R")
 (tmp <- prep_roc(resampled_multiclass, positive = "cell_wall"))
 (tmp <- get_responses_mcl(tmp, positive = "cell_wall", thresh = 0.5))
 (tmp <- get_metrics_mcl(tmp))
 
 (tmp <- get_thresh_vs_perf_mcl(resampled_multiclass, positive = "cell_wall"))
-print(tmp, n = 100)
+print(tmp, n = 20)
 
-plot_roc_mcl(resampled_multiclass, positive = "cell_wall")
-plot_roc_mcl(resampled_multiclass, positive = "dna")
-plot_roc_mcl(resampled_multiclass, positive = "membrane_stress")
-plot_roc_mcl(resampled_multiclass, positive = "protein_synthesis")
-
-
+for (moa in moas) {
+  print(plot_roc_mcl(resampled_multiclass, positive = moa))
+}
 ```
 
 
@@ -995,6 +916,41 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf",
 
 ```
 
+
+# Predicting MoA subgroups
+
+New classification (see also [here](https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0)):
+* cell_wall: unchanged
+* protein_synthesis: unchanged
+* dna: split into:
+  * folate: sulfa drugs and trimethoprim
+  * dna: all others
+* membrane_stress: split into: 
+  * detergents: triton, sds, benzalkonium, bile, (deoxy/tauro-)cholate
+  * fatty_acid: cerulenin, thiolactomycin, triclosan
+* new groups: 
+  * ox_stress: paraquat, peroxide, pms, pyocyanin
+* not sure/not included/removed:
+  * pmf: ??? b/c only 2 drugs (CCCP, nigericin) after removing dibucaine, procaine, verapamil
+  * bacitracin (only gram+), CHIR090 (?), EGCG (?), INDOLICIDIN (?), Polymyxin B (?), 
+  vancomycin (only gram+), cecropin B (?)
+  
+See also this (Google sheet)[https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0]. 
+
+To sum up: cell_wall - protein_synthesis - dna - folate - detergents - fatty_acid - ox_stress - pmf
+
+```{r}
+# let's try and access the MoA table using the googlesheets package
+# https://googledrive.tidyverse.org/
+library(googledrive)
+(gfiles <- drive_find(pattern = "drug_moa"))
+outpath <- "./data/programmatic_output/drug_moa_gdrive.csv"
+drive_download(file = gfiles[1, ], path = outpath, overwrite = TRUE)
+moa_tab <- read_delim(outpath, delim = ",")
+moa_tab <- moa_tab[1:89, ]
+table(moa_tab$`moa_broad_II (after 09/05/2018)`)
+table(moa_tab$moa_subgroup)
+```
 
 
 # Session info 
