@@ -2,19 +2,17 @@ get_wide_confmat <- function(resample_result) {
   # input: a ResampleResult
   # output: a confusion matrix in long format for easy plotting
   if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
-  supported_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
+  
   prd_obj <- resample_result$pred
   cm <- calculateConfusionMatrix(prd_obj)
-  cm <- data.frame(cm$result[-5, -5], row.names = NULL, stringsAsFactors = FALSE)
-  
-  if (!all(colnames(cm) %in% supported_moas)) stop("Only ", supported_moas, " are currently supported")
+  # we don't need the margins
+  cm <- data.frame(cm$result[-nrow(cm$result), -ncol(cm$result)], 
+    row.names = NULL, stringsAsFactors = FALSE)
   
   cm$true <- colnames(cm)
-  cm <- gather(cm, cell_wall:protein_synthesis, key = "predicted", value = "n_obs")
+  cm <- gather(cm, -one_of("true"), key = "predicted", value = "n_obs")
   
-  cm$predicted <- factor(cm$predicted, levels = c("cell_wall", "dna", "membrane_stress", 
-    "protein_synthesis"))
+  cm$predicted <- factor(cm$predicted)
   cm$true <- factor(cm$true, levels = rev(levels(cm$predicted)))
   
   cm$byclass_recall <- cm$n_obs / sapply(split(cm$n_obs, cm$true), sum)[cm$true]

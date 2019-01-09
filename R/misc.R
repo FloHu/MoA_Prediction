@@ -104,3 +104,14 @@ get_resobj_from_row <- function(matrix_container_row, dir) {
   # depends on function make_filename()
   return(readRDS(file.path(dir, make_filename(matrix_container_row))))
 }
+
+make_blocks <- function(dfr, blockvar) {
+  # takes a data frame where observations belonging together are next to each 
+  # other in the column blockvar, then returns a factor containing the blocks 
+  # (for mlr)
+  rl <- rle(dfr[[blockvar]])
+  blocks <- factor(rep(seq_along(rl$lengths), rl$lengths))
+  return(blocks)
+}
+
+

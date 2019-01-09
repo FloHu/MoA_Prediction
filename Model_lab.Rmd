@@ -857,8 +857,7 @@ my_data_mcl_2high <- my_data_mcl_2high[!(my_data_mcl_2high$drugname_typaslab == 
 my_data_mcl_2high$process_broad <- factor(my_data_mcl_2high$process_broad)
 
 # for blocking
-my_rle <- rle(my_data_mcl_2high$drugname_typaslab)
-my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+my_blocks <- make_blocks(my_data_mcl_2high, blockvar = "drugname_typaslab")
 
 (my_data_mcl_2high_task <- select(my_data_mcl_2high, -one_of(c("conc", "drugname_typaslab"))))
 
@@ -920,7 +919,7 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf",
 
 For predicting MoA subgroups we may have to switch to LOOCV. 
 
-```{r}
+```{r, loocv}
 # use my_data_mcl_2high from previous chunk to compare with LOOCV:
 mcl_loo <- my_data_mcl_2high
 mcl_loo
@@ -963,33 +962,70 @@ New classification (see also [here](https://docs.google.com/spreadsheets/d/17FAE
 * cell_wall: unchanged
 * protein_synthesis: unchanged
 * dna: split into:
-  * folate: sulfa drugs and trimethoprim
+  * folate: sulfa drugs, trimethoprim, methotrexate
   * dna: all others
-* membrane_stress: split into: 
-  * detergents: triton, sds, benzalkonium, bile, (deoxy/tauro-)cholate
-  * fatty_acid: cerulenin, thiolactomycin, triclosan
+* membrane_stress: (unclear)
 * new groups: 
   * ox_stress: paraquat, peroxide, pms, pyocyanin
-* not sure/not included/removed:
-  * pmf: ??? b/c only 2 drugs (CCCP, nigericin) after removing dibucaine, procaine, verapamil
-  * bacitracin (only gram+), CHIR090 (?), EGCG (?), INDOLICIDIN (?), Polymyxin B (?), 
-  vancomycin (only gram+), cecropin B (?)
   
 See also this (Google sheet)[https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0]. 
 
 To sum up: cell_wall - protein_synthesis - dna - folate - detergents - fatty_acid - ox_stress - pmf
 
-```{r}
+```{r, gdrive_import}
 # let's try and access the MoA table using the googlesheets package
 # https://googledrive.tidyverse.org/
 library(googledrive)
 (gfiles <- drive_find(pattern = "drug_moa"))
 outpath <- "./data/programmatic_output/drug_moa_gdrive.csv"
 drive_download(file = gfiles[1, ], path = outpath, overwrite = TRUE)
-moa_tab <- read_delim(outpath, delim = ",")
+# define categories ending up as NA, which we won't attempt to predict
+moa_tab <- read_delim(outpath, delim = ",", na = c("-", "unknown", "pmf"))
 moa_tab <- moa_tab[1:89, ]
 table(moa_tab$`moa_broad_II (after 09/05/2018)`)
+# remove NA drugs - either excluded or unknown
+moa_tab <- moa_tab[!is.na(moa_tab$moa_subgroup), ]
 table(moa_tab$moa_subgroup)
+```
+
+Run LOOCV with the subgroups (subject to change).
+
+```{r, subgroups}
+# use my_data_mcl_2high from previous chunk to compare with LOOCV:
+mcl_subgr <- my_data
+# we're missing BILE, UV, GLUFOSFOMYCIN
+moa_tab[!(moa_tab$drug %in% mcl_subgr$drugname_typaslab), ]
+
+mcl_subgr$process_broad <- moa_tab$moa_subgroup[match(mcl_subgr$drugname_typaslab, moa_tab$drug)]
+# exclude drugs without subclassification: dibucaine, procaine, radicicol, 
+# vancomycin, verapamil:
+mcl_subgr <- mcl_subgr[complete.cases(mcl_subgr), ]
+table(mcl_subgr$process_broad)
+
+# (now using all dosages, not just 2)
+my_blocks <- make_blocks(mcl_subgr, blockvar = "drugname_typaslab")
+mcl_subgr_task_data <- select(mcl_subgr, -one_of(c("conc", "drugname_typaslab")))
+
+mcl_subgr_task <- makeClassifTask(data = mcl_subgr_task_data, 
+  target = "process_broad", blocking = my_blocks)
+mcl_subgr_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+rdesc <- makeResampleDesc("LOO")
+
+resampled_mcl_subgr <- resample(learner = mcl_subgr_learner, task = mcl_subgr_task, 
+  resampling = rdesc, measures = mmce, models = TRUE)
+
+# don't forget to update data frame
+resampled_mcl_subgr$pred$data <-
+    dplyr::bind_cols(mcl_subgr[resampled_mcl_subgr$pred$data$id, c("conc", "drugname_typaslab")],
+      resampled_mcl_subgr$pred$data) %>%
+    dplyr::arrange(drugname_typaslab, conc, iter)
+
+# View(resampled_mcl_subgr$pred$data)
+
+plot_wide_confmat(get_wide_confmat(resampled_mcl_subgr), title = "Multiclass RF, subgroups")
+
+
 ```
 
 

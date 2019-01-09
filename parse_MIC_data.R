@@ -69,7 +69,7 @@ mics <- select(mics, drugname_typaslab, mic, mic_parsed, mic_tested, mic_tested_
   mic_curated, resistant, comments)
 print(mics, n = 100)
 
-corrections <- c("A22" = 2, "TRICLOSAN" = NA, "EPINEPHRINE" = NA, "NOREPINEPHRINE" = NA, 
+corrections <- c("A22" = 2, "TRICLOSAN" = 0.8, "EPINEPHRINE" = NA, "NOREPINEPHRINE" = NA, 
   "NOVOBIOCIN" = 40, "CYCLOSERINED" = 10, "POLYMYXINB" = 0.5, "BACITRACIN" = NA, 
   "STREPTOMYCIN" = NA, "SDS" = 5, "BENZALKONIUM" = 20, "CCCP" = 50)
 
