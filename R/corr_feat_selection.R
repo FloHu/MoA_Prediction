@@ -15,3 +15,20 @@ melt_cormat_to_pairs <- function(cor_mat) {
   return(melted_cor_mat)
 }
 
+merge_features <- function(dfr, to_merge, f) {
+  # takes a data frame and a list of features
+  # each element of the list indicates which columns of the data frame should 
+  # be merged using function f
+  stopifnot(all(unlist(to_merge) %in% colnames(dfr)))
+  map_dfc(to_merge, function(featureset) {
+    my_name <- paste(featureset, collapse = "_")
+    v <- tibble(apply(dfr[, featureset], 1, f))
+    names(v) <- my_name
+    return(v)
+  })
+}
+
+
+
+
+

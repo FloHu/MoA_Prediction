@@ -24,144 +24,187 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 knitr::opts_chunk$set(cache = TRUE)
+
+# directory for automatically generated data:
+outdir <- "./data/programmatic_output"
 ```
 
 
-# Loading and merging data
+# Loading and preprocessing
 
-In all subsequent cases, the final goal is to have a matrix with the drugs in the rows and the 
-features in the columns. We will refer to such a matrix as a `drug_feature_matrix`. In the next 
-section we will generate different "versions" of this matrix, differing, for example, in the number 
-of drugs or features selected or whether features were transformed in some way.
+In all subsequent cases, the final goal is to have a matrix with the drugs in 
+the rows and the features in the columns. We will refer to such a matrix as a 
+`drug_feature_matrix`. In the next section we will generate different "versions" 
+of this matrix, differing, for example, in the number of drugs or features 
+selected or whether features were transformed in some way.
 
 
-## Reading in and joining of tables, common preprocessing operations
+## Reading in and joining of tables
 
-```{r}
-nichols_2011 <- read.table("/Volumes/typas/Florian/dbsetup_tables/nichols_2011.csv", header = T, 
-                           sep = ";", stringsAsFactors = F)
-strains <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains.csv", header = T, 
-                           sep = ";", stringsAsFactors = F)
-strains_has_genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/strains_has_genes.csv", 
-                                header = T, sep = ";", stringsAsFactors = F)
-genes <- read.table("/Volumes/typas/Florian/dbsetup_tables/genes.csv", header = T, sep = ";", 
-                    stringsAsFactors = F)
-# generated in project dbsetup using KNIME
-drugs_full <- read.table("/Volumes/typas/Florian/dbsetup_tables/drugs.csv", header = T, 
-                         sep = ";", stringsAsFactors = F, dec = ".")
-drugs_full$X <- NULL
-mode_of_action <- read.table("/Volumes/typas/Florian/dbsetup_tables/mode_of_action.csv", 
-                             header = T, sep = ";", stringsAsFactors = F)
+```{r, data_import}
+indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
+
+(nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
+# Lucia's data
+(newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
+(genes <- read_delim(file.path(indir, "genes.csv"), delim = ";"))
+(drugs_complete <- read_delim(file.path(indir, "drugs.csv"), delim = ";"))
+
+# get mode of action information using Google docs, if it fails look for 
+# information on the server
+tryCatch(
+  error = function(e) {
+    moa <- read_delim(file.path(indir, "mode_of_action.csv"))
+    return(moa)
+  }, 
+  {
+  gfiles <- drive_find(pattern = "drug_moa")
+  outpath <- file.path(outdir, "drug_moa_gdrive.csv")
+  drive_download(file = gfiles[1, ], path = outpath, overwrite = TRUE)
+  }
+)
+
+mode_of_action <- read_delim(outpath, delim = ",", na = c("-"))
+stopifnot(all(!duplicated(mode_of_action$drugname_typaslab)))
+mode_of_action <- mode_of_action[, c("drug", "moa_broad_II (after 09/05/2018)", 
+  "dataset (not exclusive)")]
+colnames(mode_of_action) <- c("drugname_typaslab", "process_broad", "dataset")
 ```
 
-Add gene information to Nichols table, remove unnecessary columns.
+Write out `drugs_complete` with MoA information.
 
 ```{r}
-the_matrix <- 
-   nichols_2011 %>%
-   left_join(strains[, c("strain"), drop = F]) %>%
-   left_join(strains_has_genes[, c("strain", "ugi")]) %>%
-   left_join(genes[, c("ugi", "gene_synonym")]) %>%
-   select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, strain) 
-    
+drugs_complete <- left_join(drugs_complete, mode_of_action)
+saveRDS(drugs_complete, file = file.path(outdir, "drugs_complete.rds"))
+```
+
+Write out `the_matrix_complete_nochanges.rds` with MoA information. 
+
+```{r}
+the_matrix <- dplyr::select(nichols_2011, gene_synonym, drugname_typaslab, 
+  conc, sscore, qvalue, strain)
 the_matrix$significant <- the_matrix$qvalue <= 0.05
+the_matrix <- left_join(the_matrix, drugs_complete[, c("drugname_typaslab", 
+  "process_broad")])
+# is in long format
+saveRDS(the_matrix, file.path(outdir, "the_matrix_complete_nochanges.rds"))
 ```
 
-Join drug tables with mode of action information. 
 
-drug_moa table on Google docs has 89 drugs. 
+## Removing drugs
 
-Of those 89 drugs there are missing in `drugs_full`: epinephrine, norepinephrine, glufosfomycin, UV, 
-bile. 
+In principle, keep all drugs. However, for model assessment, only keep drugs 
+that:
+  * are in the Nichols data set
+  * Have chemical features defined
+  * Have one of the four "main" modes of action: cell_wall, dna, 
+  membrane_stress, protein_synthesis
 
-In `the_matrix` there are missing EGCG, epinephrine, norepinephrine. 
-
-So by keeping only the drugs in the_matrix which are also in `drugs_full` we lose 6 drugs (EGCG, 
-epinephrine, norepinoephrine, glufosfomycin, UV, bile) and are left with 83 drugs. 
+--> Tables `drugs_complete` and `drugs_subset`. 
 
 ```{r}
-drugs_full <- left_join(drugs_full, mode_of_action[, c("moa_id", "process_broad")]) %>%
-   select(-moa_id)
-
-saveRDS(drugs_full, file = "./data/programmatic_output/drugs_full.rds")
-
-# exclude drugs that are not drugs_full - as those don't have chemical features
-the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_full$drugname_typaslab)
+main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP), 
+  process_broad %in% main_moas)
+drugs_subset
+table(drugs_subset$process_broad)
+saveRDS(drugs_subset, file = file.path(outdir, "drugs_subset.rds"))
 ```
 
-We save this as `the_matrix_complete_nochanges`:
+Subset `the_matrix` accordingly. 
 
 ```{r}
-saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_nochanges.rds")
+# keep only drugs in drug_subset
+the_matrix <- filter(the_matrix, drugname_typaslab %in% 
+    unique(drugs_subset$drugname_typaslab))
 ```
 
-If a gene doesn't interact with any drug, exclude it. This reduces the number of genes from 3921 to 
-1711. 
+## Feature filtering
+
+`the_matrix`: table derived from nichols_2011 that will be used for model 
+assessment. Keep only mutants that:
+  * interact with at least one gene and 
+  * don't have more than 10 conditions where the s-score is NA (see notebook 
+  `Inspecting_the_matrix.html`)
 
 ```{r}
+# number of genes before gene filtering:
+nunique(the_matrix$gene_synonym)
+
 the_matrix <- the_matrix %>%
    group_by(gene_synonym) %>% 
    filter(any(significant)) %>%
    ungroup()
+
+# and after:
+nunique(the_matrix$gene_synonym)
+stopifnot(nunique(the_matrix$gene_synonym) == nunique(the_matrix$strain))
+saveRDS(the_matrix, file = file.path(outdir, "Inspecting_the_matrix_input.rds"))
 ```
 
-This leaves us with `r length(unique(the_matrix$gene_synonym))` genes. Only a very small fraction 
-of gene drug combinations are missing (less than 0.1%):
+For excluding conditions with many NA values need to do a bit more processing, 
+which has been outsourced (due to historical reasons) to 
+`Inspecting_the_matrix.Rmd`.
 
 ```{r}
-t <- table(the_matrix$gene_synonym, the_matrix$drugname_typaslab)
-sum(t == 0) / (nrow(t) * ncol(t))
+rmarkdown::render("Inspecting_the_matrix.Rmd", 
+  rmarkdown::html_document(toc = TRUE), envir = new.env())
 ```
 
-For essential genes there were sometimes several hypomorphic mutants. We just want to keep one of 
-them: always the one with most phenotypes over all conditions.
-
-We will save this as `the_matrix_complete_strainsgenesremoved.rds`. This is the the_matrix version 
-with (almost) all drugs and after hypomorphic mutant selection and removing genes not interacting 
-with anything. Still possible to characterise the data set completely, change NA imputation, dosage 
-selection, drug selection procedure. 
+Can now remove some genes with many NA values:
 
 ```{r}
-the_matrix <- 
-   group_by(the_matrix, gene_synonym) %>%
-   do(select_mutant(.))
-
-saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
-
-tmp <- group_by(the_matrix, gene_synonym) %>% 
-   mutate(n = length(unique(strain))) %>%
-   ungroup() %>%
-   select(n)
-stopifnot(all(tmp$n == 1))
-rm(tmp)
+the_matrix <- filter(the_matrix, 
+  !gene_synonym %in% readRDS(file.path(outdir, "feats_to_remove_many_NAs.rds")))
 ```
 
-Restructure the matrix to put drugs into rows, genes into columns. 
+Save it:
 
 ```{r}
-# we need a matrix just indicating the significant s-scores for later on
+saveRDS(the_matrix, 
+  file = file.path(outdir, "the_matrix_drugsgenesremoved.rds"))
+```
+
+
+## Reshape
+
+Convert to wide format. If qvalues are `NA` we treat them as non-significant. 
+
+```{r}
 the_matrix_signifs <- the_matrix
 
 the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
 the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
 
-the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, conc, significant)
-the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, value = significant, fill = FALSE)
+the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, 
+  conc, significant)
+the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, 
+  value = significant, fill = FALSE)
 ```
 
 
-### Imputing NA values
+## Replacing NA values
 
-We replace all NA values with the median of all s-scores over all conditions for a particular 
-mutant. 
+Number and fraction of observations affected: less than 2‰. 
 
 ```{r}
 # check if all drug names are defined 
 stopifnot(!any(is.na(the_matrix$drugname_typaslab)))
 
 sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab|conc")
+
+sum(is.na(the_matrix[, -sel]))
+reduce(dim(the_matrix[, -sel]), `*`)
+
+sum(is.na(the_matrix[, -sel])) / 
+  reduce(dim(the_matrix[, -sel]), `*`)
+```
+
+We replace all NA values with 0.
+
+```{r}
 the_matrix[, -sel] <- lapply(the_matrix[, -sel], function(x) {
-   x[is.na(x)] <- median(x, na.rm = T)
+   x[is.na(x)] <- 0
    return(x)
 })
 
@@ -173,8 +216,231 @@ if (any(sapply(the_matrix, is.na))) {
 We save again this version of the matrix:
 
 ```{r}
-saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strainsgenesremoved_NAsimputed_wideformat.rds")
+saveRDS(the_matrix, file = file.path(outdir, 
+  "the_matrix_drugsgenesremoved_noNAs_wide.rds"))
 ```
+
+
+## Inspecting feature collinearity, determining which features to merge
+
+The following chunks were previously in `Model_lab.Rmd`. 
+
+```{r}
+feats <- select(the_matrix, -one_of("drugname_typaslab", "conc"))
+feats_cor <- cor(feats, method = "spearman")
+
+# quite a large and unwieldy plot - but still shows a few useful clusters:
+if (!file.exists("./plots/Correlation_all_by_all.png")) {
+  png("./plots/Correlation_all_by_all.png", width = 90, height = 90, 
+    units = "cm", res = 500)
+  corrplot::corrplot(feats_cor, method = "color", order = "hclust", 
+    tl.cex = 0.1)
+  dev.off()
+}
+
+# to get a distribution of the correlations:
+# get all possible combinations:
+corpairs <- melt_cormat_to_pairs(feats_cor)
+arrange(corpairs, desc(cor))
+
+# retrieving all protein complexes, code from notebook 1 (Leonard) -----------------------
+cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
+(load("../dbsetup/data/genesWithEG_ID.RData"))
+gene_synonyms$synonym = toupper(gene_synonyms$synonym)
+
+genes_cmplx = lapply(cmplx$`Genes of polypeptide, complex, or RNA`,
+        FUN = function(x){
+            genenames = str_match_all(string = x, pattern = "[a-zA-Z]{3,4}")
+            genenames = toupper(unlist(genenames))
+       })
+
+names(genes_cmplx) = cmplx$`Protein-Complexes`
+genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
+
+lens = lapply(genes_cmplx, function(x){length(x)})
+genes_cmplx = genes_cmplx[lens != 1]
+saveRDS(genes_cmplx, file = "./data/programmatic_output/genes_cmplx.rds")
+
+# add to each pair the information if the two genes are also part of the same protein complex
+genes_cmplx_v <- unique(unname(unlist(genes_cmplx)))
+
+corpairs$in_same_cmplx <- 
+  map2_lgl(corpairs$featA, corpairs$featB, function(.featA, .featB) {
+    drugpair <- c(.featA, .featB)
+    if (!all(c(.featA, .featB) %in% genes_cmplx_v)) {
+      FALSE
+      } else {
+        any(map_lgl(genes_cmplx, ~ (sum(.x %in% drugpair) == 2)))
+      }
+    })
+# only 354 pairs
+View(corpairs[corpairs$in_same_cmplx, ])
+
+ggplot(corpairs, aes(x = cor)) + 
+  geom_histogram(bins = 30) + 
+  facet_wrap( ~ in_same_cmplx, scales = "free") + 
+  labs(title = "Spearman correlations of all mutant pairs.\nLeft: not part of the same protein complex\nRight: within the same protein complex")
+
+# two selected examples (highest and lowest correlation above cutoff):
+ggplot(feats, aes(x = NUOE, y = NUOF)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.85)")
+
+ggplot(feats, aes(x = ATPB, y = ATPE)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.75)")
+
+ggplot(feats, aes(x = FLIF, y = FLIQ)) + 
+  geom_point() + 
+  labs(title = "S-scores across all conditions (Spearman = 0.6)")
+
+```
+
+When choosing a cutoff of 0.6 and requiring that genes are in the same complex 
+we get `r sum(corpairs$in_same_cmplx & corpairs$cor > 0.6)` pairs. 
+A lot of the genes are part of the NADH:quinone oxidoreductase 
+complex (nuoX genes). Other prominent complexes are:
+  * the terminal oxidase complex (cyoX)
+  * sulfate adenylyltransferase (cysD, cysN)
+  * acrAB-tolC 
+  * ATP synthase (atpX)
+  * the Tol-Pal system (Pal, TolB, TolR, TolQ)
+  * TatB-TatC (part of the twin arginine translocation (Tat) complex for the 
+  export of folded proteins)
+  * some flagellum-related genes (FlhA, FLiF, FliQ)
+
+```{r}
+# so we'd probably choose a cutoff of 0.6 or so 
+View(corpairs[corpairs$in_same_cmplx & corpairs$cor > 0.6, ])
+sum(corpairs$in_same_cmplx & corpairs$cor > 0.6)
+sum(corpairs$cor > 0.6)
+```
+
+If we don't require them to be in the same complex we get 
+`r sum(corpairs$cor > 0.6)` pairs with, among others:
+
+* ribonucleotide biosynthesis (pyrX, purX)
+* LPS biosynthesis: rfaX
+
+For details check:
+
+```{r}
+View(corpairs[corpairs$cor > 0.6, ])
+sum(corpairs$cor > 0.6)
+```
+
+Anticorrelation is a lot rarer, only `r sum(corpairs$cor < -0.6)` pairs have a 
+Spearman correlation of less than -0.6. 
+
+Notably, Pur and Pyr genes are anticorrelated with RsxB (together with rseC 
+turns off SoxR-mediated induction of SoxS), YrbA (= ibaG, defends against acid 
+stress), and UbiE/F (ubiquinone biosynthesis). Moreover, GuaB (IMP 
+dehydrogenase) is anticorrelated with LipA (lipoate biosynthesis) and Rph 
+(an RNAse). 
+
+```{r}
+View(corpairs[corpairs$cor < -0.6, ])
+sum(corpairs$cor < -0.6)
+```
+
+Now merge correlated predictors. Follow procedure from Kuhn et al, p47. 
+
+```{r}
+# removed_correlated_feats <- character()
+cor_thresh <- 0.6
+continue <- TRUE
+
+# involved data sets:
+# 1) feats = all features in a tibble
+# 2) feats_cor = correlation matrix derived from 1)
+# 3) corpairs = melted version of 2)
+
+my_backup <- list(corpairs = corpairs, feats = feats, feats_cor = feats_cor)
+corpairs <- my_backup$corpairs
+feats <- my_backup$feats
+feats_cor <- my_backup$feats_cor
+
+while (continue) {
+  list_of_pairs <- list()
+  corpairs <- arrange(corpairs, desc(cor))
+  above_thresh <- sum(corpairs$cor > cor_thresh)
+  
+  for (r in seq_len(above_thresh)) {
+    pair <- c(corpairs$featA[r], corpairs$featB[r])
+    if (any(pair %in% unlist(list_of_pairs))) {
+      # we don't want to go through the whole procedure of merging features for every pair 
+      # as long as pairs don't overlap we can merge several pairs at once
+      break
+    } else {
+      list_of_pairs <- c(list_of_pairs, list(pair))
+    }
+  }
+  
+  # now merge the feats
+  for (el in list_of_pairs) {
+    # just to be safe ...
+    stopifnot(length(el) == 2)
+    newfeat <- paste(el[[1]], el[[2]], sep = "_")
+    feats[[newfeat]] <- apply(feats[el], 1, mean)
+  }
+  
+  # and calculate everything again
+  feats <- select(feats, -one_of(unlist(list_of_pairs)))
+  feats_cor <- cor(feats, method = "spearman")
+  corpairs <- melt_cormat_to_pairs(feats_cor)
+  
+  # if not TRUE means we're done
+  continue <- max(corpairs$cor > cor_thresh)
+}
+```
+
+This means that `r ncol(my_backup$feats) - ncol(feats)` features were merged 
+into other features. The newly emerged features are:
+
+```{r}
+feats_to_merge <- names(feats)[nchar(names(feats)) > 4] %>% 
+  str_split(pattern = "_")
+
+saveRDS(feats_to_merge, file = file.path(outdir, "feats_to_merge"))
+```
+
+Also plot the correlation matrix again, let's check:
+
+```{r}
+feats_cor <- cor(feats, method = "spearman")
+
+# quite a large and unwieldy plot - but still shows a few useful clusters:
+if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
+  png("./plots/Correlation_all_by_all_aftermerge.png", width = 90, height = 90, 
+    units = "cm", res = 500)
+  corrplot::corrplot(feats_cor, method = "color", order = "hclust", 
+    tl.cex = 0.1)
+  dev.off()
+}
+```
+
+
+## Merging collinear features
+
+```{r}
+head(feats_to_merge)
+
+merge_features(the_matrix, feats_to_merge, mean)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Generating different 'versions' of our matrix
@@ -183,9 +449,10 @@ saveRDS(the_matrix, file = "./data/programmatic_output/the_matrix_complete_strai
 
 ### Dosage selection
 
-#### Approach 1: "`most_interactions`" 
-Selects for each drug the one dosages with the highest number of significant interactions. If none 
-or all are, keep the highest dosage. 
+#### Approach 1: "`most_interactions`"
+
+Selects for each drug the one dosages with the highest number of significant 
+interactions. If none or all are, keep the highest dosage. 
 
 ```{r}
 selector <- 

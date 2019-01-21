@@ -21,26 +21,30 @@ This part is the general setup, whichever model we are using.
 
 ```{r setup}
 rm(list = ls())
-# function to check if a package is installed, if so, load it, else install and then load it
+# function to check if a package is installed, if so, load it, else install and 
+# then load it
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+outdir <- "./data/programmatic_output"
 ```
 
 
 # Understanding the data
 
-One should probably check a bit the behaviour of our variables: how skewed are the distributions, 
-are certain drugs or conditions far off, are NA values clustered in certain genes/drugs?
+One should probably check a bit the behaviour of our variables: how skewed are 
+the distributions, are certain drugs or conditions far off, are NA values 
+clustered in certain genes/drugs?
 
-We will take the matrix after hypomorphic mutant selection and after removal of genes not 
-interacting with any drug but before NA imputation, with all dosages, and before removal of 
-different drugs.
+We will take the matrix after hypomorphic mutant selection and after removal of 
+genes not interacting with any drug but before NA imputation, with all dosages, 
+and before removal of different drugs.
 
 ```{r}
-the_matrix <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
-drugs_full <- readRDS("./data/programmatic_output/drugs_full.rds")
+indir <- "./data/programmatic_output"
+the_matrix <- readRDS(file.path(indir, "Inspecting_the_matrix_input.rds"))
+drugs_complete <- readRDS(file.path(indir, "drugs_complete.rds"))
 ```
 
 ## Predictor skewness
@@ -48,18 +52,18 @@ drugs_full <- readRDS("./data/programmatic_output/drugs_full.rds")
 Let's check skewness of predictors first.
 
 ```{r}
-the_matrix_signifs <- 
+(the_matrix_signifs <- 
    select(the_matrix, gene_synonym, drugname_typaslab, conc, significant) %>%
-   spread(key = gene_synonym, value = significant)
+   spread(key = gene_synonym, value = significant))
 
-the_matrix <- 
+(the_matrix <- 
    select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore) %>%
-   spread(key = gene_synonym, value = sscore)
+   spread(key = gene_synonym, value = sscore))
 
-skewness_vals <- sapply(the_matrix[, 3:ncol(the_matrix)], e1071::skewness, na.rm = TRUE)
-skewness_vals <- data.frame(gene_synonym = names(skewness_vals), 
-                            skewness = skewness_vals, 
-                            stringsAsFactors = FALSE)
+skewness_vals <- sapply(the_matrix[, 3:ncol(the_matrix)], e1071::skewness, 
+  na.rm = TRUE)
+(skewness_vals <- tibble(gene_synonym = names(skewness_vals), 
+  skewness = skewness_vals))
 
 # indicate outlier boundaries using boxplot.stats
 my_boundaries <- get_outlier_boundaries(skewness_vals$skewness)
@@ -86,46 +90,53 @@ values again being outliers in the skewness distribution of all predictors.
 # but there are 141 outliers
 filter(skewness_vals, is_outlier) %>%
    arrange(skewness)
+
+most_neg <- with(skewness_vals, gene_synonym[which.min(skewness)])
 ```
 
-PLDA has the most negative skewness value, let's have a look:
+`r most_neg` has the most negative skewness value, let's have a look:
 
 ```{r}
 # a few seem to be quite bad, e.g. "PLDA"
-hist(the_matrix$PLDA, breaks = 100, main = "Histogram of s-scores for PLDA")
+hist(the_matrix[[most_neg]], breaks = 100, main = paste0("Histogram of s-scores 
+  for ", most_neg))
 
-pdf("./plots/NEW_PLDA_sscore_dist.pdf")
-hist(the_matrix$PLDA, breaks = 100, main = "Histogram of s-scores for PLDA")
+pdf(paste0("./plots/NEW_", most_neg, "_sscore_dist.pdf"))
+hist(the_matrix[[most_neg]], breaks = 100, main = paste0("Histogram of s-scores 
+  for ", most_neg))
 dev.off()
 ```
 
-So actually it looks like a handful of genes with very low s-scores are responsible for the 
-"skewness" of the distribution:
+It looks like a handful of conditions with very low s-scores might be responsible 
+for the "skewness" of the distribution:
 
 ```{r}
-e1071::skewness(the_matrix$PLDA)
+e1071::skewness(the_matrix[[most_neg]], na.rm = TRUE)
 my_boundaries <- get_outlier_boundaries(the_matrix$PLDA)
 # skewness metric without outliers
 e1071::skewness(my_boundaries$input_data_noout)
 ```
 
-Interestingly, delta-PLDA seems to selectively interact with CHIR090. 3/4 of those interactions are 
-statistically significant. Probably skewness is just one way of finding such "selective" genes. 
+As an example, PLDA seems to selectively interact with CHIR090. 3/4 of those 
+interactions are statistically significant. Probably skewness is just one way 
+of finding such "selective" genes. 
 
 ```{r}
-dplyr::select(the_matrix, drugname_typaslab, conc, PLDA) %>%
-   filter(PLDA <= my_boundaries$lower_bound)
+for_example <- "PLDA"
+dplyr::select(the_matrix, drugname_typaslab, conc, !!for_example) %>%
+   filter(!!sym(for_example) <= my_boundaries$lower_bound)
 
 # significant interactions:
-dplyr::select(the_matrix_signifs, drugname_typaslab, conc, PLDA) %>%
-   filter(PLDA)
+dplyr::select(the_matrix_signifs, drugname_typaslab, conc, !!for_example) %>%
+   filter(!!sym(for_example))
 ```
 
-Removing the outliers (according to `boxplot.stats()`) from each predictor makes the skewness 
-distribution a lot more "normal":
+Removing the outliers (according to `boxplot.stats()`) from each predictor 
+makes the skewness distribution a lot more "normal":
 
 ```{r}
-# what if we remove the outliers everywhere? 
+# remove for each gene those conditions that are considered outliers, then 
+# recompute skewness
 skewness_vals$skewness_vals_noout <- 
    sapply(colnames(the_matrix[, 3:ncol(the_matrix)]), function(x) {
       noout <- get_outlier_boundaries(the_matrix[[x]])$input_data_noout
@@ -144,46 +155,42 @@ ggplot(skewness_vals, aes(x = skewness_vals_noout)) +
         \n(this time with outliers removed, dashed lines = new boundaries)")
 
 ggsave("./plots/Predictor_skewness_distribution_noout.pdf")
-# seems like there are a few outliers left, perhaps worth checking them:
+# seems like there are a few skewed conditions left, perhaps worth checking them:
 sort(boxplot.stats(skewness_vals$skewness_vals_noout)$out)
 
-# let's have a look at the respective s-score histograms/boxplots, indicating the outliers
-# skewness_vals$to_check <- skewness_vals$skewness_vals_noout < -1 | skewness_vals$skewness_vals_noout > 1
+# let's have a look at the respective s-score histograms/boxplots
 skewness_vals$to_check <- 
    skewness_vals$skewness_vals_noout <= my_lower_new | 
    skewness_vals$skewness_vals_noout >= my_upper_new
 
-genes_to_check <- skewness_vals$gene_synonym[skewness_vals$to_check]
+(genes_to_check <- skewness_vals$gene_synonym[skewness_vals$to_check])
 skewness_vals_melted <- 
    dplyr::select(the_matrix, drugname_typaslab, conc, genes_to_check) %>%
    gather(genes_to_check, key = "gene_synonym", value = "s_score") %>%
    left_join(skewness_vals[, c("gene_synonym", "skewness", "skewness_vals_noout")])
 
 # add information about MoA:
-moa_info <- drugs_full[, c("drugname_typaslab", "process_broad")]
-moa_info$process_broad <- 
-   ifelse(moa_info$process_broad %in% c("cell_wall", "dna", "protein_synthesis", "membrane_stress"), 
-          moa_info$process_broad, 
-          "other")
-
+moa_info <- drugs_complete[, c("drugname_typaslab", "process_broad")]
 skewness_vals_melted <- left_join(skewness_vals_melted, moa_info)
 
 annot_helper <- skewness_vals_melted %>%
    group_by(gene_synonym) %>%
-   summarise(x = 0, y = 40, skewness = mean(skewness), skewness_vals_noout = mean(skewness_vals_noout))
+   summarise(x = 0, y = 40, skewness = mean(skewness), 
+     skewness_vals_noout = mean(skewness_vals_noout))
 ```
 
-These are the most skewed distributions after outlier removal. Some of them are really messed up, 
-for example OXYR. 
+These are the most skewed distributions after outlier removal. Some of them are 
+really messed up, for example OXYR. 
 
 ```{r}
 ggplot(skewness_vals_melted, aes(x = s_score)) + 
    geom_histogram() + 
    facet_wrap( ~ gene_synonym, scales = "free") + 
-   geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), x = x, y = y), 
-     color = "blue", size = 3)
+   geom_text(data = annot_helper, aes(label = round(skewness, digits = 2), 
+     x = x, y = y), color = "blue", size = 3)
 
-ggsave(filename = "./plots/Sscore_dists_skewed_features.pdf", width = 12, height = 12)
+ggsave(filename = "./plots/Sscore_dists_skewed_features.pdf", width = 12, 
+  height = 12)
 ```
 
 Pair plots of sscores of the skewed features. 
@@ -192,7 +199,7 @@ Pair plots of sscores of the skewed features.
 all_by_all <- 
    full_join(skewness_vals_melted, skewness_vals_melted, 
      by = c("drugname_typaslab" = "drugname_typaslab", "conc" = "conc", 
-               "process_broad" = "process_broad"))
+       "process_broad" = "process_broad"))
 
 # plot_pairplots takes the data frame above and plots all by all combinations of the genes of 
 # interest
@@ -201,15 +208,17 @@ plot_pairplots(c("PURD", "PURM"))
 plot_pairplots(c("PURD", "PURM", "PYRE"))
 ```
 
-Perhaps these are features that can be used to isolate certain (sub)groups of drugs? - would be 
-interesting to test. Another interesting observation: s-scores can fluctuate a lot such as ACRA and 
-novobiocin - why does conc = 6 suddenly have an s-score of 3.98? Is there a better way to select 
-dosages than just highest concentrations or "most interactions"? In general, my impression was that 
-s-scores _do_ go down with higher concentrations even though in an earlier analysis I couldn't see 
-a clear trend. 
+Perhaps these are features that can be used to isolate certain (sub)groups of 
+drugs? - would be interesting to test. Another interesting observation: s-scores 
+can fluctuate a lot such as ACRA and novobiocin - why does conc = 6 suddenly 
+have an s-score of 3.98? Is there a better way to select dosages than just 
+highest concentrations or "most interactions"? In general, my impression was 
+that s-scores _do_ go down with higher concentrations even though in an earlier 
+analysis I couldn't see a clear trend. 
 
 ```{r}
-filter(skewness_vals_melted, gene_synonym == "ACRA", drugname_typaslab == "NOVOBIOCIN")
+filter(skewness_vals_melted, gene_synonym == "ACRA", 
+  drugname_typaslab == "NOVOBIOCIN")
 dplyr::select(the_matrix_signifs, drugname_typaslab, conc, ACRA) %>%
    filter(drugname_typaslab == "NOVOBIOCIN", ACRA)
 ```
@@ -217,36 +226,44 @@ dplyr::select(the_matrix_signifs, drugname_typaslab, conc, ACRA) %>%
 
 #### NA values
 
-Are there drug-dosage combinations or mutants with an exceptional high number of NA values? 
+Are there drug-dosage combinations or mutants with an exceptional high number 
+of NA values? 
 
-Here, we can see that some genes have a high number of NA values. Perhaps they should be excluded. 
-Not surprisingly, they are also all part of the "top10pct variance". Should probably fix in the 
-future.
+Here, we can see that some genes have a high number of NA values. Perhaps they 
+should be excluded. Not surprisingly, they are also all part of the 
+"top10pct variance". Should probably fix in the future.
 
 ```{r}
 the_matrix_melted <- 
    the_matrix %>% 
-   gather(-one_of("drugname_typaslab", "conc"), key = "gene_synonym", value = "s_score")
+   gather(-one_of("drugname_typaslab", "conc"), key = "gene_synonym", 
+     value = "s_score")
 
 the_matrix_melted_moainfo <- 
-   left_join(the_matrix_melted, drugs_full[, c("drugname_typaslab", "process_broad")])
-saveRDS(object = the_matrix_melted_moainfo, file = "./data/programmatic_output/the_matrix_melted_moainfo.rds")
+   left_join(the_matrix_melted, 
+     drugs_complete[, c("drugname_typaslab", "process_broad")])
+# saveRDS(object = the_matrix_melted_moainfo, file = "./data/programmatic_output/the_matrix_melted_moainfo.rds")
 
-NAs_by_mutant <- 
+(NAs_by_mutant <- 
    group_by(the_matrix_melted, gene_synonym) %>%
-   summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score)))
+   summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score))) %>%
+   arrange(desc(total_conds_NA)))
 
 # and now the respective genes (seed arguments don't work)
 set.seed(9)
+nconds <- unique(NAs_by_mutant$total_conds)
+stopifnot(length(nconds) == 1)
 ggplot(NAs_by_mutant, aes(x = "", y = total_conds_NA)) + 
-   geom_text(aes(label = gene_synonym), size = 3, position = position_jitter(width = 0.3, height = 0)) + 
+   geom_text(aes(label = gene_synonym), size = 3, 
+     position = position_jitter(width = 0.3, height = 0)) + 
    geom_hline(yintercept = c(0, 5, 10, 15, 20, 30, 40), linetype = "dotted") + 
    theme_classic() + 
    scale_y_continuous(breaks = c(0, 5, 10, 15, 20, 30, 40)) + 
-   labs(title = "Number of conditions with 'NA' per mutant.\n(total number of conds = 256)")
+   labs(title = paste0("Number of conditions with 'NA' per mutant.
+     (total number of conds = ", nconds, ")"))
 
-saveRDS(NAs_by_mutant$gene_synonym[NAs_by_mutant$total_conds_NA > 10], 
-  "./data/programmatic_output/feats_to_remove_many_NAs.rds")
+(feats_to_remove <- NAs_by_mutant$gene_synonym[NAs_by_mutant$total_conds_NA > 10])
+saveRDS(feats_to_remove, file.path(outdir, "feats_to_remove_many_NAs.rds"))
 
 ggsave("./plots/NA_conditions_per_mutant.pdf")
 ```
@@ -258,11 +275,14 @@ NAs_by_drugndosg <-
    group_by(the_matrix_melted, drugname_typaslab, conc) %>%
    summarise(total_conds = n(), total_conds_NA = sum(is.na(s_score)))
 
-NAs_by_drugndosg$label <- paste(NAs_by_drugndosg$drugname_typaslab, NAs_by_drugndosg$conc, sep = "_")
+NAs_by_drugndosg$label <- paste(NAs_by_drugndosg$drugname_typaslab, 
+  NAs_by_drugndosg$conc, sep = "_")
+
 ggplot(NAs_by_drugndosg, aes(x = "", y = total_conds_NA)) + 
-   geom_text(aes(label = label), size = 3, position = position_jitter(width = 0.3)) + 
-   labs(title = "Number of mutants with 'NA' per drug-dosage combination\n(total number of 
-     mutants = 1711)")
+   geom_text(aes(label = label), size = 3, 
+     position = position_jitter(width = 0.3)) + 
+   labs(title = paste("Number of mutants with 'NA' per drug-dosage combination 
+     (total number of mutants =", NAs_by_drugndosg$total_conds[1], ")"))
 
 ggsave("./plots/NA_mutants_per_condition.pdf")
 ```
@@ -277,11 +297,10 @@ and see if NAs often occur after high/low s_scores.
 
 ```{r}
 the_matrix_signifs_melted <- 
-   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), key = "gene_synonym", 
-     value = "significant")
+   gather(the_matrix_signifs, -one_of("drugname_typaslab", "conc"), 
+     key = "gene_synonym", value = "significant")
 
-the_matrix_melted <- 
-   left_join(the_matrix_melted, the_matrix_signifs_melted)
+the_matrix_melted <- left_join(the_matrix_melted, the_matrix_signifs_melted)
 
 # 925 NA values in total
 sum(is.na(the_matrix_melted$s_score))
@@ -300,7 +319,9 @@ ggsave("./plots/Relative_fractions_signif.pdf")
 ```
 
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+#### NOTE 2019-01-21: probably not needed anymore
+
 # check if there is a bias of NA values being more present in the dosage used by 'most interactions'
 the_matrix$nb_NA = apply(the_matrix, 1, function(x){sum(is.na(x))})
 counting_NA = 

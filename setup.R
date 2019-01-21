@@ -17,6 +17,7 @@ ipak(gridExtra)
 ipak(plotly)
 ipak(ComplexHeatmap)
 ipak(circlize)
+ipak(googledrive)
 
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)

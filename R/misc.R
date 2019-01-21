@@ -114,4 +114,11 @@ make_blocks <- function(dfr, blockvar) {
   return(blocks)
 }
 
+nunique <- function(...) {
+  length(unique(...))
+}
+
+sort_unique <- function(...) {
+  sort(unique(...))
+}
 

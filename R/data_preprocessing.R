@@ -28,7 +28,7 @@ select_mutant <- function(dfr) {
   if (is.null(dfr$strain)) {
     stop("Did not find column 'strain'")
   }
-  if ( length(unique(dfr$strain != 1)) ) {
+  if (length(unique(dfr$strain)) != 1) {
     dfr <- group_by(dfr, strain) %>%
       mutate(n_signif_strain = sum(significant)) %>%
       ungroup() %>%

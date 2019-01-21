@@ -554,6 +554,8 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf
   width = 30, height = 20))
 ```
 
+<!--
+Moved to DataLoading_FeaturePreselect.Rmd
 
 ### Removing/merging (?) collinear features
 
@@ -762,6 +764,8 @@ if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
   dev.off()
 }
 ```
+
+-->
 
 ## Multi-class model after improved data pre-processing
 
@@ -993,6 +997,10 @@ Run LOOCV with the subgroups (subject to change).
 ```{r, subgroups}
 # use my_data_mcl_2high from previous chunk to compare with LOOCV:
 mcl_subgr <- my_data
+# keep 2 highest dosgs
+mcl_subgr <- group_by(mcl_subgr, drugname_typaslab) %>%
+  top_n(2, conc) %>%
+  ungroup()
 # we're missing BILE, UV, GLUFOSFOMYCIN
 moa_tab[!(moa_tab$drug %in% mcl_subgr$drugname_typaslab), ]
 
