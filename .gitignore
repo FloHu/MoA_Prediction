@@ -11,6 +11,7 @@
 *.docx
 *.rds
 *cache
+data/programmatic_output
 *.pdf
 *.jpg
 *.JPG

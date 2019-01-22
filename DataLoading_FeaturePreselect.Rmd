@@ -23,7 +23,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
 
 # directory for automatically generated data:
 outdir <- "./data/programmatic_output"
@@ -65,10 +65,10 @@ tryCatch(
 )
 
 mode_of_action <- read_delim(outpath, delim = ",", na = c("-"))
-stopifnot(all(!duplicated(mode_of_action$drugname_typaslab)))
 mode_of_action <- mode_of_action[, c("drug", "moa_broad_II (after 09/05/2018)", 
   "dataset (not exclusive)")]
 colnames(mode_of_action) <- c("drugname_typaslab", "process_broad", "dataset")
+stopifnot(all(!duplicated(mode_of_action$drugname_typaslab)))
 ```
 
 Write out `drugs_complete` with MoA information.
@@ -223,6 +223,8 @@ saveRDS(the_matrix, file = file.path(outdir,
 
 ## Inspecting feature collinearity, determining which features to merge
 
+### Exploring feature correlations
+
 The following chunks were previously in `Model_lab.Rmd`. 
 
 ```{r}
@@ -243,7 +245,7 @@ if (!file.exists("./plots/Correlation_all_by_all.png")) {
 corpairs <- melt_cormat_to_pairs(feats_cor)
 arrange(corpairs, desc(cor))
 
-# retrieving all protein complexes, code from notebook 1 (Leonard) -----------------------
+# retrieving all protein complexes, code from notebook 1 (Leonard) -----------
 cmplx = read_tsv(file = "data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
 (load("../dbsetup/data/genesWithEG_ID.RData"))
 gene_synonyms$synonym = toupper(gene_synonyms$synonym)
@@ -261,7 +263,8 @@ lens = lapply(genes_cmplx, function(x){length(x)})
 genes_cmplx = genes_cmplx[lens != 1]
 saveRDS(genes_cmplx, file = "./data/programmatic_output/genes_cmplx.rds")
 
-# add to each pair the information if the two genes are also part of the same protein complex
+# add to each pair the information if the two genes are also part of the same 
+# protein complex
 genes_cmplx_v <- unique(unname(unlist(genes_cmplx)))
 
 corpairs$in_same_cmplx <- 
@@ -274,12 +277,14 @@ corpairs$in_same_cmplx <-
       }
     })
 # only 354 pairs
-View(corpairs[corpairs$in_same_cmplx, ])
+# View(corpairs[corpairs$in_same_cmplx, ])
 
 ggplot(corpairs, aes(x = cor)) + 
   geom_histogram(bins = 30) + 
   facet_wrap( ~ in_same_cmplx, scales = "free") + 
-  labs(title = "Spearman correlations of all mutant pairs.\nLeft: not part of the same protein complex\nRight: within the same protein complex")
+  labs(title = "Spearman correlations of all mutant pairs.
+    Left: not part of the same protein complex
+    Right: within the same protein complex")
 
 # two selected examples (highest and lowest correlation above cutoff):
 ggplot(feats, aes(x = NUOE, y = NUOF)) + 
@@ -293,7 +298,6 @@ ggplot(feats, aes(x = ATPB, y = ATPE)) +
 ggplot(feats, aes(x = FLIF, y = FLIQ)) + 
   geom_point() + 
   labs(title = "S-scores across all conditions (Spearman = 0.6)")
-
 ```
 
 When choosing a cutoff of 0.6 and requiring that genes are in the same complex 
@@ -311,7 +315,7 @@ complex (nuoX genes). Other prominent complexes are:
 
 ```{r}
 # so we'd probably choose a cutoff of 0.6 or so 
-View(corpairs[corpairs$in_same_cmplx & corpairs$cor > 0.6, ])
+# View(corpairs[corpairs$in_same_cmplx & corpairs$cor > 0.6, ])
 sum(corpairs$in_same_cmplx & corpairs$cor > 0.6)
 sum(corpairs$cor > 0.6)
 ```
@@ -325,7 +329,7 @@ If we don't require them to be in the same complex we get
 For details check:
 
 ```{r}
-View(corpairs[corpairs$cor > 0.6, ])
+# View(corpairs[corpairs$cor > 0.6, ])
 sum(corpairs$cor > 0.6)
 ```
 
@@ -339,13 +343,89 @@ dehydrogenase) is anticorrelated with LipA (lipoate biosynthesis) and Rph
 (an RNAse). 
 
 ```{r}
-View(corpairs[corpairs$cor < -0.6, ])
+# View(corpairs[corpairs$cor < -0.6, ])
 sum(corpairs$cor < -0.6)
 ```
 
-Now merge correlated predictors. Follow procedure from Kuhn et al, p47. 
+
+### Merge correlated features
+
+Now merge correlated predictors. Use a bit higher threshold (0.7) because 
+otherwise it would merge too many features. Iterative averaging not an option 
+because `mean(mean(c(a, b)), c) != mean(c(a, b, c))`. Instead, do 
+correlation-based hierarchical clustering of all genes which have at least one 
+correlation above the threshold. Then based on this result determine clusters 
+and calculate centroids of the clusters. 
 
 ```{r}
+cor_thresh <- 0.7
+(high_cor_genes <- unique(unlist(corpairs[corpairs$cor > cor_thresh, 
+  c("featA", "featB")])))
+```
+
+So `r length(high_cor_genes)` are affected. 
+
+Make hierarchical clustering
+
+```{r}
+feats_cor_high <- feats_cor[high_cor_genes, high_cor_genes]
+feats_cor_high_d <- as.dist(1 - feats_cor_high)
+
+pdf("./plots/correlated_feats.pdf", width = 14, height = 14)
+heatmap.2(feats_cor_high, 
+  trace = "none", 
+  Rowv = as.dendrogram(hclust(feats_cor_high_d)), 
+  symm = TRUE, 
+  dendrogram = "both", 
+  cexRow = 0.5)
+dev.off()
+```
+
+[Link]("./plots/correlated_feats.pdf"). 
+
+Looks like 21 clusters is a good number to capture similar groups. 
+
+```{r}
+nclust <- 21
+clusters <- cutree(hclust(feats_cor_high_d), k = nclust)
+clusters[order(clusters)]
+clusters <- tibble(clust_id = clusters, members = names(clusters)) %>%
+  group_by(clust_id) %>%
+  nest(.key = members) %>%
+  mutate(members = map(members, flatten_chr))
+
+clusters$clust_label <- sapply(clusters$members, function(x) {
+  ifelse(length(x) < 3, 
+    paste(x, collapse = "-"), 
+    paste0(x[1], "..(", length(x)-1, "_more)"))
+})
+clusters
+saveRDS(object = clusters, file = file.path(outdir, "clusters.rds"))
+```
+
+Now merge the features by calculating the centroids for `the_matrix`. For 
+`the_matrix_signifs` the significance of a merged cluster will be set to TRUE 
+if at least one member of the cluster is TRUE.
+
+```{r}
+the_matrix.bak <- the_matrix
+the_matrix_signifs.bak <- the_matrix_signifs
+
+# merge features in clusters frame using function f of merge_features(), 
+# then remove features that have been merged 
+
+# s-scores are averaged
+the_matrix <- merge_features(the_matrix, clusters, mean)
+saveRDS(the_matrix, file = file.path(outdir, 
+  "the_matrix_drugsgenesremoved_noNAs_featsmerged_wide.rds"))
+# significance is set to yes if any cluster member is significant
+the_matrix_signifs <- merge_features(the_matrix_signifs, clusters, any)
+saveRDS(the_matrix_signifs, file = file.path(outdir, 
+  "the_matrix_signifs_drugsgenesremoved_noNAs_featsmerged_wide.rds"))
+```
+
+<!--
+```{r, eval = FALSE, echo = FALSE}
 # removed_correlated_feats <- character()
 cor_thresh <- 0.6
 continue <- TRUE
@@ -393,20 +473,12 @@ while (continue) {
   continue <- max(corpairs$cor > cor_thresh)
 }
 ```
+-->
 
-This means that `r ncol(my_backup$feats) - ncol(feats)` features were merged 
-into other features. The newly emerged features are:
-
-```{r}
-feats_to_merge <- names(feats)[nchar(names(feats)) > 4] %>% 
-  str_split(pattern = "_")
-
-saveRDS(feats_to_merge, file = file.path(outdir, "feats_to_merge"))
-```
-
-Also plot the correlation matrix again, let's check:
+Plot the correlation matrix again, let's check:
 
 ```{r}
+feats <- select(the_matrix, -one_of("drugname_typaslab", "conc"))
 feats_cor <- cor(feats, method = "spearman")
 
 # quite a large and unwieldy plot - but still shows a few useful clusters:
@@ -420,163 +492,115 @@ if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
 ```
 
 
-## Merging collinear features
+# Generating `matrix_container`
 
-```{r}
-head(feats_to_merge)
+## Generating different versions of the_matrix
 
-merge_features(the_matrix, feats_to_merge, mean)
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Generating different 'versions' of our matrix
-
-## Drug selection and drug classification procedures
-
-### Dosage selection
-
-#### Approach 1: "`most_interactions`"
-
-Selects for each drug the one dosages with the highest number of significant 
-interactions. If none or all are, keep the highest dosage. 
-
-```{r}
-selector <- 
-   the_matrix_signifs %>%
-   group_by(drugname_typaslab) %>%
-   arrange(conc, .by_group = TRUE) %>%
-   do(select_dosage_most_ias(.)) %>%
-   ungroup() %>%
-   pull(selector)
-
-the_matrix <- the_matrix %>%
-   group_by(drugname_typaslab) %>%
-   arrange(conc, .by_group = TRUE) %>%
-   ungroup()
-
-the_matrix_alldosgs_nochemfeats <- the_matrix
-the_matrix_mostias_nochemfeats <- the_matrix[selector, ]
-```
-
-
-## Collecting data in a data frame with list columns - matrix_container
+Put all information for subsequent model fitting into `matrix_container`, which 
+should contain all information to fit a machine learning model. 
 
 ```{r}
 matrix_container <- 
-   tibble(datasets_included = list("nichols_2011", "nichols_2011"), 
-          drug_dosages = c("all", "most_interactions"), 
-          feat_preselect = c("keepall", "keepall"), 
-          chemical_feats = c(FALSE, FALSE), 
-          drug_feature_matrices = list(the_matrix_alldosgs_nochemfeats, the_matrix_mostias_nochemfeats))
+   tibble(datasets_included = list("nichols_2011"), 
+          drug_dosages = c("all"), 
+          feat_preselect = c("keepall"), 
+          chemical_feats = c(FALSE), 
+          drug_feature_matrices = list(the_matrix))
 ```
 
+### Selecting variances
 
-## Feature selection and transformation procedures
-
-### Selecting features with the highest variance
-
-Sort features (i.e. mutants = genes here) by variance and select top x %. 
+Keep features with highest variance (top x%, but only the mutants). 
 
 ```{r}
 variances_to_select <- c(5, 10, 15, 20, 25, 30, 40, 50)
 
-# add some datasets to our matrix_container: for the table using all dosages, we want to select 
-# the genes which have the highest variance (top x%)
-targetrow <- match("all", matrix_container$drug_dosages)
+# add some datasets to our matrix_container: for the table using all dosages, 
+# we want to select the genes which have the highest variance (top x%)
+stopifnot(nrow(matrix_container) == 1)
+targetrow <- 1
+targetmat <- matrix_container$drug_feature_matrices[[targetrow]]
 for (v in variances_to_select) {
-   tmp_row <- matrix_container[targetrow, ] # = row containing matrix with all drug dosages => let's do feature preselection
-   tmp_mat <- tmp_row$drug_feature_matrices[[1]]
-   tmp_mat <- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
-   tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
-   tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
-   matrix_container <- bind_rows(matrix_container, tmp_row) # and update our data container
+  # tmp_row contains matrix with all drug dosages to do feature preselection
+  tmp_row <- matrix_container[targetrow, ] 
+  # tmp_mat <- tmp_row$drug_feature_matrices[[1]]
+  tmp_mat <- feature_selection_variance(targetmat, featStart = 3, percentTop = v)
+  tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
+  tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
+  matrix_container <- bind_rows(matrix_container, tmp_row) # and the data container
 }
+```
 
-# repeat the same thing with the table that doesn't have all dosages but only those dosages with 
-# most interactions in the chemical genomics data
-# I know, code repetition - shame! but I really want to be explicit here
-(targetrow <- match("most_interactions", matrix_container$drug_dosages))
-for (v in variances_to_select) {
-   tmp_row <- matrix_container[targetrow, ] # = row containing matrix with all drug dosages => let's do feature preselection
-   tmp_mat <- tmp_row$drug_feature_matrices[[1]]
-   tmp_mat <- feature_selection_variance(tmp_mat, featStart = 3, percentTop = v)
-   tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
-   tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
-   matrix_container <- bind_rows(matrix_container, tmp_row) # and update our data container
-}
+### Selecting dosages
+
+Either keep all dosages or dosage with most number of interactions (after 
+selecting for most variant features). 
+
+```{r}
+(matrix_container <- 
+  matrix_container %>% 
+  mutate(drug_dosages = "most_interactions", 
+    drug_feature_matrices = 
+      map(drug_feature_matrices, select_most_ias, 
+        the_matrix_signifs = the_matrix_signifs)) %>%
+  bind_rows(matrix_container))
 ```
 
 ### Adding chemical features
 
-Don't use all chemical features from KNIME. Make tables with and without chemical features
+Don't use all chemical features from KNIME. Make tables with and without 
+chemical features.
 
 ```{r}
-# check if all drugs in all tables are in our 'drugs_full' table
+# Make sure we have all drugs recorded in drugs_subset:
 stopifnot(
-   all(
-      unique(flatten_chr(map(matrix_container$drug_feature_matrices, "drugname_typaslab")))
+   all(unique(flatten_chr(map(matrix_container$drug_feature_matrices, "drugname_typaslab")))
       %in%
-      drugs_full$drugname_typaslab
-   )
+      drugs_subset$drugname_typaslab)
 )
 
-drugs_full_selected_features <- drugs_full[, c("drugname_typaslab", "SlogP", "LabuteASA", "TPSA", 
-                                               "ExactMW", "NumLipinskiHBA", "NumLipinskiHBD", 
-                                               "NumRotatableBonds", "NumAmideBonds", 
-                                               "NumRings", "NumAromaticRings", "NumSaturatedRings", 
-                                               "NumAliphaticRings", "data_effective_rotor_count")]
+# keep selected chemical features
+drugs_subset_selected_features <- drugs_subset[, c("drugname_typaslab", 
+  "SlogP", "LabuteASA", "TPSA", "ExactMW", "NumLipinskiHBA", "NumLipinskiHBD",
+  "NumRotatableBonds", "NumAmideBonds", "NumRings", "NumAromaticRings", 
+  "NumSaturatedRings", "NumAliphaticRings", "data_effective_rotor_count")]
 
-# take whole matrix_container, add chemical features, update metadata and rbind to old container
-matrix_container <- 
+# take whole matrix_container, add chemical features, update metadata and 
+# rbind to old container
+(matrix_container <- 
    matrix_container %>%
-   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, drugs_full_selected_features), 
+   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, drugs_subset_selected_features), 
           chemical_feats = TRUE, 
           datasets_included = map(datasets_included, append, "knime")) %>%
    bind_rows(matrix_container) %>%
-   arrange(drug_dosages, feat_preselect, chemical_feats)
+   arrange(drug_dosages, feat_preselect, chemical_feats))
 ```
 
-
-## Adding drug classification = mode of action information, generate dfr with list columns
-
-Remove drugs with label "unknown", reducing the number of drugs from 83 to 78. 
+### Adding MoA labels
 
 ```{r}
-my_labels <- drugs_full[, c("drugname_typaslab", "process_broad")]
-my_labels_knowndrugs <- my_labels[my_labels$process_broad != "unknown", ]
+my_labels <- drugs_subset[, c("drugname_typaslab", "process_broad")]
 
-# remove unknown drugs, then add MoA information
+# add MoA information to all drug_feature_matrices
 matrix_container <- 
    matrix_container %>%
-   mutate(drug_feature_matrices = map(drug_feature_matrices, semi_join, my_labels_knowndrugs)) %>%
    mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, my_labels))
 
-# arrange rows nicely
+# arrange columns nicely
 matrix_container$drug_feature_matrices <- 
    map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
 ```
 
+
 ## Adding model and hyperparameter specifications
 
 For all of the above drug-feature matrices we want to run the following:
-- random forests with a number of trees and mtry values
-- boosted trees in 3 flavours: (i) 'normal' parameters changed, (ii) testing regularisation, (iii) 
-  trying out subsample parameters
-- lasso regression
+  * random forests with a number of trees and mtry values
+  * boosted trees in 3 flavours
+    + (i) 'normal' parameters changed
+    + (ii) testing regularisation
+    + (iii) trying out subsample parameters
+  * lasso regression
 
 ```{r}
 matrix_container.bak <- matrix_container
