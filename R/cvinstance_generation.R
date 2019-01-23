@@ -6,7 +6,7 @@ get_inner_train_ids <- function(NCV_sampling, rep_nb, outer_nb){
   NCV_sampling[[rep_nb]]$inner[[outer_nb]]$train.inds
 }
 
-instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8){
+instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInner = 8) {
   # takes a dataset = a drug feature matrix from matrix_container 
   # first, an outer CV instance is generated, which will later be used for performance evaluation 
   # second, for each training set of the outer CV instance another CV instance is generated, which 
@@ -24,7 +24,7 @@ instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInn
   
   if (printTest) {
     # Testing stratification of outer instance
-    for(i in 1:nFoldsOuter){
+    for (i in 1:nFoldsOuter) {
       cat("Testing stratification of outer instance.\nFold", i, "- Train and test sets\n" )
       ind = sample_instance_outer$train.inds[[i]]
       print(table(dataset[ind, "process_broad"]))
@@ -37,18 +37,18 @@ instance_creation <- function(dataset, printTest = F, nFoldsOuter = 8, nFoldsInn
   # defining inner instances
   sampling_method = makeResampleDesc(method = "CV", iters = nFoldsInner, stratify = TRUE)
   sample_instance_inner = list()
-  for(i in 1:nFoldsOuter){
+  for (i in 1:nFoldsOuter) {
     # New task using a subset of the whole dataset defined by outer training set ID
     inner_task = makeClassifTask(data = dataset[sample_instance_outer$train.inds[[i]], ], 
       target = "process_broad")
     sample_instance_inner[[i]] = makeResampleInstance(sampling_method, inner_task)
   }
   
-  if(printTest){
+  if (printTest) {
     # Testing stratification of inner instances
     # NOTE: indices of individuals in the inner fold are the indices of the vector of indices of 
     # the corresponding outer fold 
-    for (j in 1:nFoldsOuter ){
+    for (j in 1:nFoldsOuter ) {
       outer_ind = sample_instance_outer$train.inds[[j]]
       cat(rep("#", 80), "\n", sep = "")
       cat("OUTER FOLD", j, ": training indices: \n")
@@ -81,7 +81,7 @@ RepNCV_instance_map_drugname <- function(instance_oneDrug, dataset_oneDosage, da
   Rep_Nest_CV_instance_allDosage = instance_oneDrug
   
   # for each nested cv instance repetition:
-  for(i in 1:length(Rep_Nest_CV_instance_allDosage)) {
+  for (i in 1:length(Rep_Nest_CV_instance_allDosage)) {
     # ====== OUTER CV MAPPING: ======
     # ======== Training sets ========
     # The indices of the training sets of the outer resampling are based on the drug_feature_matrix 
@@ -110,7 +110,7 @@ RepNCV_instance_map_drugname <- function(instance_oneDrug, dataset_oneDosage, da
     Rep_Nest_CV_instance_allDosage[[i]]$outer$size = nrow(dataset_allDosage)
     
     # INNER FOLDS RESAMPLING MAPPING
-    for(outer in 1:length(outer_train_ids)) {
+    for (outer in 1:length(outer_train_ids)) {
       # NOTE: NEVER MAP INNER IDS DIRECTLY TO THE DATASET, ALWAYS MAP THEM FIRST TO OUTER ID!
       # ====== Training sets ======
       # get all training indices of the inner CV for the corresponding CV repeat

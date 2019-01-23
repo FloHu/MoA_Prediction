@@ -396,8 +396,8 @@ clusters <- tibble(clust_id = clusters, members = names(clusters)) %>%
 
 clusters$clust_label <- sapply(clusters$members, function(x) {
   ifelse(length(x) < 3, 
-    paste(x, collapse = "-"), 
-    paste0(x[1], "..(", length(x)-1, "_more)"))
+    paste(x, collapse = "_"), 
+    paste0(x[1], "_and_", length(x) - 1, "_more"))
 })
 clusters
 saveRDS(object = clusters, file = file.path(outdir, "clusters.rds"))
@@ -409,7 +409,10 @@ if at least one member of the cluster is TRUE.
 
 ```{r}
 the_matrix.bak <- the_matrix
+the_matrix <- the_matrix.bak
+
 the_matrix_signifs.bak <- the_matrix_signifs
+the_matrix_signifs <- the_matrix_signifs.bak
 
 # merge features in clusters frame using function f of merge_features(), 
 # then remove features that have been merged 
@@ -588,7 +591,62 @@ matrix_container <-
 
 # arrange columns nicely
 matrix_container$drug_feature_matrices <- 
-   map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, process_broad, everything())
+   map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, 
+     process_broad, everything())
+```
+
+### Generating nested CV instances
+
+Need one matrix for all dosages and another one for dosage with most 
+interactions. While the drug-dosage combination may differ depending on the 
+variance selection, it doesn't matter for the CV instance creation which one 
+to take as long as it's the same drugs in the same order. 
+
+```{r, cvinst_generation}
+# ensure that the order of the drugs is the same throughout:
+invisible(filter(matrix_container, drug_dosages == "all") %>%
+  pull(drug_feature_matrices) %>%
+  map("drugname_typaslab") %>%
+  reduce(function(a, b) {
+    if (all(a == b)) return(a) else stop()
+  }))
+
+invisible(filter(matrix_container, drug_dosages == "most_interactions") %>%
+  pull(drug_feature_matrices) %>%
+  map("drugname_typaslab") %>%
+  reduce(function(a, b) {
+    if (all(a == b)) return(a) else stop()
+  }))
+
+cvinst_alldosg_input <- 
+  (filter(matrix_container, drug_dosages == "all") %>%
+  pull(drug_feature_matrices))[[1]]
+saveRDS(cvinst_alldosg_input, file.path(outdir, "cvinst_alldosg_input.rds"))
+
+cvinst_mostias_input <- 
+  (filter(matrix_container, drug_dosages == "most_interactions") %>%
+  pull(drug_feature_matrices))[[1]]
+saveRDS(cvinst_mostias_input, file.path(outdir, "cvinst_mostias_input.rds"))
+
+# most interactions repeated nested cv instance required as input for cv 
+# instance generation of all dosages
+rep_ncvinst_mostias <- list()
+for (i in 1:10) {
+  rep_ncvinst_mostias[[paste0("NCV_", i)]] <- 
+    instance_creation(dataset = cvinst_mostias_input, nFoldsOuter = 8, 
+      nFoldsInner = 8)
+}
+run_cv_tests(rep_ncvinst_mostias, data = cvinst_mostias_input)
+saveRDS(rep_ncvinst_mostias, file.path(outdir, "rep_ncvinst_mostias.rds"))
+
+# now generate rep nested cv instance for all dosages (works via mapping 
+# approach, drugs with different dosages are moved together)
+rep_ncvinst_alldosg <- 
+  RepNCV_instance_map_drugname(instance_oneDrug = rep_ncvinst_mostias, 
+    dataset_oneDosage = cvinst_mostias_input, 
+    dataset_allDosage = cvinst_alldosg_input)
+run_cv_tests(rep_ncvinst_alldosg, data = cvinst_alldosg_input)
+saveRDS(rep_ncvinst_alldosg, file.path(outdir, "rep_ncvinst_alldosg.rds"))
 ```
 
 
@@ -604,33 +662,20 @@ For all of the above drug-feature matrices we want to run the following:
 
 ```{r}
 matrix_container.bak <- matrix_container
-matrix_container_tmp <- matrix_container
 
 # stuff common to all: tuning measures, CV instances
-# normal instanced repeated stratified CV 
-load("./data/programmatic_output/Rep_Nest_CV_instance_newDrugs.RData") 
-# as above but with dosages blocked together
-load("./data/programmatic_output/Rep_Nest_CV_instance_allDosage.RData") 
-
 matrix_container$tuning_measure <- list("auc" = list(auc, mmce, ppv))
 matrix_container$resamp_instance <- 
    ifelse(matrix_container$drug_dosages == "all", 
-          list(Rep_Nest_CV_instance_allDosage), 
-          list(Rep_Nest_CV_instance_newDrugs))
-
-names(matrix_container$resamp_instance) <- # as ifelse ignores names
-   ifelse(matrix_container$drug_dosages == "all", 
-          "Rep_Nest_CV_instance_allDosage", 
-          "Rep_Nest_CV_instance_newDrugs")
+          list(rep_ncvinst_alldosg), 
+          list(rep_ncvinst_mostias))
 
 
-#####################################
-## SPECIFYING HYPERPARAMETER GRIDS ##
-#####################################
-# specify hyperparameter grids, put them into lists with the fitted model as the names of the 
-# elements
-# lists should have same lengths as matrix_container since the whole matrix_container should be 
-# processed once for each hyperparameter grid
+## SPECIFYING HYPERPARAMETER GRIDS #----------------------------
+# specify hyperparameter grids, put them into lists with the fitted model as 
+# the names of the elements
+# lists should have same lengths as matrix_container since the whole 
+# matrix_container should be processed once for each hyperparameter grid
 # then apply some map magic to collect everything into a big data frame
 
 #### step (1): specifying the hyperparameter grids
@@ -657,7 +702,9 @@ xgboost_hyp_param_std <-
     makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
     makeDiscreteParam("eta", values = c(0.01,0.1,0.3)) 
     )
-xgboost_hyp_param_std <- rep(list("xgboost_hyp_param_std" = xgboost_hyp_param_std), nrow(matrix_container))
+xgboost_hyp_param_std <- 
+  rep(list("xgboost_hyp_param_std" = xgboost_hyp_param_std), 
+    nrow(matrix_container))
 
 # (b) play around with regularisations
 xgboost_hyp_param_reg <- 
@@ -668,7 +715,9 @@ xgboost_hyp_param_reg <-
     makeDiscreteParam("lambda", values = c(1, 10, 100, 1000)), 
     makeDiscreteParam("alpha", values = c(0, 0.5, 1))
     )
-xgboost_hyp_param_reg <- rep(list("xgboost_hyp_param_reg" = xgboost_hyp_param_reg), nrow(matrix_container))
+xgboost_hyp_param_reg <- 
+  rep(list("xgboost_hyp_param_reg" = xgboost_hyp_param_reg), 
+    nrow(matrix_container))
 
 # (c) play around with subsampling functions
 xgboost_hyp_param_subsmp <- 
@@ -679,7 +728,9 @@ xgboost_hyp_param_subsmp <-
     makeDiscreteParam("subsample", values = c(0.5, 0.8, 1)), 
     makeDiscreteParam("colsample_bytree", values = c(0.5, 0.8, 1))
     )
-xgboost_hyp_param_subsmp <- rep(list("xgboost_hyp_param_subsmp" = xgboost_hyp_param_subsmp), nrow(matrix_container))
+xgboost_hyp_param_subsmp <- 
+  rep(list("xgboost_hyp_param_subsmp" = xgboost_hyp_param_subsmp), 
+    nrow(matrix_container))
 
 # LASSO:
 lasso_hyp_param <- 
@@ -687,7 +738,8 @@ lasso_hyp_param <-
       makeDiscreteParam("alpha", 1), 
       makeDiscreteParam("s", values = seq(from = 0.01, to = 10, length.out = 200))
    )
-lasso_hyp_param <- rep(list("lasso_hyp_param" = lasso_hyp_param), nrow(matrix_container))
+lasso_hyp_param <- rep(list("lasso_hyp_param" = lasso_hyp_param), 
+  nrow(matrix_container))
 
 
 #### step (2): merging hyperparameter grids + model information with matrix_container
@@ -707,26 +759,30 @@ hyperparam_container <-
         ~data_frame('hyperparam_grid' = .x, 'fitted_model' = .y))
 
 # dplyr functions remove names of list columns with map_dfr - so go back to good old do.call + rbind
-matrix_container <- do.call(rbind, map(hyperparam_container, ~bind_cols(matrix_container, .x)))
-
-saveRDS(matrix_container, file = "./data/programmatic_output/matrix_container.rds")
+matrix_container <- do.call(rbind, 
+  map(hyperparam_container, ~bind_cols(matrix_container, .x)))
+saveRDS(matrix_container, file.path(outdir, "matrix_container_2019.rds"))
 ```
 
-For convenience, save one copy of the_matrix with all dosages and one with most interactions (and 
-keeping all genes = 'keepall', and no chemical features).
+For convenience, save one copy of the_matrix with all dosages and one with most 
+interactions (and keeping all genes = 'keepall', and no chemical features, 
+note that drug-dosage combinations kept may differ in the not 'keepall' 
+data sets).
 
 ```{r}
-tmp <- matrix_container$drug_feature_matrices[[1]]
-saveRDS(object = tmp, file = "./data/programmatic_output/the_matrix_matrixcontainer_alldosg.rds")
+filter_container(matrix_container, dosgs = "all", feats = "keepall", 
+  chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]] %>%
+  saveRDS(file = file.path(outdir, "the_matrix_matrixcontainer_alldosg_2019.rds"))
 
-tmp <- matrix_container$drug_feature_matrices[[91]]
-saveRDS(object = tmp, file = "./data/programmatic_output/the_matrix_matrixcontainer_mostinteractions.rds")
+filter_container(matrix_container, dosgs = "most_interactions", feats = "keepall", 
+  chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]] %>%
+  saveRDS(file = file.path(outdir, "the_matrix_matrixcontainer_mostias_2019.rds"))
 ```
 
 
 # System and session info
 
-```{r echo = TRUE, eval = TRUE}
+```{r}
 R.version
 sessionInfo()
 ```
