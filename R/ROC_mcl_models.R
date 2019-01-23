@@ -38,7 +38,6 @@ get_responses_mcl <- function(dfr, positive, thresh) {
   dfr$positive <- positive
   dfr$thresh <- thresh
   negative <- paste0("not_", positive)
-  
   dfr$response <- ifelse(dfr$prob.med >= thresh, positive, negative)
   dfr$tp <- (dfr$response == dfr$truth) & (dfr$truth == positive)
   dfr$fn <- (dfr$response != dfr$truth) & (dfr$truth == positive)

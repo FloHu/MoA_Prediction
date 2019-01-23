@@ -36,14 +36,15 @@ datadir <- "./run_results_from_server/matrix_container_result"
 
 ## Current 1-vs-rest 'production' model
 
-To recapitulate from "Comparing_performances.Rmd": random forests was better than lasso because of 
-model stabilities. Top25pct of features seems to have worked best. Only for protein synthesis the 
-lasso seems to have done fairly well.
+To recapitulate from "Comparing_performances.Rmd": random forests was better 
+than lasso because of model stabilities. Top25pct of features seems to have 
+worked best. Only for protein synthesis the lasso seems to have done fairly 
+well.
 
 ```{r}
 (the_line <- which(matrix_container_ext$fitted_model == "classif.randomForest" & 
     matrix_container_ext$feat_preselect == "top25pct" & 
-    ! matrix_container_ext$chemical_feats &
+    !matrix_container_ext$chemical_feats &
     matrix_container_ext$drug_dosages == "all"))
 stopifnot(length(the_line) == 1)
 
@@ -62,16 +63,19 @@ sub_matrix_container %>%
   summarise(mean_auc = mean(auc))
 
 # retrieve our results object:
-chosen_res <- readRDS(file.path(datadir, make_filename(matrix_container_ext[the_line, ])))
+chosen_res <- readRDS(file.path(datadir, 
+  make_filename(matrix_container_ext[the_line, ])))
 ```
 
 
 ## Retrieving most commonly used hyperparameters
 
-Will be used for future model runs so that we don't have to do hyperparameter tuning anymore. 
+Will be used for future model runs so that we don't have to do hyperparameter 
+tuning anymore. 
 
 ```{r}
-# first try to figure out which values were used for mtry and ntree in our favourite result
+# first try to figure out which values were used for mtry and ntree in our 
+# favourite result
 # we can get the optimal hyperparameters using getLearnerModel():
 getLearnerModel(chosen_res$`Nested CV 1`$`Outer fold 1`$model_dna)
 
@@ -160,9 +164,9 @@ if (file.exists(my_filename)) {
 resampled_multiclass$aggr
 ```
 
-So the mmce is ~ 1/3. With cell-wall model above it was ~ 7.5%. But not clear what kind of 
-misclassification error we would get with our five models. Would we get more errors from 
-aggregation?
+So the mmce is ~ 1/3. With cell-wall model above it was ~ 7.5%. But not clear 
+what kind of misclassification error we would get with our five models. Would 
+we get more errors from aggregation?
 
 #### Confusion matrix
 
@@ -216,8 +220,8 @@ head(mcl_melt_roc_input)
 
 Obviously, such an output is useless for TP, FN etc. rate calculations. 
 
-So instead we write a function that defines one class as positive and the others 
-as negative.
+So instead we write a function that defines one class as positive and the 
+others as negative.
 
 ```{r}
 get_responses_mcl <- function(dfr, positive, thresh) {
@@ -279,12 +283,12 @@ ggplot(tmp, aes(x = fpr, y = tpr)) +
 What happened? The issue is that we use `highest_vs_2nd` as the metric to put a 
 threshold on. This works fine at the beginning: we have a high confidence 
 (i.e. high `highest_vs_2nd` levels) so the tpr goes up without compromising the 
-fpr. However, when the threshold approaches 0 there are quite a few observations 
-that never "get the chance" to be put into the positive class. Why? Because 
-their probability for the positive class (`cell_wall` in this case) is lower 
-than the 2nd highest probability so they are just all classified as negative 
-cases. Therefore, neither the TPR nor the FPR can ever go up again. Conclusion: 
-`highest_vs_2nd` is not a sensible metric. 
+fpr. However, when the threshold approaches 0 there are quite a few 
+observations that never "get the chance" to be put into the positive class. 
+Why? Because their probability for the positive class (`cell_wall` in this 
+case) is lower than the 2nd highest probability so they are just all classified 
+as negative cases. Therefore, neither the TPR nor the FPR can ever go up again. 
+Conclusion: `highest_vs_2nd` is not a sensible metric. 
 
 
 ##### Better version
@@ -293,7 +297,7 @@ Go back to simply putting a threshold on the probabilities themselves.
 
 ```{r}
 # just to demonstrate the different steps contained in plot_roc_mcl()
-source("./R/ROC_mcl_models.R")
+source("./R/ROC_mcl_models.R") # don't remove this line!
 (tmp <- prep_roc(resampled_multiclass, positive = "cell_wall"))
 (tmp <- get_responses_mcl(tmp, positive = "cell_wall", thresh = 0.5))
 (tmp <- get_metrics_mcl(tmp))
@@ -342,9 +346,9 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot 
 
 <a href="./plots/Multiclass_probabilities.pdf">LINK FOR THE PLOT</a>
 
-An attempt to characterise model quality of the multi-class model: 'winner' approach. One can see 
-that this improves accuracy by about 10 percent - but probably should compare this to random 
-guessing.
+An attempt to characterise model quality of the multi-class model: 'winner' 
+approach. One can see that this improves accuracy by about 10 percent - but 
+probably should compare this to random guessing.
 
 ```{r}
 # one simple approach: the highest median probability across all dosages wins
@@ -369,8 +373,8 @@ winners[winners$response != winners$truth, ]
 
 #### Probability calibration plot
 
-From Kuhn, chapter 11, p294ff.: probability calibration plot. Should also compare with our original 
-1-vs-others approach. 
+From Kuhn, chapter 11, p294ff.: probability calibration plot. Should also 
+compare with our original 1-vs-others approach. 
 
 ```{r}
 # 10 bins with probabilities from 0 - 100, compare with actually observed frequencies
@@ -399,9 +403,9 @@ prob_comparison$spearman_corrs
 
 ### Comparing multi-class feature importances with 1-vs-rest feature importances
 
-Note that the importance is not too high: which is perhaps not too surprising because some features 
-will be considered importance in the multi-class model but might be considered important in only 
-*one* 1-vs-rest model.
+Note that the importance is not too high: which is perhaps not too surprising 
+because some features will be considered importance in the multi-class model 
+but might be considered important in only *one* 1-vs-rest model.
 
 ```{r}
 (feat_imps_multi <- summarise_feat_imps(get_feat_imps(resampled_multiclass)))
@@ -454,9 +458,10 @@ plotHyperParsEffect(data, x = "k", y = "mmce.test.mean", plot.type = "line")
 
 # Section 2: Improving models
 
-First we need a quick and informative way of comparing models with each other. In the sections 
-above we have a set of 1-vs-rest and one multi-model 'production' model. Both are likely to change 
-because of data processing steps and certain things we wanna try to improve. 
+First we need a quick and informative way of comparing models with each other. 
+In the sections above we have a set of 1-vs-rest and one multi-model 
+'production' model. Both are likely to change because of data processing steps 
+and certain things we wanna try to improve. 
 
 So first we want to have a good way of comparing models.
 
@@ -510,10 +515,11 @@ compare_multiclass_models(model1_mc, model2_mc,
 
 ### Checking MICs
 
-Looking at the MICs does support the idea that the closer a drug dosage is to the MIC the more 
-likely it is to get a high probability for the correct class. It could be interesting to plot on 
-top of that the number of significant interactions per drug-dosage combination. Could be useful 
-to only keep the 2 dosages which are closest to the MIC. Weighting? 
+Looking at the MICs does support the idea that the closer a drug dosage is to 
+the MIC the more likely it is to get a high probability for the correct class. 
+It could be interesting to plot on top of that the number of significant 
+interactions per drug-dosage combination. Could be useful to only keep the 2 
+dosages which are closest to the MIC. Weighting? 
 
 ```{r, check_mics}
 # # already run:
@@ -540,18 +546,20 @@ p <-
   #filter(drugname_typaslab %in% c("NOVOBIOCIN", "BACITRACIN", "AMIKACIN")) %>%
   ggplot(aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
   geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
-  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
+  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, 
+    fatten = 1) + 
   geom_line(aes(group = predicted_prob), size = 1) + 
   facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
     geom_text(data = helper_frame, #helper_frame[helper_frame$drugname_typaslab %in% c("AMIKACIN", "NOVOBIOCIN", "BACITRACIN"), ], 
       aes(x = 1, y = 0.9, label = label), hjust = 0, inherit.aes = FALSE) + 
   scale_colour_manual("Predicted probability\nfor class", 
-                     labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
+                     labels = c("Cell wall", "DNA", "Membrane stress", 
+                       "Protein synthesis"), 
                      values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
   coord_cartesian(ylim = c(0, 1))
 
-suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf", plot = p, 
-  width = 30, height = 20))
+suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf", 
+  plot = p, width = 30, height = 20))
 ```
 
 <!--
@@ -771,13 +779,18 @@ if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
 
 ### No NA values, collinear features merged
 
-Note that removing the collinear features had virtually no effect on model performance. 
+_Deprecated since commit bd6a8c4_
+
+<!--
+Note that removing the collinear features had virtually no effect on model 
+performance. 
 
 Things changed:
 1. Features with lots of NA values were removed
 2. Collinear features were merged (averaged)
+-->
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 # Taken from chunk further above: 
 # rep_rin
 # feats: containing the merged features
@@ -802,16 +815,20 @@ my_data_mcl_preproc_task <- select(my_data_mcl_preproc, -one_of(c("conc", "drugn
 rf_multi.task <- makeClassifTask(data = my_data_mcl_preproc_task, target = "process_broad")
 rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob",
   par.vals = list(ntree = my_ntree, mtry = my_mtry))
+```
 
+_Note deprecation note above._
+
+```{r}
 my_filename <- "./data/programmatic_output/resampled_multiclass_noNAs_corrs_merged.rds"
 
 if (file.exists(my_filename)) {
   resampled_multiclass_preproc <- readRDS(my_filename)
 } else {
-  resampled_multiclass_preproc <- fit_multiclass_rf(learner = rf_multi.learner, 
-    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl, 
-    task_data_all_cols = my_data_mcl_preproc)
-  saveRDS(resampled_multiclass_preproc, file = my_filename)
+  # resampled_multiclass_preproc <- fit_multiclass_rf(learner = rf_multi.learner, 
+  #   task = rf_multi.task, measures = mmce, rin = rep_rin_mcl, 
+  #   task_data_all_cols = my_data_mcl_preproc)
+  # saveRDS(resampled_multiclass_preproc, file = my_filename)
 }
 ```
 
@@ -826,16 +843,20 @@ compare_multiclass_models(model1_mc = resampled_multiclass, model2_mc = resample
 
 ### "Two highest"
 
+_Note: also to be deprecated soon since most of the issues probably resolved after commit bd6a8c4._ 
+
 In addition to previous section: 
-1. Remove drug-dosage combinations with less than a certain number of significant interactions?
-2. Keep just the two highest dosages (?)
-3. Remove some selected drugs (?)
+  1. Remove drug-dosage combinations with less than a certain number of 
+  significant interactions?
+  2. Keep just the two highest dosages (?)
+  3. Remove some selected drugs (?)
 
-*Concerning (1)*: probably not such a good idea because we would lose a number of drugs: doxorubicin, 
-gentamicin, levofloxacin, methotrexate. Only methotrexate at 25 should be removed because it has 0 
-interactions. A lot of the other stuff is taken care of by keeping only the two highest dosages. 
+*Concerning (1)*: probably not such a good idea because we would lose a number 
+of drugs: doxorubicin, gentamicin, levofloxacin, methotrexate. Only 
+methotrexate at 25 should be removed because it has 0 interactions. A lot of 
+the other stuff is taken care of by keeping only the two highest dosages. 
 
-```{r}
+```{r, eval = FALSE}
 # remove drug-dosage combinations with less than 11 significant interactions 
 (n_signif <- matrix_container_ext$pred_data_with_n_signif[[the_line]])
 
@@ -850,7 +871,7 @@ my_data_mcl_2high <- my_data_mcl_2high[!(my_data_mcl_2high$drugname_typaslab == 
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 # Keeping just the two highest dosages
 (my_data_mcl_2high <- 
   group_by(my_data_mcl_2high, drugname_typaslab) %>%
@@ -874,20 +895,21 @@ my_blocks <- make_blocks(my_data_mcl_2high, blockvar = "drugname_typaslab")
 # we need a resampling instance:
 rep_rin_mcl_2high <- make_rep_ncv(task_data_all_cols = my_data_mcl_2high, 
   mlr_task = rf_multi.task, reps = 10, folds = 8, strat_var = "process_broad")
+```
 
+```{r}
 my_filename <- "./data/programmatic_output/resampled_multiclass_2high.rds"
 if (file.exists(my_filename)) {
   resampled_multiclass_2high <- readRDS(my_filename)
 } else {
-  resampled_multiclass_2high <- fit_multiclass_rf(learner = rf_multi.learner, 
-    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl_2high, 
-    task_data_all_cols = my_data_mcl_2high)
-  saveRDS(resampled_multiclass_2high, file = my_filename)
+  # resampled_multiclass_2high <- fit_multiclass_rf(learner = rf_multi.learner, 
+  #   task = rf_multi.task, measures = mmce, rin = rep_rin_mcl_2high, 
+  #   task_data_all_cols = my_data_mcl_2high)
+  # saveRDS(resampled_multiclass_2high, file = my_filename)
 }
 ```
 
-
-Comparison with previous multi-class model. 
+( _see deprecation note above_ ): Comparison with previous multi-class model. 
 
 ```{r}
 compare_multiclass_models(model1_mc = resampled_multiclass_preproc, 
@@ -895,7 +917,6 @@ compare_multiclass_models(model1_mc = resampled_multiclass_preproc,
   model2_mc = resampled_multiclass_2high, 
   model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
   "./plots/compare_multiclass_merged_vs_2highest.pdf")
-
 ```
 
 Detailed probabilities per drug per dosage. 
@@ -915,7 +936,6 @@ p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = pred
 
 suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf", plot = p, 
   width = 30, height = 20))
-
 ```
 
 
@@ -925,9 +945,10 @@ For predicting MoA subgroups we may have to switch to LOOCV.
 
 ```{r, loocv}
 # use my_data_mcl_2high from previous chunk to compare with LOOCV:
-mcl_loo <- my_data_mcl_2high
+mcl_loo <- my_data_mcl
 mcl_loo
-# to check that the blocks are still correct: split(mcl_loocv[, c(1:3)], my_blocks)
+my_blocks <- make_blocks(mcl_loo, blockvar = "drugname_typaslab")
+# to check that the blocks are still correct: split(mcl_loo[, c(1:3)], my_blocks)
 
 mcl_loo_task_data <- select(mcl_loo, -one_of(c("conc", "drugname_typaslab")))
 mcl_loo_task <- makeClassifTask(data = mcl_loo_task_data, 
@@ -947,21 +968,121 @@ resampled_mcl_loo$pred$data <-
       resampled_mcl_loo$pred$data) %>%
     dplyr::arrange(drugname_typaslab, conc, iter)
 
-compare_multiclass_models(model1_mc = resampled_multiclass_2high, 
-  model1_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
+saveRDS(resampled_mcl_loo, file = "./data/programmatic_output/resampled_mcl_loo.rds")
+
+compare_multiclass_models(model1_mc = resampled_multiclass, 
+  model1_mc_title = "'Naive' multiclass, rep nest CV", 
   model2_mc = resampled_mcl_loo, 
-  model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg, LOOCV", 
+  model2_mc_title = "'Naive' multiclass, LOOCV", 
   "./plots/compare_multiclass_loocv.pdf")
 
 # to get ROC curves - look almost the same :)
-plot_roc_mcl(resampled_multiclass_2high, positive = "cell_wall")
+plot_roc_mcl(resampled_multiclass, positive = "cell_wall")
 plot_roc_mcl(resampled_mcl_loo, "cell_wall")
 ```
 
 
+```{r, loocv}
+# # use my_data_mcl_2high from previous chunk to compare with LOOCV:
+# mcl_loo <- my_data_mcl_2high
+# mcl_loo
+# # to check that the blocks are still correct: split(mcl_loocv[, c(1:3)], my_blocks)
+# 
+# mcl_loo_task_data <- select(mcl_loo, -one_of(c("conc", "drugname_typaslab")))
+# mcl_loo_task <- makeClassifTask(data = mcl_loo_task_data, 
+#   target = "process_broad", blocking = my_blocks)
+# 
+# mcl_loo_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+#   par.vals = list(ntree = my_ntree, mtry = my_mtry))
+# 
+# rdesc <- makeResampleDesc("LOO")
+# 
+# resampled_mcl_loo <- resample(learner = mcl_loo_learner, task = mcl_loo_task, 
+#   resampling = rdesc, measures = mmce, models = TRUE)
+# 
+# # don't forget to update data frame
+# resampled_mcl_loo$pred$data <- 
+#     dplyr::bind_cols(mcl_loo[resampled_mcl_loo$pred$data$id, c("conc", "drugname_typaslab")], 
+#       resampled_mcl_loo$pred$data) %>%
+#     dplyr::arrange(drugname_typaslab, conc, iter)
+# 
+# compare_multiclass_models(model1_mc = resampled_multiclass_2high, 
+#   model1_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
+#   model2_mc = resampled_mcl_loo, 
+#   model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg, LOOCV", 
+#   "./plots/compare_multiclass_loocv.pdf")
+# 
+# # to get ROC curves - look almost the same :)
+# plot_roc_mcl(resampled_multiclass_2high, positive = "cell_wall")
+# plot_roc_mcl(resampled_mcl_loo, "cell_wall")
+```
+
+
+# Quick comparison of '2019' data frame with the 'naive' one. 
+
+```{r}
+# reminder: mcl_loo is derived from my_data_mcl (--> the input to the 'naive' 
+# model), is based on keepall and top 25 pct
+mcl_loo
+
+# so to compare with the 2019 matrix_container:
+matrix_container_2019 <- readRDS("./data/programmatic_output/matrix_container_2019.rds")
+
+(the_line <- with(matrix_container_2019, 
+  which(fitted_model == "classif.randomForest" & feat_preselect == "top25pct" & 
+    !chemical_feats & drug_dosages == "all")))
+stopifnot(length(the_line) == 1)
+
+sub_matrix_container_2019 <- matrix_container_2019[the_line, ]
+(my_data_mcl_2019 <- sub_matrix_container_2019$drug_feature_matrices[[1]])
+my_data_mcl_2019$process_broad <- factor(my_data_mcl_2019$process_broad)
+
+# already the dimensions are quite different:
+dim(mcl_loo)
+unique(mcl_loo$process_broad)
+# 3 more observations because of EGCG
+dim(my_data_mcl_2019)
+unique(my_data_mcl_2019$process_broad)
+
+# NEW MODEL FITTING: LOOCV for 2019 data -------------------------
+my_blocks <- make_blocks(my_data_mcl_2019, blockvar = "drugname_typaslab")
+# to check that the blocks are still correct: split(mcl_loo[, c(1:3)], my_blocks)
+
+mcl_2019_task_data <- select(my_data_mcl_2019, -one_of(c("conc", "drugname_typaslab")))
+mcl_2019_task <- makeClassifTask(data = mcl_2019_task_data, 
+  target = "process_broad", blocking = my_blocks)
+
+mcl_2019_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+
+rdesc <- makeResampleDesc("LOO")
+
+resampled_mcl_2019 <- resample(learner = mcl_2019_learner, task = mcl_2019_task, 
+  resampling = rdesc, measures = mmce, models = TRUE)
+
+# don't forget to update data frame
+resampled_mcl_2019$pred$data <- 
+    dplyr::bind_cols(my_data_mcl_2019[resampled_mcl_2019$pred$data$id, c("conc", "drugname_typaslab")], 
+      resampled_mcl_2019$pred$data) %>%
+    dplyr::arrange(drugname_typaslab, conc, iter)
+
+saveRDS(resampled_mcl_2019, file = "./data/programmatic_output/resampled_mcl_2019.rds")
+
+compare_multiclass_models(model1_mc = resampled_mcl_loo, 
+  model1_mc_title = "'Naive' multiclass, LOOCV", 
+  model2_mc = resampled_mcl_2019, 
+  model2_mc_title = "'Naive' multiclass, LOOCV, 2019 data", 
+  "./plots/compare_multiclass_loocv-vs-2019.pdf")
+
+# to get ROC curves - look almost the same :)
+plot_roc_mcl(resampled_mcl_loo, positive = "cell_wall")
+plot_roc_mcl(resampled_mcl_2019, "cell_wall")
+```
+
 
 # Predicting MoA subgroups
 
+<!--
 New classification (see also [here](https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0)):
 * cell_wall: unchanged
 * protein_synthesis: unchanged
@@ -975,65 +1096,112 @@ New classification (see also [here](https://docs.google.com/spreadsheets/d/17FAE
 See also this (Google sheet)[https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0]. 
 
 To sum up: cell_wall - protein_synthesis - dna - folate - detergents - fatty_acid - ox_stress - pmf
-
-```{r, gdrive_import}
-# let's try and access the MoA table using the googlesheets package
-# https://googledrive.tidyverse.org/
-library(googledrive)
-(gfiles <- drive_find(pattern = "drug_moa"))
-outpath <- "./data/programmatic_output/drug_moa_gdrive.csv"
-drive_download(file = gfiles[1, ], path = outpath, overwrite = TRUE)
-# define categories ending up as NA, which we won't attempt to predict
-moa_tab <- read_delim(outpath, delim = ",", na = c("-", "unknown", "pmf"))
-moa_tab <- moa_tab[1:89, ]
-table(moa_tab$`moa_broad_II (after 09/05/2018)`)
-# remove NA drugs - either excluded or unknown
-moa_tab <- moa_tab[!is.na(moa_tab$moa_subgroup), ]
-table(moa_tab$moa_subgroup)
-```
-
-Run LOOCV with the subgroups (subject to change).
+-->
 
 ```{r, subgroups}
-# use my_data_mcl_2high from previous chunk to compare with LOOCV:
-mcl_subgr <- my_data
-# keep 2 highest dosgs
-mcl_subgr <- group_by(mcl_subgr, drugname_typaslab) %>%
-  top_n(2, conc) %>%
-  ungroup()
-# we're missing BILE, UV, GLUFOSFOMYCIN
-moa_tab[!(moa_tab$drug %in% mcl_subgr$drugname_typaslab), ]
+moa_path <- "./data/programmatic_output/drug_moa_gdrive.csv"
+moa_tab <- read_delim(moa_path, delim = ",", na = c("-"))
+moa_tab <- moa_tab[, c(1, 3, 4)]
+names(moa_tab) <- c("drugname_typaslab", "moa", "moa_subgroup")
+moa_tab
+table(moa_tab$moa_subgroup)
 
-mcl_subgr$process_broad <- moa_tab$moa_subgroup[match(mcl_subgr$drugname_typaslab, moa_tab$drug)]
-# exclude drugs without subclassification: dibucaine, procaine, radicicol, 
-# vancomycin, verapamil:
-mcl_subgr <- mcl_subgr[complete.cases(mcl_subgr), ]
-table(mcl_subgr$process_broad)
+my_subgroups <- c("cell_wall", "dna", "fatty_acid", "folate", "inner", "outer", 
+  "ox_stress", "protein_synthesis")
+my_subgroups_drugs <- moa_tab[moa_tab$moa_subgroup %in% my_subgroups, ]
+table(my_subgroups_drugs$moa_subgroup)
+```
 
-# (now using all dosages, not just 2)
-my_blocks <- make_blocks(mcl_subgr, blockvar = "drugname_typaslab")
-mcl_subgr_task_data <- select(mcl_subgr, -one_of(c("conc", "drugname_typaslab")))
+So: we know which drugs we want to predict, which means that we now need the 
+original data frame which still contains all drugs and all columns. 
 
-mcl_subgr_task <- makeClassifTask(data = mcl_subgr_task_data, 
-  target = "process_broad", blocking = my_blocks)
-mcl_subgr_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+```{r}
+tm <- readRDS("./data/programmatic_output/the_matrix_complete_nochanges.rds")
+
+tm <- filter(tm, drugname_typaslab %in% my_subgroups_drugs$drugname_typaslab)
+tm$sscore[is.na(tm$sscore)] <- 0
+
+tm <- select(tm, gene_synonym, drugname_typaslab, conc, sscore) %>%
+  spread(key = gene_synonym, value = sscore)
+
+unique(tm$drugname_typaslab)[!unique(tm$drugname_typaslab) %in% (my_data_mcl_2019$drugname_typaslab)]
+
+# do the feature merging:
+(clusters <- readRDS("./data/programmatic_output/clusters.rds"))
+tm <- merge_features(tm, clusters, mean)
+
+colnames(my_data_mcl_2019)[!colnames(my_data_mcl_2019) %in% colnames(tm)]
+
+tm <- tm[, colnames(tm) %in% colnames(my_data_mcl_2019)]
+
+tm <- left_join(tm, my_subgroups_drugs[, c("drugname_typaslab", "moa_subgroup")]) %>%
+  select(drugname_typaslab, conc, moa_subgroup, everything())
+
+# ACTUAL FITTING ---------------------------------
+my_blocks <- make_blocks(tm, blockvar = "drugname_typaslab")
+tm_task_data <- select(tm, -one_of(c("conc", "drugname_typaslab")))
+
+tm_task <- makeClassifTask(data = tm_task_data, target = "moa_subgroup", 
+  blocking = my_blocks)
+
+tm_learner <- makeLearner("classif.randomForest", predict.type = "prob",
   par.vals = list(ntree = my_ntree, mtry = my_mtry))
 rdesc <- makeResampleDesc("LOO")
 
-resampled_mcl_subgr <- resample(learner = mcl_subgr_learner, task = mcl_subgr_task, 
+resampled_tm <- resample(learner = tm_learner, task = tm_task,
   resampling = rdesc, measures = mmce, models = TRUE)
 
 # don't forget to update data frame
-resampled_mcl_subgr$pred$data <-
-    dplyr::bind_cols(mcl_subgr[resampled_mcl_subgr$pred$data$id, c("conc", "drugname_typaslab")],
-      resampled_mcl_subgr$pred$data) %>%
+resampled_tm$pred$data <-
+    dplyr::bind_cols(tm[resampled_tm$pred$data$id, c("conc", "drugname_typaslab")],
+      resampled_tm$pred$data) %>%
     dplyr::arrange(drugname_typaslab, conc, iter)
 
-# View(resampled_mcl_subgr$pred$data)
+saveRDS(resampled_tm, "./data/programmatic_output/resampled_tm.rds")
 
-plot_wide_confmat(get_wide_confmat(resampled_mcl_subgr), title = "Multiclass RF, subgroups")
+plot_wide_confmat(get_wide_confmat(resampled_tm), title = "Multiclass RF, subgroups")
+ggsave("./plots/subgroup_prediction.pdf")
+```
 
 
+```{r, subgroups, eval = FALSE, echo = FALSE}
+# # use my_data_mcl_2high from previous chunk to compare with LOOCV:
+# mcl_subgr <- my_data_mcl_2019
+# # # keep 2 highest dosgs
+# # mcl_subgr <- group_by(mcl_subgr, drugname_typaslab) %>%
+# #   top_n(2, conc) %>%
+# #   ungroup()
+# # we're missing BILE, UV, GLUFOSFOMYCIN
+# moa_tab[!(moa_tab$drug %in% mcl_subgr$drugname_typaslab), ]
+# 
+# mcl_subgr$process_broad <- moa_tab$moa_subgroup[match(mcl_subgr$drugname_typaslab, moa_tab$drug)]
+# # exclude drugs without subclassification: dibucaine, procaine, radicicol, 
+# # vancomycin, verapamil:
+# mcl_subgr <- mcl_subgr[complete.cases(mcl_subgr), ]
+# table(mcl_subgr$process_broad)
+# 
+# # (now using all dosages, not just 2)
+# my_blocks <- make_blocks(mcl_subgr, blockvar = "drugname_typaslab")
+# mcl_subgr_task_data <- select(mcl_subgr, -one_of(c("conc", "drugname_typaslab")))
+# 
+# mcl_subgr_task <- makeClassifTask(data = mcl_subgr_task_data, 
+#   target = "process_broad", blocking = my_blocks)
+# mcl_subgr_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+#   par.vals = list(ntree = my_ntree, mtry = my_mtry))
+# rdesc <- makeResampleDesc("LOO")
+# 
+# resampled_mcl_subgr <- resample(learner = mcl_subgr_learner, task = mcl_subgr_task, 
+#   resampling = rdesc, measures = mmce, models = TRUE)
+# 
+# # don't forget to update data frame
+# resampled_mcl_subgr$pred$data <-
+#     dplyr::bind_cols(mcl_subgr[resampled_mcl_subgr$pred$data$id, c("conc", "drugname_typaslab")],
+#       resampled_mcl_subgr$pred$data) %>%
+#     dplyr::arrange(drugname_typaslab, conc, iter)
+# 
+# # View(resampled_mcl_subgr$pred$data)
+# 
+# plot_wide_confmat(get_wide_confmat(resampled_mcl_subgr), title = "Multiclass RF, subgroups")
 ```
 
 
