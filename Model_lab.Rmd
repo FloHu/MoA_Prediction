@@ -26,10 +26,11 @@ source("./setup.R")
 knitr::opts_chunk$set(message = FALSE, cache = TRUE)
 
 matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
-moa_cols <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+moa_cols <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")
 moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 my_moa <- "cell_wall"
 datadir <- "./run_results_from_server/matrix_container_result"
+outdir <- "./data/programmatic_output"
 ```
 
 # Section 1: Current production models + data
@@ -118,40 +119,28 @@ my_mtry <- 150
 
 ### Training/loading the model
 
-Get resampling instance from Untracked.Rmd.
+Make default version of fitting function.
 
 ```{r}
-# we need to remove all but the 4 main modes of action:
+# make default version of the functions with common default values
+fit_multiclass_rf_def <- partial(fit_multiclass_rf, targetvar = "process_broad", 
+  blockingvar = "drugname_typaslab", paramlist = list(ntree = my_ntree, 
+    mtry = my_mtry), cols_to_exclude = c("drugname_typaslab", "conc"))
+```
+
+Fit the model.
+
+```{r}
 my_data_mcl <- filter(my_data, process_broad %in% moas)
 length(unique(my_data_mcl$drugname_typaslab))
-unique(my_data_mcl$process_broad)
+my_varname <- "resampled_multiclass"
+my_filename <- file.path(outdir, paste0(my_varname, ".rds"))
 
-my_data_mcl$process_broad <- factor(my_data_mcl$process_broad)
-
-# for blocking
-my_rle <- rle(my_data_mcl$drugname_typaslab)
-my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
-
-(my_data_mcl_task <- select(my_data_mcl, -one_of(c("conc", "drugname_typaslab"))))
-
-(rf_multi.task <- makeClassifTask(data = my_data_mcl_task, target = "process_broad", 
-  blocking = my_blocks))
-
-(rf_multi.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-  par.vals = list(ntree = my_ntree, mtry = my_mtry)))
-
-# we need a resampling instance:
-rep_rin_mcl <- make_rep_ncv(task_data_all_cols = my_data_mcl, 
-  mlr_task = rf_multi.task, reps = 10, folds = 8, strat_var = "process_broad")
-
-my_filename <- "./data/programmatic_output/resampled_multiclass.rds"
 if (file.exists(my_filename)) {
-  resampled_multiclass <- readRDS(my_filename)
+  assign(my_varname, readRDS(my_filename))
 } else {
-  resampled_multiclass <- fit_multiclass_rf(learner = rf_multi.learner, 
-    task = rf_multi.task, measures = mmce, rin = rep_rin_mcl, 
-    task_data_all_cols = my_data_mcl)
-  saveRDS(resampled_multiclass, file = my_filename)
+  assign(my_varname, fit_multiclass_rf_def(my_data_mcl))
+  saveRDS(get(my_varname), my_filename)
 }
 ```
 
@@ -305,9 +294,13 @@ source("./R/ROC_mcl_models.R") # don't remove this line!
 (tmp <- get_thresh_vs_perf_mcl(resampled_multiclass, positive = "cell_wall"))
 print(tmp, n = 20)
 
-for (moa in moas) {
-  print(plot_roc_mcl(resampled_multiclass, positive = moa))
-}
+plots <- map(moas, plot_roc_mcl, resampled_multiclass = resampled_multiclass)
+names(plots) <- moas
+
+plots$cell_wall
+plots$dna
+plots$membrane_stress
+plots$protein_synthesis
 ```
 
 
@@ -316,32 +309,25 @@ for (moa in moas) {
 For example, the predictions + IQRs for A22:
 
 ```{r}
-(multicl_pred_melt <- melt_pred_data(resampled_multiclass, model_type = "multiclass"))
+(multicl_pred_melt <- melt_pred_data(resampled_multiclass, 
+  model_type = "multiclass"))
 
 filter(multicl_pred_melt, drugname_typaslab == "A22") %>% 
   ggplot(aes(x = factor(conc), y = prob.med, fill = predicted_prob)) + 
-  geom_pointrange(aes(ymin = prob.min, ymax = prob.max, colour = predicted_prob), alpha = 0.75) + 
+  geom_pointrange(aes(ymin = prob.min, ymax = prob.max, colour = predicted_prob), 
+    alpha = 0.75) + 
   geom_line(aes(group = predicted_prob, colour = predicted_prob)) + 
   facet_wrap( ~ truth) + 
-  labs(x = "Concentration", y = "Prediction probability", title = "A22, multi-class prediction")
+  labs(x = "Concentration", y = "Prediction probability", 
+    title = "A22, multi-class prediction")
 ```
 
 And now for all drugs:
 
 ```{r}
-# may also want to show this as a heatmap, compare fig. 11.4 in Kuhn book
-p <- ggplot(multicl_pred_melt, aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
-  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, fatten = 1) + 
-  geom_line(aes(group = predicted_prob), size = 1) + 
-  facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
-  geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
-  scale_colour_manual("Predicted probability\nfor class", 
-    labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
-    values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
-  coord_cartesian(ylim = c(0, 1))
-
-suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities.pdf", plot = p, width = 30, 
-  height = 20))
+plot_mcl_probs_lines(multicl_pred_melt, labels = moas, colours = moa_cols)
+ggsave(filename = "./plots/Multiclass_probabilities.pdf", width = 30, 
+  height = 20)
 ```
 
 <a href="./plots/Multiclass_probabilities.pdf">LINK FOR THE PLOT</a>
@@ -353,8 +339,8 @@ probably should compare this to random guessing.
 ```{r}
 # one simple approach: the highest median probability across all dosages wins
 # then calculate the accuracy:
-(winners <- 
-    group_by(multicl_pred_melt, drugname_typaslab, truth) %>%
+(winners <- multicl_pred_melt %>%
+    group_by(drugname_typaslab, truth) %>%
     arrange(desc(prob.med), .by_group = TRUE) %>%
     slice(1) %>%
     mutate(response = str_extract(predicted_prob, 
@@ -419,41 +405,6 @@ ggplot(tmp, aes(x = log2(median_importance_1vsall), y = log2(median_importance_m
   facet_wrap( ~ moa) + 
   labs(title = "Comparison of feature importances 1-vs-all and multi-class model")
 ```
-
-<!--
-## Comparing with baseline models
-
-### KNN
-
-Has certain advantages: less black and white; assumption matches intuition that similar MoA = close 
-in chemical genomics space. Will fail however when other features are included. 
-
-```{r, echo = FALSE, eval = FALSE}
-getLearnerParamSet("classif.knn")
-
-(knn_params <- makeParamSet(
-   makeDiscreteParam("k", values = 1:25)
-))
-class(knn_params)
-
-(ctrl <- makeTuneControlGrid())
-class(ctrl)
-
-knn.learner <- makeLearner("classif.knn")
-
-# rf.task was with cell_wall only
-res_knn <- tuneParams(learner = knn.learner, task = rf.task, resampling = rep_rin, 
-  measures = list(mmce), par.set = knn_params, control = ctrl)
-
-res_knn
-res_knn$x # this is a bit higher than for the random forests model above:
-r2_correct$aggr 
-
-
-data <- generateHyperParsEffectData(res_knn)
-plotHyperParsEffect(data, x = "k", y = "mmce.test.mean", plot.type = "line")
-```
--->
 
 
 # Section 2: Improving models
@@ -541,25 +492,14 @@ helper_frame$label <- paste0("MIC: ", helper_frame$label, "\n", "resistant: ",
 
 # note that hjust = 0 is needed for geom_text() for left justification
 # geom_text will respect
-p <- 
-  multicl_pred_melt_micinfo %>%
-  #filter(drugname_typaslab %in% c("NOVOBIOCIN", "BACITRACIN", "AMIKACIN")) %>%
-  ggplot(aes(x = factor(conc), y = prob.med, colour = predicted_prob)) + 
-  geom_hline(yintercept = c(0.5), linetype = c("solid")) + 
-  geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, size = 2, 
-    fatten = 1) + 
-  geom_line(aes(group = predicted_prob), size = 1) + 
-  facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
-    geom_text(data = helper_frame, #helper_frame[helper_frame$drugname_typaslab %in% c("AMIKACIN", "NOVOBIOCIN", "BACITRACIN"), ], 
-      aes(x = 1, y = 0.9, label = label), hjust = 0, inherit.aes = FALSE) + 
-  scale_colour_manual("Predicted probability\nfor class", 
-                     labels = c("Cell wall", "DNA", "Membrane stress", 
-                       "Protein synthesis"), 
-                     values = c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")) + 
-  coord_cartesian(ylim = c(0, 1))
+p <- plot_mcl_probs_lines(multicl_pred_melt_micinfo, labels = moas, 
+  colours = moa_cols, printplot = FALSE)
 
-suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf", 
-  plot = p, width = 30, height = 20))
+p <- p + geom_text(data = helper_frame, aes(x = 1, y = 0.9, label = label), 
+      hjust = 0, inherit.aes = FALSE)
+
+ggsave(filename = "./plots/Multiclass_probabilities_micinfo.pdf", 
+  plot = p, width = 30, height = 20)
 ```
 
 <!--
@@ -941,35 +881,35 @@ suppressMessages(ggsave(filename = "./plots/Multiclass_probabilities_2high.pdf",
 
 ### Comparison with LOOCV
 
-For predicting MoA subgroups we may have to switch to LOOCV. 
+For predicting MoA subgroups we have to switch to LOOCV. 
+
+Get default fitting function:
+
+```{r}
+fit_multiclass_rf_loo_def <- partial(fit_multiclass_rf_loo, 
+  targetvar = "process_broad", blockingvar = "drugname_typaslab", 
+  paramlist = list(ntree = my_ntree, mtry = my_mtry), 
+  cols_to_exclude = c("drugname_typaslab", "conc"))
+```
+
+Fit!
 
 ```{r, loocv}
-# use my_data_mcl_2high from previous chunk to compare with LOOCV:
 mcl_loo <- my_data_mcl
-mcl_loo
-my_blocks <- make_blocks(mcl_loo, blockvar = "drugname_typaslab")
-# to check that the blocks are still correct: split(mcl_loo[, c(1:3)], my_blocks)
 
-mcl_loo_task_data <- select(mcl_loo, -one_of(c("conc", "drugname_typaslab")))
-mcl_loo_task <- makeClassifTask(data = mcl_loo_task_data, 
-  target = "process_broad", blocking = my_blocks)
+my_varname <- "resampled_mcl_loo"
+my_filename <- file.path(outdir, paste0(my_varname, ".rds"))
 
-mcl_loo_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+if (file.exists(my_filename)) {
+  assign(my_varname, readRDS(my_filename))
+} else {
+  assign(my_varname, fit_multiclass_rf_loo_def(mcl_loo))
+  saveRDS(get(my_varname), my_filename)
+}
+```
 
-rdesc <- makeResampleDesc("LOO")
 
-resampled_mcl_loo <- resample(learner = mcl_loo_learner, task = mcl_loo_task, 
-  resampling = rdesc, measures = mmce, models = TRUE)
-
-# don't forget to update data frame
-resampled_mcl_loo$pred$data <- 
-    dplyr::bind_cols(mcl_loo[resampled_mcl_loo$pred$data$id, c("conc", "drugname_typaslab")], 
-      resampled_mcl_loo$pred$data) %>%
-    dplyr::arrange(drugname_typaslab, conc, iter)
-
-saveRDS(resampled_mcl_loo, file = "./data/programmatic_output/resampled_mcl_loo.rds")
-
+```{r, loocv}
 compare_multiclass_models(model1_mc = resampled_multiclass, 
   model1_mc_title = "'Naive' multiclass, rep nest CV", 
   model2_mc = resampled_mcl_loo, 
@@ -982,43 +922,10 @@ plot_roc_mcl(resampled_mcl_loo, "cell_wall")
 ```
 
 
-```{r, loocv}
-# # use my_data_mcl_2high from previous chunk to compare with LOOCV:
-# mcl_loo <- my_data_mcl_2high
-# mcl_loo
-# # to check that the blocks are still correct: split(mcl_loocv[, c(1:3)], my_blocks)
-# 
-# mcl_loo_task_data <- select(mcl_loo, -one_of(c("conc", "drugname_typaslab")))
-# mcl_loo_task <- makeClassifTask(data = mcl_loo_task_data, 
-#   target = "process_broad", blocking = my_blocks)
-# 
-# mcl_loo_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-#   par.vals = list(ntree = my_ntree, mtry = my_mtry))
-# 
-# rdesc <- makeResampleDesc("LOO")
-# 
-# resampled_mcl_loo <- resample(learner = mcl_loo_learner, task = mcl_loo_task, 
-#   resampling = rdesc, measures = mmce, models = TRUE)
-# 
-# # don't forget to update data frame
-# resampled_mcl_loo$pred$data <- 
-#     dplyr::bind_cols(mcl_loo[resampled_mcl_loo$pred$data$id, c("conc", "drugname_typaslab")], 
-#       resampled_mcl_loo$pred$data) %>%
-#     dplyr::arrange(drugname_typaslab, conc, iter)
-# 
-# compare_multiclass_models(model1_mc = resampled_multiclass_2high, 
-#   model1_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg", 
-#   model2_mc = resampled_mcl_loo, 
-#   model2_mc_title = "Multiclass, no NAs, feats merged, 2 highest dosg, LOOCV", 
-#   "./plots/compare_multiclass_loocv.pdf")
-# 
-# # to get ROC curves - look almost the same :)
-# plot_roc_mcl(resampled_multiclass_2high, positive = "cell_wall")
-# plot_roc_mcl(resampled_mcl_loo, "cell_wall")
-```
-
 
 # Quick comparison of '2019' data frame with the 'naive' one. 
+
+Get 2019 data. 
 
 ```{r}
 # reminder: mcl_loo is derived from my_data_mcl (--> the input to the 'naive' 
@@ -1035,7 +942,6 @@ stopifnot(length(the_line) == 1)
 
 sub_matrix_container_2019 <- matrix_container_2019[the_line, ]
 (my_data_mcl_2019 <- sub_matrix_container_2019$drug_feature_matrices[[1]])
-my_data_mcl_2019$process_broad <- factor(my_data_mcl_2019$process_broad)
 
 # already the dimensions are quite different:
 dim(mcl_loo)
@@ -1043,66 +949,40 @@ unique(mcl_loo$process_broad)
 # 3 more observations because of EGCG
 dim(my_data_mcl_2019)
 unique(my_data_mcl_2019$process_broad)
+```
 
-# NEW MODEL FITTING: LOOCV for 2019 data -------------------------
-my_blocks <- make_blocks(my_data_mcl_2019, blockvar = "drugname_typaslab")
-# to check that the blocks are still correct: split(mcl_loo[, c(1:3)], my_blocks)
+Fit!
 
-mcl_2019_task_data <- select(my_data_mcl_2019, -one_of(c("conc", "drugname_typaslab")))
-mcl_2019_task <- makeClassifTask(data = mcl_2019_task_data, 
-  target = "process_broad", blocking = my_blocks)
+```{r}
+my_varname <- "resampled_mcl_2019"
+my_filename <- file.path(outdir, paste0(my_varname, ".rds"))
 
-mcl_2019_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+if (file.exists(my_filename)) {
+  assign(my_varname, readRDS(my_filename))
+} else {
+  assign(my_varname, fit_multiclass_rf_loo_def(my_data_mcl_2019))
+  saveRDS(get(my_varname), my_filename)
+}
 
-rdesc <- makeResampleDesc("LOO")
+resampled_mcl_2019 <- fit_multiclass_rf_loo_def(my_data_mcl_2019)
 
-resampled_mcl_2019 <- resample(learner = mcl_2019_learner, task = mcl_2019_task, 
-  resampling = rdesc, measures = mmce, models = TRUE)
-
-# don't forget to update data frame
-resampled_mcl_2019$pred$data <- 
-    dplyr::bind_cols(my_data_mcl_2019[resampled_mcl_2019$pred$data$id, c("conc", "drugname_typaslab")], 
-      resampled_mcl_2019$pred$data) %>%
-    dplyr::arrange(drugname_typaslab, conc, iter)
-
-saveRDS(resampled_mcl_2019, file = "./data/programmatic_output/resampled_mcl_2019.rds")
-
+# are virtually the same
 compare_multiclass_models(model1_mc = resampled_mcl_loo, 
   model1_mc_title = "'Naive' multiclass, LOOCV", 
   model2_mc = resampled_mcl_2019, 
   model2_mc_title = "'Naive' multiclass, LOOCV, 2019 data", 
   "./plots/compare_multiclass_loocv-vs-2019.pdf")
-
-# to get ROC curves - look almost the same :)
-plot_roc_mcl(resampled_mcl_loo, positive = "cell_wall")
-plot_roc_mcl(resampled_mcl_2019, "cell_wall")
 ```
 
 
 # Predicting MoA subgroups
 
-<!--
-New classification (see also [here](https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0)):
-* cell_wall: unchanged
-* protein_synthesis: unchanged
-* dna: split into:
-  * folate: sulfa drugs, trimethoprim, methotrexate
-  * dna: all others
-* membrane_stress: (unclear)
-* new groups: 
-  * ox_stress: paraquat, peroxide, pms, pyocyanin
-  
-See also this (Google sheet)[https://docs.google.com/spreadsheets/d/17FAEAbdJ7aHYLzQWiCa0tudZ__lWX5oM6gGJDSEP4Wg/edit#gid=0]. 
-
-To sum up: cell_wall - protein_synthesis - dna - folate - detergents - fatty_acid - ox_stress - pmf
--->
 
 ```{r, subgroups}
 moa_path <- "./data/programmatic_output/drug_moa_gdrive.csv"
 moa_tab <- read_delim(moa_path, delim = ",", na = c("-"))
 moa_tab <- moa_tab[, c(1, 3, 4)]
-names(moa_tab) <- c("drugname_typaslab", "moa", "moa_subgroup")
+names(moa_tab) <- c("drugname_typaslab", "process_broad", "moa_subgroup")
 moa_tab
 table(moa_tab$moa_subgroup)
 
@@ -1115,6 +995,8 @@ table(my_subgroups_drugs$moa_subgroup)
 So: we know which drugs we want to predict, which means that we now need the 
 original data frame which still contains all drugs and all columns. 
 
+Data preparation.
+
 ```{r}
 tm <- readRDS("./data/programmatic_output/the_matrix_complete_nochanges.rds")
 
@@ -1124,7 +1006,8 @@ tm$sscore[is.na(tm$sscore)] <- 0
 tm <- select(tm, gene_synonym, drugname_typaslab, conc, sscore) %>%
   spread(key = gene_synonym, value = sscore)
 
-unique(tm$drugname_typaslab)[!unique(tm$drugname_typaslab) %in% (my_data_mcl_2019$drugname_typaslab)]
+unique(tm$drugname_typaslab)[!unique(tm$drugname_typaslab) %in% 
+    (my_data_mcl_2019$drugname_typaslab)]
 
 # do the feature merging:
 (clusters <- readRDS("./data/programmatic_output/clusters.rds"))
@@ -1136,73 +1019,112 @@ tm <- tm[, colnames(tm) %in% colnames(my_data_mcl_2019)]
 
 tm <- left_join(tm, my_subgroups_drugs[, c("drugname_typaslab", "moa_subgroup")]) %>%
   select(drugname_typaslab, conc, moa_subgroup, everything())
+```
 
-# ACTUAL FITTING ---------------------------------
-my_blocks <- make_blocks(tm, blockvar = "drugname_typaslab")
-tm_task_data <- select(tm, -one_of(c("conc", "drugname_typaslab")))
+Fit!
 
-tm_task <- makeClassifTask(data = tm_task_data, target = "moa_subgroup", 
-  blocking = my_blocks)
+```{r}
+my_varname <- "resampled_mcl_loo_subgroups"
+my_filename <- file.path(outdir, paste0(my_varname, ".rds"))
 
-tm_learner <- makeLearner("classif.randomForest", predict.type = "prob",
-  par.vals = list(ntree = my_ntree, mtry = my_mtry))
-rdesc <- makeResampleDesc("LOO")
+if (file.exists(my_filename)) {
+  assign(my_varname, readRDS(my_filename))
+} else {
+  assign(my_varname, 
+    fit_multiclass_rf_loo(data = tm, targetvar = "moa_subgroup", 
+      blockingvar = "drugname_typaslab", 
+      paramlist = list(ntree = my_ntree, mtry = my_mtry), 
+   cols_to_exclude = c("conc", "drugname_typaslab"), glue_back = TRUE))
+  saveRDS(get(my_varname), my_filename)
+}
 
-resampled_tm <- resample(learner = tm_learner, task = tm_task,
-  resampling = rdesc, measures = mmce, models = TRUE)
-
-# don't forget to update data frame
-resampled_tm$pred$data <-
-    dplyr::bind_cols(tm[resampled_tm$pred$data$id, c("conc", "drugname_typaslab")],
-      resampled_tm$pred$data) %>%
-    dplyr::arrange(drugname_typaslab, conc, iter)
-
-saveRDS(resampled_tm, "./data/programmatic_output/resampled_tm.rds")
-
-plot_wide_confmat(get_wide_confmat(resampled_tm), title = "Multiclass RF, subgroups")
+plot_wide_confmat(get_wide_confmat(resampled_mcl_loo_subgroups), 
+  title = "Multiclass RF, subgroups")
 ggsave("./plots/subgroup_prediction.pdf")
 ```
 
+# Predicting same drugs in Lucia's data set.
 
-```{r, subgroups, eval = FALSE, echo = FALSE}
-# # use my_data_mcl_2high from previous chunk to compare with LOOCV:
-# mcl_subgr <- my_data_mcl_2019
-# # # keep 2 highest dosgs
-# # mcl_subgr <- group_by(mcl_subgr, drugname_typaslab) %>%
-# #   top_n(2, conc) %>%
-# #   ungroup()
-# # we're missing BILE, UV, GLUFOSFOMYCIN
-# moa_tab[!(moa_tab$drug %in% mcl_subgr$drugname_typaslab), ]
-# 
-# mcl_subgr$process_broad <- moa_tab$moa_subgroup[match(mcl_subgr$drugname_typaslab, moa_tab$drug)]
-# # exclude drugs without subclassification: dibucaine, procaine, radicicol, 
-# # vancomycin, verapamil:
-# mcl_subgr <- mcl_subgr[complete.cases(mcl_subgr), ]
-# table(mcl_subgr$process_broad)
-# 
-# # (now using all dosages, not just 2)
-# my_blocks <- make_blocks(mcl_subgr, blockvar = "drugname_typaslab")
-# mcl_subgr_task_data <- select(mcl_subgr, -one_of(c("conc", "drugname_typaslab")))
-# 
-# mcl_subgr_task <- makeClassifTask(data = mcl_subgr_task_data, 
-#   target = "process_broad", blocking = my_blocks)
-# mcl_subgr_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
-#   par.vals = list(ntree = my_ntree, mtry = my_mtry))
-# rdesc <- makeResampleDesc("LOO")
-# 
-# resampled_mcl_subgr <- resample(learner = mcl_subgr_learner, task = mcl_subgr_task, 
-#   resampling = rdesc, measures = mmce, models = TRUE)
-# 
-# # don't forget to update data frame
-# resampled_mcl_subgr$pred$data <-
-#     dplyr::bind_cols(mcl_subgr[resampled_mcl_subgr$pred$data$id, c("conc", "drugname_typaslab")],
-#       resampled_mcl_subgr$pred$data) %>%
-#     dplyr::arrange(drugname_typaslab, conc, iter)
-# 
-# # View(resampled_mcl_subgr$pred$data)
-# 
-# plot_wide_confmat(get_wide_confmat(resampled_mcl_subgr), title = "Multiclass RF, subgroups")
+Prepare the data.
+
+```{r}
+indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
+(newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
+
+newsize <- filter(newsize, drugname_typaslab %in% 
+    unique(my_data_mcl_2019$drugname_typaslab))
+unique(newsize$drugname_typaslab)
+
+newsize$sscore[is.na(newsize$sscore)] <- 0
+newsize <- select(newsize, gene_synonym, drugname_typaslab, conc, sscore) %>%
+  spread(key = gene_synonym, value = sscore)
+
+newsize <- merge_features(newsize, clusters, mean)
+
+newsize <- newsize[, colnames(newsize) %in% colnames(my_data_mcl_2019)]
+newsize
+
+newsize <- left_join(newsize, 
+  my_subgroups_drugs[, c("drugname_typaslab", "process_broad")]) %>%
+  select(drugname_typaslab, conc, process_broad, everything())
 ```
+
+Retrain our multiclass 2019 model. 
+
+```{r}
+# Training in mlr: call train() on a learner + suitable task
+my_data_mcl_2019$process_broad <- factor(my_data_mcl_2019$process_broad)
+my_rle <- rle(my_data_mcl_2019$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+
+mcl_2019_task <- makeClassifTask(data = my_data_mcl_2019[, -c(1, 2)], 
+  target = "process_broad", blocking = my_blocks)
+mcl_2019_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+mcl_2019_model <- train(learner = mcl_2019_learner, task = mcl_2019_task)
+
+getLearnerModel(mcl_2019_model)
+feat_imps <- sort(unlist(getFeatureImportance(mcl_2019_model)$res), 
+  decreasing = TRUE)
+head(feat_imps, n = 20)
+
+mcl_2019_pred <- predict(mcl_2019_model, newdata = newsize)
+performance(mcl_2019_pred, measures = mmce)
+
+mcl_2019_pred$data <- as_tibble(cbind(newsize[, 1:2], as.data.frame(mcl_2019_pred)))
+View(mcl_2019_pred$data)
+```
+
+
+Comparing old with new predictions - but first make new way of displaying our 
+results:
+
+```{r}
+# first come up with new way of displaying results:
+resampled_mcl_2019_melt <- melt_pred_data(resampled_mcl_2019, "multiclass")
+p <- plot_mcl_probs_heatmap(melted_pred_data = resampled_mcl_2019_melt, mics = mics)
+
+ggsave(filename = "./plots/Prediction_heatmap_mcl_2019.pdf", plot = p, 
+  width = 20, height = 20)
+```
+
+Heatmap of new predictions:
+
+```{r}
+class(resampled_mcl_2019)
+class(resampled_mcl_2019$pred)
+class(mcl_2019_pred)
+
+head(resampled_mcl_2019$pred$data)
+head(mcl_2019_pred$data)
+
+mcl_2019_pred_melt <- melt_pred_data(mcl_2019_pred, "multiclass")
+p <- plot_mcl_probs_heatmap(mcl_2019_pred_melt, mics = mics)
+
+ggsave(filename = "./plots/Prediction_heatmap_newsize.pdf", plot = p, 
+  width = 15, height = 6)
+```
+
 
 
 # Session info 

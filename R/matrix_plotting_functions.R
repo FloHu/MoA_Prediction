@@ -289,3 +289,48 @@ plot_highest_probs <- function(pred_data_obj, which_moa = c("cell_wall", "dna", 
   
   print(p)
 }
+
+plot_mcl_probs_lines <- function(melted_pred_data, labels, colours, printplot = TRUE) {
+  # needs a melted multiclass prediction (function melt_pred_data)
+  p <- ggplot(melted_pred_data, aes(x = factor(conc), y = prob.med, 
+    colour = predicted_prob)) + 
+    geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75, 
+      size = 2, fatten = 1) + 
+    geom_line(aes(group = predicted_prob), size = 1) + 
+    facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
+    geom_hline(yintercept = c(0.5), linetype = c("dotted")) + 
+    scale_colour_manual("Predicted probability\nfor class", 
+      labels = labels, values = colours) + 
+    coord_cartesian(ylim = c(0, 1))
+  
+  if (printplot) print(p)
+  
+  invisible(p)
+}
+
+plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
+  tmp <- left_join(melted_pred_data, mics)
+  tmp <- tmp %>%
+    mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (mic = ", mic_curated, ")"), 
+      prob.med = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1)), 
+      drug_conc = factor(drug_conc, 
+        levels = rev(unique(drug_conc[order(truth, drugname_typaslab, conc)]))))
+  
+  tmp <- group_by(tmp, drug_conc) %>%
+    mutate(is_max = (prob.max) == max(prob.max))
+  tmp$geompoint <- ifelse(tmp$is_max, tmp$drug_conc, NA)
+  tmp$geompoint <- levels(tmp$drug_conc)[tmp$geompoint]
+  
+  p <- ggplot(tmp, aes(x = predicted_prob, y = drug_conc)) + 
+    geom_tile(aes(fill = prob.med)) + 
+    geom_point(aes(y = geompoint)) + 
+    scale_fill_brewer(palette = "BuPu") + 
+    facet_wrap( ~ truth, scales = "free")
+  
+  if (printplot) suppressWarnings(print(p))
+  
+  invisible(p)
+}
+
+
+

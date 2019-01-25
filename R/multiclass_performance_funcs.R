@@ -25,7 +25,8 @@ plot_wide_confmat <- function(wide_confmat, title) {
   ggplot(wide_confmat, aes(x = predicted, y = true)) + 
     geom_tile(aes(fill = byclass_recall)) + 
     geom_text(aes(label = n_obs)) + 
-    labs(x = "Predicted class, colours = recall/false-negative rate\n(normalisation by row)", 
+    labs(x = "Predicted class, colours = recall/false-negative rate
+      (normalisation by row)", 
       y = "True class", title = title) + 
     theme(axis.text.x = element_text(angle = 45, hjust = 0)) + 
     scale_x_discrete(position = "top") + 
@@ -61,8 +62,3 @@ plot_prob_calib <- function(resample_result, title) {
       title = paste0("Probability calibration plot for ", title))
   p0
 }
-
-# plot_ROC_multiclass <- function() {
-#   pred_dat <- melt_pred_data(resampled_multiclass_try1, model_type = "multiclass")
-# }
-

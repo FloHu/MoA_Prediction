@@ -1,10 +1,17 @@
 melt_pred_data <- function(resample_result, model_type = c("onevsrest", "multiclass")) {
   # input: either a resample result or the pred_data data frame from matrix_container_ext
+  #### TO DO: resample_result is misleading as argument name because it also 
+            # now accepts regular Prediction objects
   model_type <- match.arg(model_type)
   
   if (model_type == "multiclass") {
-    if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
-    pred_data <- resample_result$pred$data
+    if (is(resample_result, "ResampleResult")) {
+      pred_data <- resample_result$pred$data
+    } else if (is(resample_result, "Prediction")) {
+      pred_data <- resample_result$data
+    } else {
+      stop("Object of type ", class(resample_result), " currently not supported.\n")
+    }
   } else {
     pred_data <- resample_result
   }
@@ -13,7 +20,7 @@ melt_pred_data <- function(resample_result, model_type = c("onevsrest", "multicl
   
   # sanity check
   if (model_type == "onevsrest") {
-    if(!(all(c("prob.moa", "prob.not_moa") %in% my_cols))) {
+    if (!(all(c("prob.moa", "prob.not_moa") %in% my_cols))) {
       stop("Passed data frame doesn't seem to fit the specified model type")
     }
   }
@@ -60,7 +67,7 @@ melt_pred_data <- function(resample_result, model_type = c("onevsrest", "multicl
   return(melted)
 }
 
-compare_probabilities <- function (l) {
+compare_probabilities <- function(l) {
   # input: melted prediction data frames from melt_pred_data
   # currently can only compare two models
   if (length(l) != 2) {
