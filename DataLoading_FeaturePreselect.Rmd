@@ -45,11 +45,30 @@ selected or whether features were transformed in some way.
 indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
 
 (nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
-# Lucia's data
 (newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
+(shiver <- read_delim(file.path(indir, "shiver.csv"), delim = ";"))
+(price <- read_delim(file.path(indir, "price.csv"), delim = ";"))
 (genes <- read_delim(file.path(indir, "genes.csv"), delim = ";"))
 (drugs_complete <- read_delim(file.path(indir, "drugs.csv"), delim = ";"))
 
+my_datasets <- c("nichols_2011", "newsize", "shiver", "price")
+all_studies <- mget(my_datasets) %>% 
+  map(~mutate(.x, significant = qvalue <= 0.05))
+```
+
+Interestingly, the fraction of significant values varies greatly between the 
+data sets:
+
+```{r}
+map(all_studies, function(x) {
+  sum(x$significant, na.rm = TRUE) / nrow(x)
+})
+```
+
+
+Get MoA information.
+
+```{r}
 # get mode of action information using Google docs, if it fails look for 
 # information on the server
 tryCatch(
@@ -64,168 +83,281 @@ tryCatch(
   }
 )
 
-mode_of_action <- read_delim(outpath, delim = ",", na = c("-"))
-mode_of_action <- mode_of_action[, c("drug", "moa_broad_II (after 09/05/2018)", 
-  "dataset (not exclusive)")]
-colnames(mode_of_action) <- c("drugname_typaslab", "process_broad", "dataset")
+(mode_of_action <- read_delim(outpath, delim = ",", na = c("-")))
+mode_of_action <- mode_of_action[, c("drug", "moa_broad", "moa_subgroup", 
+  "dataset")]
+colnames(mode_of_action) <- c("drugname_typaslab", "process_broad", 
+  "process_subgroup", "dataset")
+mode_of_action <- mode_of_action[1:153, ]
+mode_of_action_complete <- mode_of_action
+
 stopifnot(all(!duplicated(mode_of_action$drugname_typaslab)))
 ```
 
 Write out `drugs_complete` with MoA information.
 
 ```{r}
-drugs_complete <- left_join(drugs_complete, mode_of_action)
+(drugs_complete <- left_join(drugs_complete, mode_of_action))
 saveRDS(drugs_complete, file = file.path(outdir, "drugs_complete.rds"))
 ```
 
-Write out `the_matrix_complete_nochanges.rds` with MoA information. 
+
+# Removing/merging features/drugs, replacing NAs etc.
+
+## Data inspection
+
+For each data set: find out which mutants (= features) have lots of NA values. 
+Can do the same for the drugs. Purpose: excluding either mutants that are very 
+prone to giving NA values or excluding conditions that don't interact with 
+anything. 
 
 ```{r}
-the_matrix <- dplyr::select(nichols_2011, gene_synonym, drugname_typaslab, 
-  conc, sscore, qvalue, strain)
-the_matrix$significant <- the_matrix$qvalue <= 0.05
-the_matrix <- left_join(the_matrix, drugs_complete[, c("drugname_typaslab", 
-  "process_broad")])
-# is in long format
-saveRDS(the_matrix, file.path(outdir, "the_matrix_complete_nochanges.rds"))
+# then check if it's possible to keep only the overlap
+# then merge collinear features, based on Nichols, in all data sets
+# replace NA by 0
+# do all the things like the_matrix etc. only for Nichols so that we can fit 1-vs-rest like before
+# (special step there is the thing with chemical features)
+
+# record for each gene number of significant interactions, NA values
+(feature_stats <- map(all_studies, function(x) {
+  group_by(x, gene_synonym) %>%
+    summarise(n_signif = sum(significant, na.rm = TRUE), 
+      n_NA_sscores = sum(is.na(sscore)), 
+      unique_conds = length(unique(paste(drugname_typaslab, conc)))) %>%
+    arrange(desc(n_NA_sscores))
+}))
+# add names
+feature_stats <- imap(feature_stats, ~{.x$dataset = .y; return(.x)})
+
+# and now the same for drugs: drug-dosage combinations that don't interact with 
+# anything will be difficult to predict
+(drug_stats <- map(all_studies, function(x) {
+  group_by(x, drugname_typaslab, conc) %>%
+    summarise(n_signif = sum(significant, na.rm = TRUE), 
+      n_NA_sscores = sum(is.na(sscore))) %>%
+    arrange(n_signif)
+}))
+drug_stats <- imap(drug_stats, ~{.x$dataset = .y; return(.x)})
 ```
 
-
-## Removing drugs
-
-In principle, keep all drugs. However, for model assessment, only keep drugs 
-that:
-  * are in the Nichols data set
-  * Have chemical features defined
-  * Have one of the four "main" modes of action: cell_wall, dna, 
-  membrane_stress, protein_synthesis
-
---> Tables `drugs_complete` and `drugs_subset`. 
+Number of NA values per condition. Why so many in the shiver data? Why 
+distribution so different between newsize and nichols?
 
 ```{r}
-main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP), 
-  process_broad %in% main_moas)
-drugs_subset
-table(drugs_subset$process_broad)
-saveRDS(drugs_subset, file = file.path(outdir, "drugs_subset.rds"))
+feature_stats %>% 
+  bind_rows() %>%
+  ggplot(aes(x = dataset, y = n_NA_sscores)) +
+  geom_jitter(shape = 1, height = 0) + 
+  annotate("text", x = 1:4, y = 40, label = paste("N = ", c(95, 275, 26, 28))) + 
+  labs(title = "Number of NA values per mutant")
 ```
 
-Subset `the_matrix` accordingly. 
+Statistics of how many mutants have 0, 1, 2, etc. number of interactions.
 
 ```{r}
-# keep only drugs in drug_subset
-the_matrix <- filter(the_matrix, drugname_typaslab %in% 
-    unique(drugs_subset$drugname_typaslab))
+feature_stats %>%
+  bind_rows() %>%
+  group_by(dataset) %>%
+  count(n_signif) %>%
+  ggplot(aes(x = n_signif, y = n)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap( ~ dataset, scales = "free") + 
+  labs(title = "Number of genes per number of significant interactions", 
+    x = "Number of significant interactions", y = "Number of genes")
 ```
 
-## Feature filtering
-
-`the_matrix`: table derived from nichols_2011 that will be used for model 
-assessment. Keep only mutants that:
-  * interact with at least one gene and 
-  * don't have more than 10 conditions where the s-score is NA (see notebook 
-  `Inspecting_the_matrix.html`)
+Do the same for drugs. It looks like price and shiver data sets behave very 
+differently from nichols and newsize. 
 
 ```{r}
-# number of genes before gene filtering:
-nunique(the_matrix$gene_synonym)
-
-the_matrix <- the_matrix %>%
-   group_by(gene_synonym) %>% 
-   filter(any(significant)) %>%
-   ungroup()
-
-# and after:
-nunique(the_matrix$gene_synonym)
-stopifnot(nunique(the_matrix$gene_synonym) == nunique(the_matrix$strain))
-saveRDS(the_matrix, file = file.path(outdir, "Inspecting_the_matrix_input.rds"))
+drug_stats %>%
+  bind_rows() %>%
+  group_by(dataset) %>%
+  count(n_signif) %>%
+  ggplot(aes(x = n_signif)) + 
+  geom_freqpoly(binwidth = 10) + 
+  facet_wrap( ~ dataset) + 
+  labs(title = "Number of conditions per number of significant interactions (binwidth = 10)", 
+    x = "Number of significant interactions", y = "Number of conditions")
 ```
 
-For excluding conditions with many NA values need to do a bit more processing, 
-which has been outsourced (due to historical reasons) to 
-`Inspecting_the_matrix.Rmd`.
+## Removing drugs/features
+
+Inspecting the data suggests the following:
+  * Only work with Nichols and Newsize because Price and Shiver seem to behave 
+  quite differently. Moreover, they don't add much more drugs that aren't 
+  already present in Nichols and Newsize. The following points only apply to 
+  those 2 datasets. 
+  * Remove features that have 10 or more NA values. 
+  * Remove conditions with less than 5 significant interactions. 
+  * Finally, we also want to remove conditions that have no significant 
+  interaction as they are likely to not yield any information. 
 
 ```{r}
-rmarkdown::render("Inspecting_the_matrix.Rmd", 
-  rmarkdown::html_document(toc = TRUE), envir = new.env())
+(feats_to_exclude_NAs <- 
+  map(feature_stats[c("nichols_2011", "newsize")], ~filter(.x, n_NA_sscores > 10)))
+
+(conds_to_exclude <- 
+  map(drug_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif < 5)))
+
+(feats_no_IAs <- 
+  map(feature_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif == 0)))
 ```
 
-Can now remove some genes with many NA values:
+Now, for actually excluding conditions/features, do the following: 
+
+  1. Features with many NAs: if a feature fulfills this criterion, remove it 
+  everywhere.
+  2. Features with no interactions: only remove if they don't interact in all 
+  of the data sets. 
+
+And finally:
+  3. Only keep features that are in both nichols and newsize. 
 
 ```{r}
-the_matrix <- filter(the_matrix, 
-  !gene_synonym %in% readRDS(file.path(outdir, "feats_to_remove_many_NAs.rds")))
+# Number of features that don't interact with anything between nichols and 
+# newsize.
+venn(list(nichols = feats_no_IAs$nichols_2011$gene_synonym, 
+  newsize = feats_no_IAs$newsize$gene_synonym))
 ```
 
-Save it:
+Write out data nichols and newsize data without any changes and then after 
+removing the features.
 
 ```{r}
-saveRDS(the_matrix, 
-  file = file.path(outdir, "the_matrix_drugsgenesremoved.rds"))
-```
+kept_studies <- all_studies[c("nichols_2011", "newsize")]
+saveRDS(kept_studies, file.path(outdir, "kept_datasets_long_nochanges.rds"))
 
-
-## Reshape
-
-Convert to wide format. If qvalues are `NA` we treat them as non-significant. 
-
-```{r}
-the_matrix_signifs <- the_matrix
-
-the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
-the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
-
-the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, 
-  conc, significant)
-the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, 
-  value = significant, fill = FALSE)
-```
-
-
-## Replacing NA values
-
-Number and fraction of observations affected: less than 2‰. 
-
-```{r}
-# check if all drug names are defined 
-stopifnot(!any(is.na(the_matrix$drugname_typaslab)))
-
-sel <- grep(colnames(the_matrix), pattern = "drugname_typaslab|conc")
-
-sum(is.na(the_matrix[, -sel]))
-reduce(dim(the_matrix[, -sel]), `*`)
-
-sum(is.na(the_matrix[, -sel])) / 
-  reduce(dim(the_matrix[, -sel]), `*`)
-```
-
-We replace all NA values with 0.
-
-```{r}
-the_matrix[, -sel] <- lapply(the_matrix[, -sel], function(x) {
-   x[is.na(x)] <- 0
-   return(x)
+# excluding conditions
+kept_studies <- imap(kept_studies, function(data, name) {
+  # remove conditions with few interactions
+  to_remove <- conds_to_exclude[[name]]
+  data <- data[!(paste(data$drugname_typaslab, data$conc) %in% 
+      paste(to_remove$drugname_typaslab, to_remove$conc)), ]
+  
+  # remove features with lots of NAs
+  data <- data[!(data$gene_synonym %in% 
+      feats_to_exclude_NAs[[name]][["gene_synonym"]]), ]
+  
+  # remove features never interacting with anything
+  to_remove <- reduce(map(feats_no_IAs, "gene_synonym"), dplyr::intersect)
+  data <- data[!(data$gene_synonym %in% to_remove), ]
+  return(data)
 })
-
-if (any(sapply(the_matrix, is.na))) {
-   stop("Undefined values present in the_matrix.")
-}
 ```
+
+And finally, only keep features that are both in nichols and newsize. 
+
+```{r}
+# before:
+venn(list(nichols = unique(kept_studies$nichols_2011$gene_synonym), 
+  newsize = unique(kept_studies$newsize$gene_synonym)))
+
+# after:
+kept_studies <- map(kept_studies, function(data) {
+  total_intersect <- reduce(map(kept_studies, "gene_synonym"), dplyr::intersect)
+  data <- data[data$gene_synonym %in% total_intersect, ]
+})
+venn(list(nichols = unique(kept_studies$nichols_2011$gene_synonym), 
+  newsize = unique(kept_studies$newsize$gene_synonym)))
+```
+
+Save to disk.
+
+```{r}
+saveRDS(kept_studies, file.path(outdir, 
+  "kept_datasets_long_featsndrugs_removed.rds"))
+```
+
+### Correlation between Nichols and Newsize
+
+Leaves the question: how well do conditions correlate? 
+
+```{r}
+# for each condition that is the same: calculate correlation coefficient
+(nic <- select(kept_studies$nichols_2011, gene_synonym, drugname_typaslab, 
+  conc, sscore))
+(new <- select(kept_studies$newsize, gene_synonym, drugname_typaslab, conc, 
+  sscore))
+
+cors <- 
+  semi_join(nic, new, by = c("gene_synonym", "drugname_typaslab", "conc")) %>%
+  left_join(new, by = c("gene_synonym", "drugname_typaslab", "conc"), suffix = 
+      c(".nic", ".new"))
+
+# e.g.: A22: 
+filter(cors, drugname_typaslab == "A22", conc == 2) %>%
+  ggplot(aes(x = sscore.nic, y = sscore.new)) + 
+  geom_point()
+
+# spearman corrs across all conditions:
+group_by(cors, drugname_typaslab, conc) %>%
+  summarise(spearman = cor(sscore.nic, sscore.new, method = "spearman", 
+    use = "complete.obs")) %>%
+  ggplot(aes(x = "", y = spearman)) + 
+  ggrepel::geom_text_repel(aes(label = paste0(drugname_typaslab, "_", conc)), 
+    size = 3) +
+  labs(title = "Spearman correlation of conditions shown across all genes", 
+    x = "", y = "Spearman's rho")
+```
+
+
+## Spread data, replace NA values
+
+Convert to wide format. `NA` values are replaced by 0 for s-scores and `FALSE` 
+for significance values (qvalues). 
+
+```{r}
+kept_studies_wide <- unlist(
+  map(kept_studies, function(data) {
+    data <- filter(data, !is.na(conc))
+    sscores <- select(data, gene_synonym, drugname_typaslab, conc, sscore) %>%
+      spread(key = gene_synonym, value = sscore, fill = 0)
+    qvals <- select(data, gene_synonym, drugname_typaslab, conc, significant) %>%
+      spread(key = gene_synonym, value = significant, fill = FALSE)
+    stopifnot({
+      all(!is.na(sscores))
+      all(!is.na(qvals))
+    })
+    return(list(sscores = sscores, qvals = qvals))
+  }), 
+  recursive = FALSE)
+```
+
+Save.
+
+```{r}
+saveRDS(kept_studies_wide, file.path(outdir, 
+  "kept_datasets_wide_featsndrugs_removed_noNAs.rds"))
+
+the_matrix <- kept_studies_wide$nichols_2011.sscores
+```
+
+```{r}
+# the_matrix_signifs <- the_matrix
+# 
+# the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
+# the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
+# 
+# the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, 
+#   conc, significant)
+# the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, 
+#   value = significant, fill = FALSE)
+```
+
+
 
 We save again this version of the matrix:
 
 ```{r}
-saveRDS(the_matrix, file = file.path(outdir, 
-  "the_matrix_drugsgenesremoved_noNAs_wide.rds"))
+# saveRDS(the_matrix, file = file.path(outdir, 
+#   "the_matrix_drugsgenesremoved_noNAs_wide.rds"))
 ```
 
 
-## Inspecting feature collinearity, determining which features to merge
+## Exploring (and later merging) between-feature correlations
 
-### Exploring feature correlations
-
-The following chunks were previously in `Model_lab.Rmd`. 
+### Exploring correlated features.
 
 ```{r}
 feats <- select(the_matrix, -one_of("drugname_typaslab", "conc"))
@@ -276,11 +408,10 @@ corpairs$in_same_cmplx <-
         any(map_lgl(genes_cmplx, ~ (sum(.x %in% drugpair) == 2)))
       }
     })
-# only 354 pairs
 # View(corpairs[corpairs$in_same_cmplx, ])
 
 ggplot(corpairs, aes(x = cor)) + 
-  geom_histogram(bins = 30) + 
+  geom_freqpoly(binwidth = 0.05) + 
   facet_wrap( ~ in_same_cmplx, scales = "free") + 
   labs(title = "Spearman correlations of all mutant pairs.
     Left: not part of the same protein complex
@@ -289,7 +420,7 @@ ggplot(corpairs, aes(x = cor)) +
 # two selected examples (highest and lowest correlation above cutoff):
 ggplot(feats, aes(x = NUOE, y = NUOF)) + 
   geom_point() + 
-  labs(title = "S-scores across all conditions (Spearman = 0.85)")
+  labs(title = "S-scores across all conditions (Spearman = 0.84)")
 
 ggplot(feats, aes(x = ATPB, y = ATPE)) + 
   geom_point() + 
@@ -297,7 +428,7 @@ ggplot(feats, aes(x = ATPB, y = ATPE)) +
 
 ggplot(feats, aes(x = FLIF, y = FLIQ)) + 
   geom_point() + 
-  labs(title = "S-scores across all conditions (Spearman = 0.6)")
+  labs(title = "S-scores across all conditions (Spearman = 0.58)")
 ```
 
 When choosing a cutoff of 0.6 and requiring that genes are in the same complex 
@@ -342,13 +473,8 @@ stress), and UbiE/F (ubiquinone biosynthesis). Moreover, GuaB (IMP
 dehydrogenase) is anticorrelated with LipA (lipoate biosynthesis) and Rph 
 (an RNAse). 
 
-```{r}
-# View(corpairs[corpairs$cor < -0.6, ])
-sum(corpairs$cor < -0.6)
-```
 
-
-### Merge correlated features
+### Merging correlated features
 
 Now merge correlated predictors. Use a bit higher threshold (0.7) because 
 otherwise it would merge too many features. Iterative averaging not an option 
@@ -383,10 +509,10 @@ dev.off()
 
 [Link]("./plots/correlated_feats.pdf"). 
 
-Looks like 21 clusters is a good number to capture similar groups. 
+Looks like 23 clusters is a good number to capture similar groups. 
 
 ```{r}
-nclust <- 21
+nclust <- 23
 clusters <- cutree(hclust(feats_cor_high_d), k = nclust)
 clusters[order(clusters)]
 clusters <- tibble(clust_id = clusters, members = names(clusters)) %>%
@@ -403,84 +529,31 @@ clusters
 saveRDS(object = clusters, file = file.path(outdir, "clusters.rds"))
 ```
 
-Now merge the features by calculating the centroids for `the_matrix`. For 
-`the_matrix_signifs` the significance of a merged cluster will be set to TRUE 
-if at least one member of the cluster is TRUE.
+Now merge the features by calculating the centroids in case of sscores. For 
+qvalues set to `TRUE` if at least one of the members is `TRUE`. 
 
 ```{r}
-the_matrix.bak <- the_matrix
-the_matrix <- the_matrix.bak
-
-the_matrix_signifs.bak <- the_matrix_signifs
-the_matrix_signifs <- the_matrix_signifs.bak
+kept_studies_wide.bak <- kept_studies
 
 # merge features in clusters frame using function f of merge_features(), 
 # then remove features that have been merged 
+tmp <- c("nichols_2011.sscores", "newsize.sscores")
+kept_studies_wide[tmp] <- map(kept_studies_wide[tmp], merge_features, 
+  cluster_fr = clusters, f = mean)
 
-# s-scores are averaged
-the_matrix <- merge_features(the_matrix, clusters, mean)
-saveRDS(the_matrix, file = file.path(outdir, 
-  "the_matrix_drugsgenesremoved_noNAs_featsmerged_wide.rds"))
-# significance is set to yes if any cluster member is significant
-the_matrix_signifs <- merge_features(the_matrix_signifs, clusters, any)
-saveRDS(the_matrix_signifs, file = file.path(outdir, 
-  "the_matrix_signifs_drugsgenesremoved_noNAs_featsmerged_wide.rds"))
+tmp <- c("nichols_2011.qvals", "newsize.qvals")
+kept_studies_wide[tmp] <- map(kept_studies_wide[tmp], merge_features, 
+  cluster_fr = clusters, f = any)
+
+saveRDS(kept_studies_wide, file = file.path(outdir, 
+  "kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds"))
 ```
 
-<!--
-```{r, eval = FALSE, echo = FALSE}
-# removed_correlated_feats <- character()
-cor_thresh <- 0.6
-continue <- TRUE
-
-# involved data sets:
-# 1) feats = all features in a tibble
-# 2) feats_cor = correlation matrix derived from 1)
-# 3) corpairs = melted version of 2)
-
-my_backup <- list(corpairs = corpairs, feats = feats, feats_cor = feats_cor)
-corpairs <- my_backup$corpairs
-feats <- my_backup$feats
-feats_cor <- my_backup$feats_cor
-
-while (continue) {
-  list_of_pairs <- list()
-  corpairs <- arrange(corpairs, desc(cor))
-  above_thresh <- sum(corpairs$cor > cor_thresh)
-  
-  for (r in seq_len(above_thresh)) {
-    pair <- c(corpairs$featA[r], corpairs$featB[r])
-    if (any(pair %in% unlist(list_of_pairs))) {
-      # we don't want to go through the whole procedure of merging features for every pair 
-      # as long as pairs don't overlap we can merge several pairs at once
-      break
-    } else {
-      list_of_pairs <- c(list_of_pairs, list(pair))
-    }
-  }
-  
-  # now merge the feats
-  for (el in list_of_pairs) {
-    # just to be safe ...
-    stopifnot(length(el) == 2)
-    newfeat <- paste(el[[1]], el[[2]], sep = "_")
-    feats[[newfeat]] <- apply(feats[el], 1, mean)
-  }
-  
-  # and calculate everything again
-  feats <- select(feats, -one_of(unlist(list_of_pairs)))
-  feats_cor <- cor(feats, method = "spearman")
-  corpairs <- melt_cormat_to_pairs(feats_cor)
-  
-  # if not TRUE means we're done
-  continue <- max(corpairs$cor > cor_thresh)
-}
-```
--->
 
 Plot the correlation matrix again, let's check:
 
 ```{r}
+the_matrix <- kept_studies_wide$nichols_2011.sscores
 feats <- select(the_matrix, -one_of("drugname_typaslab", "conc"))
 feats_cor <- cor(feats, method = "spearman")
 
@@ -495,9 +568,55 @@ if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
 ```
 
 
-# Generating `matrix_container`
+# `the_matrix_container` for comparative model assessment
 
-## Generating different versions of the_matrix
+Note: until commit 716861c processing steps were quite different because only 
+at that commit other datasets were properly integrated. Main difference is that 
+a number of preprocessing steps were based on a limited selection of drugs. 
+Now the preprocessing steps take more drugs and also other datasets into 
+account whereas processing steps of `the_matrix` are now specific to stuff 
+that is needed for comparative model assessment. New are drugs Bicyclomycin, 
+CecropinB, Dibucaine, Procaine (had been excluded before). 
+
+
+## Removing drugs
+
+In principle, keep all drugs. However, for model assessment, only keep drugs 
+that:
+  * are in the Nichols data set
+  * Have chemical features defined
+  * Have one of the four "main" modes of action: cell_wall, dna, 
+  membrane_stress, protein_synthesis
+
+--> Tables `drugs_complete` and `drugs_subset`. 
+
+```{r}
+the_matrix <- kept_studies_wide$nichols_2011.sscores
+the_matrix_signifs <- kept_studies_wide$nichols_2011.qvals
+
+main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP), 
+  process_broad %in% main_moas)
+drugs_subset
+table(drugs_subset$process_broad)
+saveRDS(drugs_subset, file = file.path(outdir, "drugs_subset.rds"))
+```
+
+Subset `the_matrix` accordingly. 
+
+```{r}
+# keep only drugs in drug_subset
+the_matrix <- filter(the_matrix, drugname_typaslab %in% 
+    unique(drugs_subset$drugname_typaslab))
+
+the_matrix_signifs <- filter(the_matrix_signifs, drugname_typaslab %in% 
+    unique(drugs_subset$drugname_typaslab))
+```
+
+
+## Generating `matrix_container`
+
+### Generating different versions of the_matrix
 
 Put all information for subsequent model fitting into `matrix_container`, which 
 should contain all information to fit a machine learning model. 
