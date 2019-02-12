@@ -333,27 +333,6 @@ saveRDS(kept_studies_wide, file.path(outdir,
 the_matrix <- kept_studies_wide$nichols_2011.sscores
 ```
 
-```{r}
-# the_matrix_signifs <- the_matrix
-# 
-# the_matrix <- select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore)
-# the_matrix <- spread(the_matrix, key = gene_synonym, value = sscore)
-# 
-# the_matrix_signifs <- select(the_matrix_signifs, gene_synonym, drugname_typaslab, 
-#   conc, significant)
-# the_matrix_signifs <- spread(the_matrix_signifs, key = gene_synonym, 
-#   value = significant, fill = FALSE)
-```
-
-
-
-We save again this version of the matrix:
-
-```{r}
-# saveRDS(the_matrix, file = file.path(outdir, 
-#   "the_matrix_drugsgenesremoved_noNAs_wide.rds"))
-```
-
 
 ## Exploring (and later merging) between-feature correlations
 
@@ -608,9 +587,11 @@ Subset `the_matrix` accordingly.
 # keep only drugs in drug_subset
 the_matrix <- filter(the_matrix, drugname_typaslab %in% 
     unique(drugs_subset$drugname_typaslab))
+saveRDS(the_matrix, file = file.path(outdir, "the_matrix_keepall_wide.rds"))
 
 the_matrix_signifs <- filter(the_matrix_signifs, drugname_typaslab %in% 
     unique(drugs_subset$drugname_typaslab))
+saveRDS(the_matrix, file = file.path(outdir, "the_matrix_keepall_wide.rds"))
 ```
 
 

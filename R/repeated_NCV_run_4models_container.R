@@ -6,12 +6,6 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
   # For a given instance of resampling
   # based on the respective fields of matrix_container
   if (line_number > nrow(data_container)) stop("Incorrect line number")
-  
-  if (!require(iterators)) install.packages("iterators")
-  library(iterators)
-  
-  if (!require(foreach)) install.packages("foreach")
-  library(foreach)
 
   data_matrix = data_container$drug_feature_matrices[[line_number]]
   model = data_container$fitted_model[[line_number]]
@@ -21,13 +15,13 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
   
   data_matrix <- suppressWarnings(dplyr::select(data_matrix, -one_of(c("drugname_typaslab", "conc"))))
 
-  if (model == "classif.randomForest") {
-      oobperf = makeMeasure("oobperf", minimize = TRUE, properties = c("classif", "classif.multi"), 
-        fun = function(task, model, pred, feats, extra.args) {
-          err = model$learner.model$err.rate
-          err[nrow(err), "OOB"]
-        })
-  }
+  # if (model == "classif.randomForest") {
+  #     oobperf = makeMeasure("oobperf", minimize = TRUE, properties = c("classif", "classif.multi"), 
+  #       fun = function(task, model, pred, feats, extra.args) {
+  #         err = model$learner.model$err.rate
+  #         err[nrow(err), "OOB"]
+  #       })
+  # }
 
   # Get number of repetition and CV folds
   n_rep = length(rep_instance)
@@ -66,16 +60,17 @@ repeated_NCV_run_4models_container = function(data_container, line_number, predi
               predictMoa = makeClassifTask(data = custom_matrix[outerCV_training_set, ], target = "process_broad")
               
               # Use OOB error for tuning if model is random forest:
-              if (model == "classif.randomForest") {
+              if (FALSE) {#model == "classif.randomForest") {
+                  # REMOVED because this doesn't respect blocking
                   # Tune wrapper is using an holdout resampling with a 0.99 split (1 observation as 
                   # test set, all others as training)
                   # It can be understood as "nearly no resampling"
                   # Measure evaluated is the OOB error extracted from the trained model object          
-                  tuned_lrn = makeTuneWrapper(
-                    learner = makeLearner(cl = "classif.randomForest", predict.type = predict_type), 
-                    par.set = run_hyp_param, control = makeTuneControlGrid(), measures = oobperf, 
-                    resampling = makeResampleDesc("Holdout", split = 0.99)
-                  )
+                  # tuned_lrn = makeTuneWrapper(
+                  #   learner = makeLearner(cl = "classif.randomForest", predict.type = predict_type), 
+                  #   par.set = run_hyp_param, control = makeTuneControlGrid(), measures = oobperf, 
+                  #   resampling = makeResampleDesc("Holdout", split = 0.99)
+                  # )
               } else {
                   # tuning hyperparameters based on the inner resampling
                   resTuning = tuneParams(learner = makeLearner(cl = model, predict.type = predict_type), 
