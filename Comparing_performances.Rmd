@@ -53,10 +53,13 @@ and `stability_assessment` are now deprecated and I deleted the corresponding ch
 # What follows is a loop to extract information from our results objects and adding this into 
 # new columns. Since this takes some time, it's written in a way that the matrix_container can be 
 # updated. 
+(matrix_container <- readRDS("./data/programmatic_output/matrix_container_2019.rds"))
 
 # results we already have
-if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
-   matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+#if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
+#   matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+if (file.exists("./data/programmatic_output/matrix_container_ext_2019.rds")) {
+  matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
 } else {
    matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
    matrix_container$perf_measures <- list(NA)
@@ -67,17 +70,27 @@ if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
 }
 
 # for fastness:
-most_ia_mat <- matrix_container$drug_feature_matrices[[180]]
-stopifnot(nrow(most_ia_mat) == 78)
+(most_ia_mat <- matrix_container$drug_feature_matrices[[180]])
+# stopifnot(nrow(most_ia_mat) == 78)
+
+# the_matrix_complete_strainsgenesremoved <- 
+#  readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
 the_matrix_complete_strainsgenesremoved <- 
-  readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
+  readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")$nichols_2011
+
+# (foo <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds"))
 
 # loop to read in results files
+indir <- "./run_results_from_server/matrix_container_result_2019"
+
 for (rownum in seq_len(nrow(matrix_container))) {
+  gc()
    matrix_container_row <- matrix_container[rownum, ]
-   available_files <- list.files("./run_results_from_server/matrix_container_result/", 
-     pattern = "xgboost|rf|lasso")
-   moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+#   available_files <- list.files("./run_results_from_server/matrix_container_result/", 
+#     pattern = "xgboost|rf|lasso")
+   available_files <- list.files(indir, pattern = "xgboost|rf|lasso")
+
+  moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
 
   # look for a file corresponding to a row
   targetfile <- make_filename(matrix_container_row)
@@ -98,7 +111,7 @@ for (rownum in seq_len(nrow(matrix_container))) {
       next
    }
    
-   resultsobj <- readRDS(paste0("./run_results_from_server/matrix_container_result/", my_match))
+   resultsobj <- readRDS(file.path(indir, my_match))
    
    perf_measures <- get_auc_info(resultsobj)
    # this data frame is just for convenience as its information is already contained in perf_measures
@@ -125,9 +138,12 @@ matrix_container$feat_preselect <-
    factor(matrix_container$feat_preselect, levels =  c("top5pct", "top10pct", "top15pct", 
      "top20pct", "top25pct", "top30pct", "top40pct", "top50pct", "keepall"))
 
-saveRDS(object = matrix_container, file = "./data/programmatic_output/deprecated/matrix_container_ext.rds")
+saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_container_ext_2019.rds")
 ```
 
+```{r}
+(matrix_container <- matrix_container[!is.na(matrix_container$pred_data), ])
+```
 
 
 # Data analysis

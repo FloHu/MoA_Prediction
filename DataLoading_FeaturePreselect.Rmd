@@ -591,7 +591,7 @@ saveRDS(the_matrix, file = file.path(outdir, "the_matrix_keepall_wide.rds"))
 
 the_matrix_signifs <- filter(the_matrix_signifs, drugname_typaslab %in% 
     unique(drugs_subset$drugname_typaslab))
-saveRDS(the_matrix, file = file.path(outdir, "the_matrix_keepall_wide.rds"))
+saveRDS(the_matrix_signifs, file = file.path(outdir, "the_matrix_signifs_keepall_wide.rds"))
 ```
 
 
@@ -798,9 +798,9 @@ names(rf_hyp_param) <- rep_len("rf_hyp_param", length(rf_hyp_param))
 # (a) 'standard' approach, tuning just most common parameters
 xgboost_hyp_param_std <- 
    makeParamSet(
-    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
-    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
-    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)) 
+    makeDiscreteParam("nrounds", values = c(200, 500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1, 2, 3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01, 0.1, 0.3)) 
     )
 xgboost_hyp_param_std <- 
   rep(list("xgboost_hyp_param_std" = xgboost_hyp_param_std), 
@@ -809,9 +809,9 @@ xgboost_hyp_param_std <-
 # (b) play around with regularisations
 xgboost_hyp_param_reg <- 
    makeParamSet(
-    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
-    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
-    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
+    makeDiscreteParam("nrounds", values = c(200, 500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1, 2, 3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01, 0.1, 0.3)), 
     makeDiscreteParam("lambda", values = c(1, 10, 100, 1000)), 
     makeDiscreteParam("alpha", values = c(0, 0.5, 1))
     )
@@ -822,9 +822,9 @@ xgboost_hyp_param_reg <-
 # (c) play around with subsampling functions
 xgboost_hyp_param_subsmp <- 
    makeParamSet(
-    makeDiscreteParam("nrounds", values = c(200,500)), # number of trees
-    makeDiscreteParam("max_depth", values = c(1,2,3, 6)), 
-    makeDiscreteParam("eta", values = c(0.01,0.1,0.3)), 
+    makeDiscreteParam("nrounds", values = c(200, 500)), # number of trees
+    makeDiscreteParam("max_depth", values = c(1, 2, 3, 6)), 
+    makeDiscreteParam("eta", values = c(0.01, 0.1, 0.3)), 
     makeDiscreteParam("subsample", values = c(0.5, 0.8, 1)), 
     makeDiscreteParam("colsample_bytree", values = c(0.5, 0.8, 1))
     )
