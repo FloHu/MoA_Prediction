@@ -132,3 +132,21 @@ sort_unique <- function(...) {
   sort(unique(...))
 }
 
+fit_or_load <- function(varname, directory, dfm, fitting_fun, ...) {
+  # function first checks if there is a file called varname in directory 
+  # if not, runs the function fitting_fun on dfm (drug-feature matrix) 
+  # and then saves the output to disc
+  # ... = further arguments passed to fitting_fun
+  my_filename <- file.path(directory, paste0(varname, ".rds"))
+  if (file.exists(my_filename)) {
+    message("Loaded ", paste0(varname, ".rds"), " from disk")
+    return(readRDS(my_filename))
+  } else {
+    message("File not found, fitting model on ", deparse(substitute(dfm)), 
+      " using ", deparse(substitute(fitting_fun)), "\n\n")
+    my_fit <- fitting_fun(dfm, ...)
+    saveRDS(my_fit, file = my_filename)
+    message("Fitting successful, wrote file to ", my_filename)
+    return(my_fit)
+  }
+}

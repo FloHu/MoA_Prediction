@@ -5,6 +5,7 @@ knitr::opts_chunk$set(error = T)
 knitr::opts_chunk$set(cache = F)
 Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 
+ipak(magrittr)
 ipak(tidyverse)
 ipak(mlr)
 ipak(parallelMap)

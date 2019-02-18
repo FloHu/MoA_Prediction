@@ -508,13 +508,13 @@ unstable for RF.
 ## Selected ROC/precision-recall curves
 
 Random forests and lasso. 
-Moreover, take with chemical features and using all dosages. Finally, top25pct/keepall seemed to 
+Moreover, take with chemical features and using all dosages. Finally, top20pct/keepall seemed to 
 be decent feature preselections. So what do the ROC curves look like? 
 
 ```{r}
 tmp <- filter(matrix_container, 
               fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-              feat_preselect %in% c("top25pct", "keepall"), 
+              feat_preselect %in% c("top20pct", "keepall"), 
               drug_dosages == "all")
 
 plot_perf_from_container(tmp[!tmp$chemical_feats, ], what = "ROC", col_var = "feat_preselect", 
@@ -525,7 +525,7 @@ plot_perf_from_container(tmp[tmp$chemical_feats, ], what = "ROC", col_var = "fea
 ```
 
 Note: for cell_wall/dna/protein_synthesis: even though lasso and random forests are very similar 
-for total AUCs (check top25pct), ROC curve shapes and, consequently, partial AUCs (see also above) 
+for total AUCs (check top20pct), ROC curve shapes and, consequently, partial AUCs (see also above) 
 show that random forests performs a lot better. Only for membrane_stress, lasso is the clear winner. 
 But note the issue with probabilities, showing ROC curves for each repeat might still be useful. 
 
@@ -541,12 +541,12 @@ plot_perf_from_container(tmp, what = "prec-recall", col_var = "feat_preselect",
 ## Selected AUC/partial AUC comparison
 
 There may be reasons though to work without chemical features and fewer dosages (see below). This 
-would impact our performances as follows. I'm taking only top25pct and keepall for simplicity as 
+would impact our performances as follows. I'm taking only top20pct and keepall for simplicity as 
 they are the best feat_preselect cases depending on the MoA. 
 
 ```{r}
 tmp <- filter_container(matrix_container, models = c("classif.randomForest", "classif.glmnet"), 
-  dosgs = "all", feats = c("top25pct", "keepall")) %>%
+  dosgs = "all", feats = c("top20pct", "keepall")) %>%
   select(fitted_model, drug_dosages, feat_preselect, chemical_feats, perf_measures) %>%
   unnest()
 
@@ -625,6 +625,25 @@ ggplot(tmp, aes(x = n_signif, y = median_prob.moa)) +
    theme(text = element_text(size = 18)) + 
    labs(x = "Number of significant interactions", y = "Median probability for MoA for each drug", 
         title = "Probabilities (y-axis) for MoA (right side) vs. number of sign. IAs (x-axis)\n(RF, all dosages, no chem feats, keepall)")
+
+kruskal <- lapply(split(tmp3, tmp3$moa_modelled), function(x) {
+  x <- split(x$mean.median_prob.moa, x$most2interactions)
+  })
+lapply(kruskal, kruskal.test)
+
+
+so the difference is not significant - use this information
+# another idea: 
+#   remove num saturated rings feature, then rerun model to 
+#   prove point about uselessness of chemical structures
+# theme: the skeptical biological machine learner
+# überhaupt mehr statistische tests machen 
+# wichtigkeit der normalverteilungsannahme!
+# statistische berater am embl?
+# power festlegen vor test
+# viele tests: in data frame packen! (see help of wilcox.test!)
+# %<>%
+# %$%
 
 
 tmp <- filter_container(matrix_container, models = "classif.glmnet", feats = "keepall", 
@@ -711,6 +730,7 @@ ggplot(tmp3, aes(x = most2interactions, y = mean.median_prob.moa, colour = most2
    labs(title = "Effect of using 2 dosages with most interactions (= label 'TRUE')\nvs. other 
         dosages (= label 'FALSE')")
 
+tmp3
 
 tmp3 <- 
    tmp2 %>%

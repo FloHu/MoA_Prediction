@@ -156,7 +156,7 @@ extract_params_from_resultsobj <-
     get_param <- function(fold_contents, moa, param) {
       # each fold of each repeat contains model and prediction objects from which we 
       # can extract the corresponding hyperparameters
-      getLearnerModel(fold_contents[[paste0("model_", moa)]])[["learner.model"]][[param]]
+      fold_contents[[paste0("model_", moa)]][["learner.model"]][[param]]
     }
     
     access_all_folds <- function(cvrepeat, FUN, ...) {
