@@ -10,7 +10,6 @@ ipak(tidyverse)
 ipak(mlr)
 ipak(parallelMap)
 ipak(parallel)
-# newly added 2018-09-05:
 ipak(plotmo)
 ipak(reshape2)
 ipak(gplots)
@@ -26,10 +25,3 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 # change plot defaults:
 theme_set(theme_bw())
 theme_update(text = element_text(size = 12))
-
-# dynamically assign number of processors
-# if (system('hostname', intern = TRUE) == 'spinoza.embl.de') {
-#    parallelStartMulticore(cpus = 10)
-# } else {
-#    parallelStartMulticore(cpus = detectCores() - 1)
-# }

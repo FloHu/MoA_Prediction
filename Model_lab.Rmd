@@ -689,23 +689,31 @@ ggsave("./plots/Subgroup_prediction.pdf")
 ```
 
 
+# Integrate other data sets
 
-# Apply model to other data sets
-
-## Lucia's data (newsize)
+## Applying model to Lucia's data (newsize)
 
 Prepare the data.
 
 ```{r}
 # get already preprocessed data: 
-newsize <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
-newsize <- newsize$newsize.sscores
+sscores <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
+newsize <- sscores$newsize.sscores
+nichols <- sscores$nichols_2011.sscores
 
-# keep only features that are in the_matrix
+# keep only features that are in the_matrix and then sort them in the same way
 newsize <- newsize[, colnames(newsize) %in% colnames(mc_ext_dfm)]
+nichols <- nichols[, colnames(nichols) %in% colnames(mc_ext_dfm)]
+
 newsize <- 
   left_join(newsize, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
-  select(drugname_typaslab, conc, process_broad, everything())
+  select(drugname_typaslab, conc, process_broad, everything()) %>% 
+  select(colnames(mc_ext_dfm))
+
+nichols <- 
+  left_join(nichols, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
+  select(drugname_typaslab, conc, process_broad, everything()) %>% 
+  select(colnames(mc_ext_dfm))
 
 # newsize keeping only overlapping conditions (dosage also needs to be the 
 # same)
@@ -755,9 +763,200 @@ p <- plot_mcl_probs_heatmap(newsize_preds_melt, mics = mics)
 
 ggsave(filename = "./plots/Prediction_heatmap_newsize.pdf", plot = p, 
   width = 15, height = 6)
+
+# how does it compare? 
+compare_preds <- 
+  left_join(newsize_preds_melt, multicl_pred_melt, 
+    by = c("drugname_typaslab", "conc", "predicted_prob", "truth"), 
+    suffix = c(".newsize", ".nichols")) %>% 
+    select(drugname_typaslab, conc, predicted_prob, truth,  
+      prob.med.nichols, prob.med.newsize) %>% 
+    arrange(drugname_typaslab)
+
+ggplot(compare_preds, aes(x = prob.med.nichols, y = prob.med.newsize)) + 
+  geom_point() + 
+  facet_wrap( ~ predicted_prob) + 
+  geom_abline(linetype = "dotted") + 
+  xlim(0, 1) + ylim(0, 1)
+```
+
+Fraction of predictions that agree:
+
+```{r}
+agreement <- 
+  group_by(compare_preds, drugname_typaslab, conc) %>% 
+  summarise(agree = which.max(prob.med.nichols) == 
+      which.max(prob.med.newsize)) %>% 
+  print(n = 25)
+
+sum(agreement$agree) / nrow(agreement)
+```
+
+Can also define differently: if both models predict the MoA wrong, they still 
+'agree' (in the sense that both are wrong):
+
+```{r}
+agreement2 <- 
+  mutate(compare_preds, truth = as.character(truth), predicted_prob = 
+      str_extract(predicted_prob, 
+        pattern = "cell_wall|dna|membrane_stress|protein_synthesis")) %>%
+  group_by(drugname_typaslab, conc) %>%
+  summarise(agree = (which.max(prob.med.nichols) == which.max(prob.med.newsize)) | 
+      (!any(predicted_prob[c(which.max(prob.med.nichols), 
+        which.max(prob.med.newsize))] %in% truth))) %>%
+  print(n = 25)
+
+sum(agreement2$agree) / nrow(agreement2)
 ```
 
 
+## Integrate Lucia's data and refit stuff
+
+First for the four main modes:
+
+```{r}
+# rbind nichols and newsize but only add new conditions
+stopifnot({
+  ncol(nichols) == ncol(newsize)
+  all(colnames(nichols) == colnames(newsize))
+  })
+
+nichols_tomerge <- nichols 
+nichols_tomerge$source <- "NICHOLS"
+
+newsize_tomerge <- newsize
+newsize_tomerge$source <- "NEWSIZE"
+
+(merged <-  
+  newsize_tomerge %>% 
+  anti_join(nichols_tomerge, by = c("drugname_typaslab", "conc")) %>% 
+  bind_rows(nichols_tomerge) %>% 
+  select(drugname_typaslab, conc, process_broad, source, everything()) %>% 
+  group_by(drugname_typaslab) %>%
+  top_n(2, conc) %>%
+  arrange(drugname_typaslab, conc) %>% 
+  ungroup())
+
+merged_mainmodes <- filter(merged, process_broad %in% moas)
+
+table(merged_mainmodes$process_broad)
+# number of additional drugs
+nunique(merged_mainmodes$drugname_typaslab) - nunique(mc_ext_dfm$drugname_typaslab)
+View(merged_mainmodes[merged_mainmodes$drugname_typaslab %in% shared_drugs, c(1:10)])
+```
+
+```{r}
+resampled_mcl_merged <- fit_multiclass_rf_loo(data = merged_mainmodes, 
+  targetvar = "process_broad", blockingvar = "drugname_typaslab", 
+  paramlist = list(ntree = my_ntree, mtry = my_mtry), 
+  cols_to_exclude = c("drugname_typaslab", "conc", "source"))
+
+saveRDS(resampled_mcl_merged, 
+  file = "./data/programmatic_output/resampled_mcl_merged.rds")
+```
+
+Results:
+
+```{r}
+resampled_mcl_merged$aggr
+
+plot_wide_confmat(get_wide_confmat(resampled_mcl_merged), 
+  title = "Multiclass RF, LOO, Nichols + Newsize")
+
+map(moas, plot_roc_mcl, resampled_multiclass = resampled_mcl_merged)
+
+resampled_mcl_merged_melt <- melt_pred_data(resampled_mcl_merged, "multiclass")
+p <- plot_mcl_probs_heatmap(resampled_mcl_merged_melt, mics = mics)
+
+ggsave(filename = "./plots/Prediction_heatmap_integrated.pdf", plot = p, 
+  width = 15, height = 20)
+```
+
+And now for subgroups:
+
+```{r}
+table(merged$process_broad)
+
+merged_subg <- merged
+merged_subg$process_broad <- NULL
+merged_subg <- left_join(merged_subg, mode_of_action[, c("drugname_typaslab", 
+  "process_subgroup")]) %>% 
+  select(drugname_typaslab, conc, process_subgroup, everything()) %>%
+  filter(!(process_subgroup %in% c("unknown", "rna", "protein_qc"))) # not enough obs
+
+# number of observations per subgroup:
+count(merged_subg, process_subgroup)
+
+# number of drugs per subgroup:
+group_by(merged_subg, process_subgroup) %>% 
+  summarise(ndrugs = n_distinct(drugname_typaslab))
+
+resampled_mcl_merged_subg <- fit_multiclass_rf_loo(data = merged_subg, 
+  targetvar = "process_subgroup", blockingvar = "drugname_typaslab", 
+  paramlist = list(ntree = my_ntree, mtry = my_mtry), 
+  cols_to_exclude = c("drugname_typaslab", "conc", "source"))
+
+saveRDS(resampled_mcl_merged_subg, 
+  file = "./data/programmatic_output/resampled_mcl_merged_subg.rds")
+```
+
+
+```{r}
+resampled_mcl_merged_subg$aggr
+
+plot_wide_confmat(get_wide_confmat(resampled_mcl_merged_subg), 
+  title = "Multiclass RF, subgroups, LOO, Nichols + Newsize")
+
+# interestingly, folate and inner have good ROC curves even though the 
+# confusion matrix looks bad
+
+plot_roc_mcl(resampled_mcl_merged_subg, positive = "inner")
+plot_roc_mcl(resampled_mcl_merged_subg, positive = "folate")
+# whereas, for example:
+plot_roc_mcl(resampled_mcl_merged_subg, positive = "ox_stress")
+
+# let's check: 
+as.data.frame(resampled_mcl_merged_subg$pred) %>% 
+  filter(truth %in% c("inner", "folate", "ox_stress")) %>% 
+  print(n = 100)
+```
+
+
+Predicting unknown drugs:
+
+```{r}
+# Retrain 'old' model but only with non-overlapping drugs
+# training in mlr: call train() on a learner + suitable task
+production_data <- merged_mainmodes
+production_data$process_broad %<>% factor()
+my_rle <- rle(production_data$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+
+production_task <- makeClassifTask(data = production_data[, -c(1, 2, 4)], 
+  target = "process_broad", blocking = my_blocks)
+
+production_learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+
+production_model <- train(learner = production_learner, task = production_task)
+
+getLearnerModel(production_model)
+
+sort(unlist(getFeatureImportance(production_model)$res), decreasing = TRUE) %>% 
+  head(n = 20)
+```
+
+Predict with retrained model.
+
+```{r}
+(unknown_data <- filter(merged, process_broad == "unknown"))
+(unknown_preds <- predict(production_model, newdata = unknown_data))
+performance(unknown_preds, measures = mmce)
+
+unknown_preds$data <- as_tibble(cbind(unknown_data[, c(1, 2, 4)], 
+  as.data.frame(unknown_preds)))
+View(unknown_preds$data)
+```
 
 
 # Session info 
