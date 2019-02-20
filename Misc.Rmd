@@ -26,7 +26,7 @@ source("./R/ipak.R")
 source("./setup.R")
 knitr::opts_chunk$set(cache = TRUE)
 
-matrix_container = readRDS("./data/programmatic_output/matrix_container_ext.rds")
+# matrix_container = readRDS("./data/programmatic_output/matrix_container_ext.rds")
 library(plotmo)
 library(reshape2)
 library(gplots)
@@ -188,22 +188,31 @@ ggsave("./plots/ROC_curve_flashtalk.pdf", width = 5, height = 5)
 ### S-score distribution
 
 ```{r, posterplots_Madrid_I}
-the_matrix_melted_moainfo <- readRDS("./data/programmatic_output/the_matrix_melted_moainfo.rds")
+# the_matrix_melted_moainfo <- readRDS("./data/programmatic_output/the_matrix_melted_moainfo.rds")
+tmp <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")
+tmp <- tmp$nichols_2011
+moa <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
 
-tmp <- 
-   filter(the_matrix_melted_moainfo, gene_synonym == "RECA") %>%
-   mutate(is_dna = process_broad == "dna") %>%
-   arrange(s_score)
+tmp <- left_join(tmp, moa[, c("drugname_typaslab", "process_broad")]) %>%
+  filter(gene_synonym == "RECA") %>%
+  mutate(is_dna = process_broad == "dna") %>%
+  arrange(sscore)
 
-ggplot(tmp, aes(x = s_score)) + 
+ggplot(tmp, aes(x = sscore)) + 
    geom_histogram(aes(fill = is_dna), binwidth = 0.3) + 
    theme_bw() + 
-   labs(x = "Relative fitness score", y = "Count", 
-        title = "Relative fitness scores for recA mutant\nacross >300 drug-concentration combinations") + 
-   scale_fill_manual("Cellular target", values = c("#bababa", "#fdb863"), labels = c("Other", "DNA")) + 
-   theme(text = element_text(size = 18))
+   labs(x = expression(paste("Relative fitness of ", Delta, italic(recA))), 
+     y = "Number of conditions", 
+     title = expression(paste("Fitness of ", Delta, italic(recA), 
+       " across >300 conditions"))) + 
+   scale_fill_manual("Compound target:", values = c("#bababa", "#fd8d3c"), 
+     labels = c("DNA", "Other"), breaks = c(1, 0)) + 
+   theme(text = element_text(size = 16), legend.position = c(0.1, 0.75), 
+     legend.justification = c("left", "bottom"), legend.background = 
+       element_blank())
 
-ggsave(filename = "./plots/POSTER_sscores.pdf", width = 7.5, height = 5)
+ggsave(filename = "./plots/GB_seminar/Sscores_recA.pdf", width = 5.5, height = 4.5)
+
 ```
 
 

@@ -89,7 +89,7 @@ mode_of_action <- mode_of_action[, c("drug", "moa_broad", "moa_subgroup",
 colnames(mode_of_action) <- c("drugname_typaslab", "process_broad", 
   "process_subgroup", "dataset")
 mode_of_action <- mode_of_action[1:153, ]
-mode_of_action_complete <- mode_of_action
+write_csv(mode_of_action, path = file.path(outdir, "drug_moa_userfriendly.csv"))
 
 stopifnot(all(!duplicated(mode_of_action$drugname_typaslab)))
 ```
@@ -476,14 +476,71 @@ Make hierarchical clustering
 feats_cor_high <- feats_cor[high_cor_genes, high_cor_genes]
 feats_cor_high_d <- as.dist(1 - feats_cor_high)
 
-pdf("./plots/correlated_feats.pdf", width = 14, height = 14)
-heatmap.2(feats_cor_high, 
-  trace = "none", 
-  Rowv = as.dendrogram(hclust(feats_cor_high_d)), 
-  symm = TRUE, 
-  dendrogram = "both", 
-  cexRow = 0.5)
-dev.off()
+my_distfun <- function(x) {as.dist(1 - x)}
+
+# in the heatmap function below we want to split the dendrogram into nclust 
+# clusters
+# problem: the ordering of the clusters will be messed up as it follows the 
+# levels of the output of cutree by default 
+# however, we want it in the same order as the dendrogram: 
+
+h <- hclust(feats_cor_high_d)
+# now this is the order as in the dendrogram:
+(dend_order <- rev(h$labels[order.dendrogram(as.dendrogram(h))]))
+# dend_order %<>% factor(levels = dend_order)
+
+nclust <- 23
+clusters <- cutree(hclust(feats_cor_high_d), k = nclust)
+my_split <- clusters
+# usually clusters in Heatmap() would order stuff sorted by levels 1, 2, 3, ... 
+# but if we subset first with dend_order we can put the levels in the right 
+# order
+my_split %<>% factor(levels = clusters[dend_order][!duplicated(clusters[dend_order])])
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+# almost right!
+Heatmap(feats_cor_high, 
+  col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
+  name = "Spearman's ρ", 
+  row_dend_side = "right", 
+  column_names_side = "top", 
+  clustering_distance_rows = my_distfun, 
+  clustering_distance_columns = my_distfun, 
+  row_names_gp = gpar(fontsize = 6), 
+  column_names_gp = gpar(fontsize = 6), 
+  show_column_dend = TRUE, 
+  cluster_rows = TRUE, 
+  split = my_split)
+
+# this! :)
+my_split2 <- my_split[order(my_split, rev(names(my_split)))]
+
+Heatmap(feats_cor_high, 
+  col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
+  name = "Spearman's ρ", 
+  row_dend_side = "right", 
+  column_names_side = "top", 
+  clustering_distance_rows = my_distfun, 
+  clustering_distance_columns = my_distfun, 
+  row_names_gp = gpar(fontsize = 6), 
+  column_names_gp = gpar(fontsize = 6), 
+  cluster_rows = FALSE, 
+  cluster_columns = FALSE, 
+  column_order = rev(dend_order), 
+  # row_order = rev(dend_order), 
+  split = my_split)
+
+
+# pdf("./plots/correlated_feats.pdf", width = 14, height = 14)
+# heatmap.2(feats_cor_high, 
+#   trace = "none", 
+#   Rowv = as.dendrogram(hclust(feats_cor_high_d)), 
+#   symm = TRUE, 
+#   dendrogram = "both", 
+#   cexRow = 0.5)
+# dev.off()
 ```
 
 [Link]("./plots/correlated_feats.pdf"). 
@@ -491,8 +548,6 @@ dev.off()
 Looks like 23 clusters is a good number to capture similar groups. 
 
 ```{r}
-nclust <- 23
-clusters <- cutree(hclust(feats_cor_high_d), k = nclust)
 clusters[order(clusters)]
 clusters <- tibble(clust_id = clusters, members = names(clusters)) %>%
   group_by(clust_id) %>%

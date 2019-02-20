@@ -18,6 +18,7 @@ ipak(plotly)
 ipak(ComplexHeatmap)
 ipak(circlize)
 ipak(googledrive)
+ipak(viridis)
 
 #Custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
@@ -25,3 +26,4 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 # change plot defaults:
 theme_set(theme_bw())
 theme_update(text = element_text(size = 12))
+
