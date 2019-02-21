@@ -474,34 +474,45 @@ Make hierarchical clustering
 
 ```{r}
 feats_cor_high <- feats_cor[high_cor_genes, high_cor_genes]
+# since we're only merging positively correlated features
 feats_cor_high_d <- as.dist(1 - feats_cor_high)
 
-my_distfun <- function(x) {as.dist(1 - x)}
-
-# in the heatmap function below we want to split the dendrogram into nclust 
-# clusters
-# problem: the ordering of the clusters will be messed up as it follows the 
-# levels of the output of cutree by default 
-# however, we want it in the same order as the dendrogram: 
-
-h <- hclust(feats_cor_high_d)
-# now this is the order as in the dendrogram:
-(dend_order <- rev(h$labels[order.dendrogram(as.dendrogram(h))]))
-# dend_order %<>% factor(levels = dend_order)
+(h <- hclust(feats_cor_high_d))
+(d <- as.dendrogram(h))
+# this is the order as in the dendrogram:
+h$labels[order.dendrogram(d)] # order() not dispatch - why?
+# easier:
+dend_labels <- labels(d)
 
 nclust <- 23
-clusters <- cutree(hclust(feats_cor_high_d), k = nclust)
-my_split <- clusters
-# usually clusters in Heatmap() would order stuff sorted by levels 1, 2, 3, ... 
-# but if we subset first with dend_order we can put the levels in the right 
-# order
-my_split %<>% factor(levels = clusters[dend_order][!duplicated(clusters[dend_order])])
+(clusters <- cutree(h, k = nclust))
 
 min_col <- plasma(2)[1]
 max_col <- plasma(2)[2]
 
-# almost right!
-Heatmap(feats_cor_high, 
+# before splitting into nclust clusters:
+p <- Heatmap(feats_cor_high, 
+  col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
+  name = "Spearman's ρ", 
+  row_dend_side = "right", 
+  column_names_side = "top", 
+  clustering_distance_rows = my_distfun, # not needed here, for me to remember
+  clustering_distance_columns = my_distfun, 
+  row_names_gp = gpar(fontsize = 6), 
+  column_names_gp = gpar(fontsize = 6), 
+  cluster_columns = d, # alternatively set to TRUE - same outcome
+  cluster_rows = d) # because also accepts hclust and dendrogram objects
+
+p
+pdf("./plots/Correlated_feats.pdf", width = 14, height = 14)
+p
+dev.off()
+
+# simply running the command above and providing an argument to split will 
+# mess up the order of the clusters
+# therefore, need to turn off column clustering and manually pass the order 
+# of the labels, which are contained in dend_order
+p <- Heatmap(feats_cor_high, 
   col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
   name = "Spearman's ρ", 
   row_dend_side = "right", 
@@ -510,37 +521,16 @@ Heatmap(feats_cor_high,
   clustering_distance_columns = my_distfun, 
   row_names_gp = gpar(fontsize = 6), 
   column_names_gp = gpar(fontsize = 6), 
-  show_column_dend = TRUE, 
-  cluster_rows = TRUE, 
-  split = my_split)
+  cluster_columns = FALSE,
+  column_order = rev(dend_order),
+  cluster_rows = d, 
+  split = nclust)
 
-# this! :)
-my_split2 <- my_split[order(my_split, rev(names(my_split)))]
+p
+pdf("./plots/Correlated_feats_splitup.pdf", width = 14, height = 14)
+p
+dev.off()
 
-Heatmap(feats_cor_high, 
-  col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
-  name = "Spearman's ρ", 
-  row_dend_side = "right", 
-  column_names_side = "top", 
-  clustering_distance_rows = my_distfun, 
-  clustering_distance_columns = my_distfun, 
-  row_names_gp = gpar(fontsize = 6), 
-  column_names_gp = gpar(fontsize = 6), 
-  cluster_rows = FALSE, 
-  cluster_columns = FALSE, 
-  column_order = rev(dend_order), 
-  # row_order = rev(dend_order), 
-  split = my_split)
-
-
-# pdf("./plots/correlated_feats.pdf", width = 14, height = 14)
-# heatmap.2(feats_cor_high, 
-#   trace = "none", 
-#   Rowv = as.dendrogram(hclust(feats_cor_high_d)), 
-#   symm = TRUE, 
-#   dendrogram = "both", 
-#   cexRow = 0.5)
-# dev.off()
 ```
 
 [Link]("./plots/correlated_feats.pdf"). 

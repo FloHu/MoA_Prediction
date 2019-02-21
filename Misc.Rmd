@@ -27,17 +27,17 @@ source("./setup.R")
 knitr::opts_chunk$set(cache = TRUE)
 
 # matrix_container = readRDS("./data/programmatic_output/matrix_container_ext.rds")
-library(plotmo)
-library(reshape2)
-library(gplots)
-library(gridExtra)
-library(plotly)
-library(ComplexHeatmap)
-library(viridis)
-library(circlize)
-library(gplots)
-library(RColorBrewer)
-library(forcats)
+# library(plotmo)
+# library(reshape2)
+# library(gplots)
+# library(gridExtra)
+# library(plotly)
+# library(ComplexHeatmap)
+# library(viridis)
+# library(circlize)
+# library(gplots)
+# library(RColorBrewer)
+# library(forcats)
 ```
 
 # Miscellaneous analyses
@@ -277,46 +277,58 @@ ggsave("./plots/POSTER_conc_per_drug.pdf", width = 6.5, height = 4.8)
 
 
 
-## Nichols data: heatmaps and custom "sub heatmaps" (Euclidean and (1-corr))
+## Nichols data: heatmaps and custom "sub heatmaps"
 
-Heatmap with all genes and all conditions, Euclidean distance:
+Heatmap with all genes and all conditions, from matrix_container:
 
 ```{r}
-# take a drug_feature_matrix w/o chemical features from "keepall" and using all dosages
-tmp <- as.data.frame(matrix_container$drug_feature_matrices[[1]])
+m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
+# add information about number of occurrences:
+m$n_dosg <- rep(rle(m$drugname_typaslab)$lengths, 
+  rle(m$drugname_typaslab)$lengths)
 
-moa_to_colour <- c(cell_wall = "#a6cee3",
-                   dna = "#1f78b4",
-                   protein_synthesis = "#b2df8a",
-                   membrane_stress = "#33a02c",
-                   pmf = "#bababa", protein_qc = "#bababa", oxidative_stress = "#bababa", 
-                   unknown = "#bababa")
-rowcols <- moa_to_colour[tmp$process_broad]
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+  membrane_stress =  "#7570b3", protein_synthesis = "#e7298a")
 
-tmp.bak <- tmp
-tmp$drugname_typaslab <- paste(tmp$drugname_typaslab, tmp$conc, sep = "_")
-row.names(tmp) <- tmp$drugname_typaslab
-tmp[, c("drugname_typaslab", "conc", "process_broad")] <- NULL
-tmp_m <- as.matrix(tmp)
-tmp_m_dist <- dist(tmp_m, method = "euclidean")
-tmp_m_dist <- as.dist((1 - cor(t(tmp_m))))
+# ComplexHeatmap seems to have problems with tibbles! 
+dfr <- as.data.frame(m[, c("process_broad")])
 
-pdf("./plots/Heatmap_alldrugs_allconds_euclid.pdf", width = 140, height = 30)
-heatmap.2(tmp_m, 
-          trace = "none", 
-          Rowv = as.dendrogram(hclust(tmp_m_dist)), 
-          RowSideColors = rowcols, 
-          margins = c(12, 9), 
-          dendrogram = "row", 
-          breaks = seq(from = -5, to = 5, by = 1),  
-          col = rev(heat.colors(n = 10)), 
-          main = "")
-legend("top", 
-       legend = names(moa_to_colour), 
-       col = moa_to_colour, 
-       lty = 1, 
-       lwd = 5, 
-       cex = 0.5)
+row_annot <- HeatmapAnnotation(df = dfr, 
+  col = list(process_broad = moa_cols), which = "row", 
+  name = "MoA", annotation_width = 2)
+row_annot
+draw(row_annot, 1:10)
+
+rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
+  m$n_dosg, ")")
+m <- select(m, -drugname_typaslab, -conc, -process_broad, -n_dosg) %>%
+  as.matrix()
+m[1:5, 1:5]
+
+my_distfun <- function(x, y) {1 - abs(cor(x, y))}
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = m, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  clustering_distance_rows = my_distfun, 
+  clustering_distance_columns = my_distfun, 
+  column_names_side = "top", 
+  row_names_side = "right", 
+  row_dend_side = "right", 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 3)) + row_annot
+
+png("./plots/Heatmap_thematrix_all_corrdist.png", width = 1920, 
+  height = 960)
+h
+dev.off()
+
+pdf("./plots/Heatmap_thematrix_all_corrdist.pdf", width = 130, 
+  height = 30)
+h
+
 dev.off()
 ```
 
