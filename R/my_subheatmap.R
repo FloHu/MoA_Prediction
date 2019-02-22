@@ -8,15 +8,11 @@ my_subheatmap <- function(drugfeat_m, drugs, genes, ncolors = 70, palette = "civ
    stopifnot(is.numeric(drugfeat_m))
    stopifnot(is.matrix(drugfeat_m))
    
-   if (any(range(nchar(colnames(drugfeat_m))) > 4)) {
-      stop("Error: it looks like gene names are in the columns, not the rows.")
-   }
-   
    # get rows and columns
-   drugpattern = paste(drugs, collapse = "|")
-   genepattern = paste(genes, collapse = "|")
-   drugfeat_m <- drugfeat_m[grepl(pattern = drugpattern, x = row.names(drugfeat_m)), 
-                            grepl(pattern = genepattern, x = colnames(drugfeat_m)), 
+   drugpattern = tolower(paste(drugs, collapse = "|"))
+   genepattern = tolower(paste(genes, collapse = "|"))
+   drugfeat_m <- drugfeat_m[grepl(pattern = drugpattern, x = tolower(row.names(drugfeat_m))), 
+                            grepl(pattern = genepattern, x = tolower(colnames(drugfeat_m))), 
                             drop = FALSE]
    
    if (!all(dim(drugfeat_m) >= 2)) {
@@ -38,9 +34,7 @@ my_subheatmap <- function(drugfeat_m, drugs, genes, ncolors = 70, palette = "civ
    }
    
    # our distance function
-   distfun <- function(x, y) {
-      sqrt(1 - abs(cor(x, y)))
-   }
+   distfun <- function(x, y) {1 - abs(cor(x, y))}
    
    # to label cells
    cell_fun = function(j, i, x, y, width, height, fill) {
