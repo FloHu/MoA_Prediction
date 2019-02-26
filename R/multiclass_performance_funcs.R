@@ -25,10 +25,9 @@ plot_wide_confmat <- function(wide_confmat, title) {
   ggplot(wide_confmat, aes(x = predicted, y = true)) + 
     geom_tile(aes(fill = byclass_recall)) + 
     geom_text(aes(label = n_obs)) + 
-    labs(x = "Predicted class, colours = recall/false-negative rate
-      (normalisation by row)", 
-      y = "True class", title = title) + 
-    theme(axis.text.x = element_text(angle = 45, hjust = 0)) + 
+    labs(x = "Predicted label", y = "True label", title = title) + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 0), 
+      text = element_text(size = 14)) + 
     scale_x_discrete(position = "top") + 
     scale_fill_brewer()
 }

@@ -84,26 +84,44 @@ compare_probabilities <- function(l) {
     warning("Unnamed elements present, generated names ", names(l))
   }
   
+  moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+    membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+  moa_repl <- c(cell_wall = "Cell Wall", dna = "DNA", 
+    membrane_stress = "Membrane Stress", protein_synthesis = "Protein Synthesis")
+  facet_labels <- c(
+    "prob.cell_wall" = "P(Cell Wall)", 
+    "prob.dna" = "P(DNA)", 
+    "prob.membrane_stress" = "P(Membrane Stress)", 
+    "prob.protein_synthesis" = "P(Protein Synthesis)"
+  )
+  
   xlab <- names(l[1])
   ylab <- names(l[2])
   
+
   ## can't provide proper suffixes here because ggplot() has problem parsing strings with commas
   joined <- inner_join(l[[xlab]], l[[ylab]], by = c("conc", "predicted_prob", "truth", 
     "drugname_typaslab"), suffix = c(".x", ".y"))
   
   p <- ggplot(joined, aes(x = prob.med.x, y = prob.med.y, colour = truth)) + 
-    geom_point() + 
-    facet_wrap( ~ predicted_prob, ncol = 2) + 
+    geom_point(shape = 1) + 
+    facet_wrap( ~ predicted_prob, ncol = 2, labeller = labeller(
+      predicted_prob = facet_labels
+    )) + 
     geom_abline(slope = 1, intercept = 0) + 
-    labs(x = paste0("Prediction probs ", xlab), y = paste0("Prediction probs ", ylab), 
+    labs(x = paste0("Probabilities: ", xlab), y = paste0("Probabilities: ", ylab), 
       title = "Comparison of predicted probabilities") + 
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
-    coord_fixed()
+    # coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    coord_fixed() + 
+    scale_colour_manual("Target process", labels = moa_repl[names(moa_cols)], 
+      values = moa_cols) + 
+    scale_x_continuous(limits = c(0, 1)) + 
+    scale_y_continuous(limits = c(0, 1))
   
-  corrs <- by(joined, joined$predicted_prob, function(data) {
-    cor(data[["prob.med.x"]], data[["prob.med.y"]], method = "spearman")
-  })
-  
+  corrs <- group_by(joined, predicted_prob) %>% 
+    summarise(spearman = cor(x = prob.med.x, y = prob.med.y, method = "spearman"), 
+      pval = cor.test(x = prob.med.x, y = prob.med.y, method = "spearman")$p.value)
+
   return(list(joined = joined, plot = p, spearman_corrs = corrs))
 }
 

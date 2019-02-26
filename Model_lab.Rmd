@@ -30,8 +30,14 @@ resultsdir <- "./run_results_from_server/matrix_container_result_2019"
 
 mc_ext <- readRDS(file.path(datadir, "matrix_container_ext_2019.rds"))
 mc_ext$feat_preselect %<>% as.character()
-moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-moa_cols <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")
+
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+moas <- names(moa_cols)
+
+moa_repl <- c(cell_wall = "Cell Wall", dna = "DNA", 
+  membrane_stress = "Membrane Stress", protein_synthesis = "Protein Synthesis")
+
 my_moa <- "cell_wall"
 ```
 
@@ -46,10 +52,11 @@ well.
 
 ```{r}
 (the_line <- which(mc_ext$fitted_model == "classif.randomForest" & 
-    mc_ext$feat_preselect == "top20pct" & 
+    mc_ext$feat_preselect == "top15pct" & 
     !mc_ext$chemical_feats &
     mc_ext$drug_dosages == "all"))
 stopifnot(length(the_line) == 1)
+save(the_line, file = "./data/programmatic_output/the_line.RData")
 
 mc_ext_sub <- mc_ext[the_line, ]
 mc_ext_dfm <- mc_ext$drug_feature_matrices[[the_line]]
@@ -67,6 +74,7 @@ mc_ext_sub %>%
 
 # retrieve our results object:
 chosen_res <- readRDS(file.path(resultsdir, make_filename(mc_ext[the_line, ])))
+saveRDS(chosen_res, file = "./data/programmatic_output/chosen_res.rds")
 
 # mmces:
 main_mmces <- map(moas, function(moa) {
@@ -116,8 +124,8 @@ lapply(all_mtrys, table)
 
 
 ```{r}
-my_ntree <- 1000
-my_mtry <- 111
+my_ntree <- 500
+my_mtry <- 18
 ```
 
 
@@ -185,12 +193,14 @@ prob_comparison <- compare_probabilities(list("Multiclass" = multicl_pred_melt,
   "1-vs-rest" = onevsall_pred_melt))
 prob_comparison$plot
 prob_comparison$spearman_corrs
+
+ggsave("./plots/Compare_probs_multi-vs-1vsrest.pdf", width = 6, height = 5)
 ```
 
 
 ### Comparing multi-class feature importances with 1-vs-rest feature importances
 
-Note that the importance is not too high: which is perhaps not too surprising 
+Note that the correlation is not too high: which is perhaps not too surprising 
 because some features will be considered importance in the multi-class model 
 but might be considered important in only *one* 1-vs-rest model.
 
@@ -198,10 +208,12 @@ but might be considered important in only *one* 1-vs-rest model.
 (feat_imps_multi <- summarise_feat_imps(get_feat_imps(resampled_mcl_loo)))
 (feat_imps_1vsrest <- summarise_feat_imps(get_feat_imps(chosen_res)))
 
-(tmp <- left_join(feat_imps_multi, feat_imps_1vsrest[, c("moa", "gene", "median_importance")], 
+(tmp <- left_join(feat_imps_multi, 
+  feat_imps_1vsrest[, c("moa", "gene", "median_importance")], 
   by = "gene", suffix = c("_multi", "_1vsall")))
 
-ggplot(tmp, aes(x = log2(median_importance_1vsall), y = log2(median_importance_multi))) + 
+ggplot(tmp, aes(x = log2(median_importance_1vsall), 
+  y = log2(median_importance_multi))) + 
   geom_point() + 
   facet_wrap( ~ moa) + 
   labs(title = "Comparison of feature importances 1-vs-all and multi-class model")
@@ -225,7 +237,9 @@ we get more errors from aggregation?
 However, ROC curves look similar to old models, or even better. 
 
 ```{r}
-map(moas, plot_roc_mcl, resampled_multiclass = resampled_mcl_loo)
+plot_roc_mcl(resampled_multiclass = resampled_mcl_loo, positives = moas)
+ggsave("./plots/ROC_MULTICLASS_RF_top15pct_all_nochem.pdf", width = 7, 
+  height = 4.5)
 ```
 
 
@@ -234,6 +248,7 @@ map(moas, plot_roc_mcl, resampled_multiclass = resampled_mcl_loo)
 ```{r}
 (cm <- get_wide_confmat(resampled_mcl_loo))
 plot_wide_confmat(cm, title = "Multiclass, 4 main modes, LOO")
+ggsave("./plots/Confusion_matrix_mainmodes_LOO.pdf", width = 6, height = 5)
 ```
 
 
@@ -244,8 +259,8 @@ From Kuhn, chapter 11, p294ff.: probability calibration plot.
 ```{r}
 # 10 bins with probabilities from 0 - 100, compare with actually observed frequencies
 # one plot per MoA (?) - in Kuhn book: only use this for binary classification
-plot_prob_calib(resampled_mcl_loo, title = "'naive' multi-class model")
-ggsave("./plots/Probability_calibration_LOO.pdf")
+plot_prob_calib(resampled_mcl_loo, title = "LOO multi-class model")
+ggsave("./plots/Probability_calibration_LOO.pdf", width = 5, height = 5)
 ```
 
 
@@ -436,7 +451,7 @@ p <- plot_mcl_probs_lines(multicl_pred_melt_micinfo, labels = moas,
 p <- p + geom_text(data = helper_frame, aes(x = 1, y = 0.9, label = label), 
       hjust = 0, inherit.aes = FALSE)
 
-ggsave(filename = "./plots/Multiclass_probabilities_LOO.pdf", 
+ggsave(filename = "./plots/Probability_lines_multiclass_LOO.pdf", 
   plot = p, width = 30, height = 20)
 ```
 
@@ -446,8 +461,8 @@ Heatmap display:
 
 ```{r}
 plot_mcl_probs_heatmap(melted_pred_data = multicl_pred_melt, mics = mics) %>% 
-  ggsave(filename = "./plots/Multiclass_probabilities_LOO_heatmap.pdf", 
-  width = 20, height = 20)
+  ggsave(filename = "./plots/Probability_heatmap_multiclassLOO.pdf", 
+    width = 20, height = 20)
 ```
 
 <a href="./plots/Multiclass_probabilities_LOO_heatmap.pdf">LINK</a>
@@ -509,8 +524,8 @@ class(chosen_res)
 For example, random forests without and with chemical features.
 
 ```{r}
-model1 <- mc_ext[7, ]
-model2 <- mc_ext[8, ]
+model1 <- mc_ext[5, ]
+model2 <- mc_ext[6, ]
 
 compare_onevsrest_models(model1 = model1, model2 = model2, 
   model1_title = "RF without chem. feats", 
@@ -638,11 +653,11 @@ multicl_2highest_melt <- melt_pred_data(resampled_mcl_loo_2highest,
 
 plot_mcl_probs_lines(multicl_2highest_melt, labels = moas, colours = moa_cols, 
   printplot = FALSE) %>%
-  ggsave(filename = "./plots/Multiclass_probabilities_LOO_2highest.pdf", 
+  ggsave(filename = "./plots/Prediction_lines_LOO_2highest.pdf", 
     width = 30, height = 20)
 
 plot_mcl_probs_heatmap(melted_pred_data = multicl_2highest_melt, mics = mics) %>% 
-  ggsave(filename = "./plots/Multiclass_probabilities_LOO_2highest_heatmap.pdf", 
+  ggsave(filename = "./plots/Prediction_heatmap_LOO_2highest_heatmap.pdf", 
   width = 20, height = 20)
 ```
 
@@ -663,13 +678,18 @@ table(mode_of_action$process_subgroup)
 
 
 ```{r}
-# use same top20pct data frame, but could also try with keepall just to try 
 (mc_ext_dfm_subgr <- 
   select(mc_ext_dfm, -process_broad) %>%
   left_join(mode_of_action[, c("drugname_typaslab", "process_subgroup")]) %>%
   select(drugname_typaslab, conc, process_subgroup, everything()))
 
+# conditions
 table(mc_ext_dfm_subgr$process_subgroup)
+# considering only distinct drugs
+mc_ext_dfm_subgr %>%
+  select(drugname_typaslab, conc, process_subgroup) %>%
+  distinct(drugname_typaslab, .keep_all = TRUE) %$%
+  table(process_subgroup)
 
 resampled_mcl_loo_subg <- 
   fit_multiclass_rf_loo(data = mc_ext_dfm_subgr, targetvar = "process_subgroup", 

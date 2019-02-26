@@ -26,40 +26,42 @@ source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
 knitr::opts_chunk$set(cache = TRUE)
+
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+moas <- names(moa_cols)
 ```
 
 # Aim
 
-To generate a report of performances, prediction probabilities for each drug, and feature 
-importances. Use most important features to get a fingerprint for a MoA and generate 
-heatmaps and PCA/tSNE/MDS maps.
+To generate a report of performances, prediction probabilities for each drug, 
+and feature importances. Use most important features to get a fingerprint for a 
+MoA and generate heatmaps and PCA/tSNE/MDS maps.
 
-# Report
+# One-vs-rest models
 
-## Which models are we talking about?
+## Read in data
 
-We will focus on random forests, top25pct, no chemical features, all dosages. 
+Make sure to run Model_lab.Rmd first.
 
 ```{r input_data}
-matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
-chosen_res <- filter_container(matrix_container, dosgs = "all", feats = "top25pct", 
-  chemfeats = FALSE, models = "classif.randomForest")
-stopifnot(nrow(chosen_res) == 1)
-chosen_res
-drugnfeats <- chosen_res$drug_feature_matrices[[1]]
-res_obj <- get_resobj_from_row(chosen_res, dir = "./run_results_from_server/matrix_container_result/")
+matrix_container <- 
+  readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
+chosen_res <- readRDS("./data/programmatic_output/chosen_res.rds")
+(load("./data/programmatic_output/the_line.RData"))
+drugnfeats <- matrix_container$drug_feature_matrices[[the_line]]
+mc_chosen <- matrix_container[the_line, ]
 
-moas <- c("cell_wall", "dna", "protein_synthesis", "membrane_stress")
-moa_colours <- c("cell_wall" = "#984ea3", "dna" = "#4daf4a", "membrane_stress" = "#377eb8", 
-  "protein_synthesis" = "#e41a1c", "oxidative_stress" = "#636363", "protein_qc" = "#252525", 
-  "pmf" = "#969696")
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+moas <- names(moa_cols)
 ```
 
-## What are the performances?
+## Performances
 
 ```{r}
-plot_perf_from_container(chosen_res, what = "ROC")
-plot_perf_from_container(chosen_res, what = "prec-recall")
+plot_perf_from_container(mc_chosen, what = "ROC")
+plot_perf_from_container(mc_chosen, what = "prec-recall")
 ```
 
 ## How are prediction probabilities distributed? 
@@ -67,35 +69,48 @@ plot_perf_from_container(chosen_res, what = "prec-recall")
 ### Dosage with highest probability
 
 ```{r, fig.height = 10}
-walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+walk(moas, plot_highest_probs, pred_data_obj = mc_chosen$pred_data[[1]], 
   dosg_to_plot = "highest_prob")
 ```
 
 ### All dosages
 
 ```{r, fig.height = 20}
-walk(moas, plot_highest_probs, pred_data_obj = chosen_res$pred_data[[1]], 
+walk(moas, plot_highest_probs, pred_data_obj = mc_chosen$pred_data[[1]], 
   dosg_to_plot = "all")
 ```
 
 ## Feature importances
 
 ```{r}
-feat_imps <- get_feat_imps(res_obj)
+feat_imps <- get_feat_imps(chosen_res)
 head(feat_imps)
 
 feat_imps_s <- summarise_feat_imps(feat_imps)
+feat_imps_s$med_imp_log2 <- log2(feat_imps_s$med_imp)
 head(feat_imps_s)
 ```
 
 Plot feature distributions across all nested CV repeats.
 
 ```{r}
-fingerprint25 <- get_fingerprint(feat_imps_s, top_n = 25)
+my_top35 <- get_fingerprint(feat_imps_s, top_n = 35)
 
-plot_importance_distribs(feat_imps = feat_imps, fingerprint = fingerprint25, 
-  title = "Feature importances for random forests models, 
-  25 most important features per MoA (no chem. feats, top25pct)")
+imp_list <- plot_importance_distribs(feat_imps = feat_imps, 
+  fingerprint = my_top35)
+
+with(imp_list, grid.arrange(cell_wall$plot, dna$plot, membrane_stress$plot, 
+  protein_synthesis$plot, ncol = 2))
+```
+
+Very subjective way of defining a fingerprint:
+
+```{r}
+my_fingerprint <- c("MRCB", "YCFM", "SLT", "DDLB", "ASMA", 
+  "RECC", "RECA", "HUPA", 
+  "YRAP", "ISCR", "MALS", "SURA", "FADD", "LPCA_and_3_more", "RBFA", "PLDB", "IDND", 
+  "DGKA", "ISPA", "RYFC", "MUTS", "SUCD", "YHDL", "KSGA", "PGPA", "FADD", "DKSA")
+length(my_fingerprint)
 ```
 
 
@@ -110,23 +125,42 @@ ggplot(feat_imps_s, aes(x = moa)) +
 
 Feature importances, broken down by the number of models they appear in:
 
+Untransformed
+
 ```{r}
 feat_imps_s %>%
-  ggplot(aes(x = log2(median_importance))) + 
-  geom_histogram(aes(fill = pct_models_bin)) + 
+  ggplot(aes(x = med_imp)) + 
+  geom_histogram(aes(fill = pct_models_bin), alpha = 0.8) + 
+  facet_wrap( ~ moa, scales = "free")
+```
+
+Log2
+
+```{r}
+feat_imps_s %>%
+  ggplot(aes(x = med_imp_log2)) + 
+  geom_histogram(aes(fill = pct_models_bin), alpha = 0.8) + 
   facet_wrap( ~ moa)
 ```
 
-Let's pull out all genes with a log2(median_importance) > -2.5 and then display 
-it with tSNE. 
 
 ```{r}
-fingerprint_log2 <- get_fingerprint(feat_imps_s, log2thresh = -2.5)
-head(fingerprint_log2)
-length(unique(fingerprint_log2$gene))
+feat_imps_s %>%
+  ggplot(aes(x = med_imp_log2)) + 
+  geom_histogram(aes(fill = pct_models_bin), alpha = 0.8)
+
+IQR(log2(feat_imps_s$median_importance))
+fivenum(log2(feat_imps_s$median_importance))
+```
+
+
+```{r}
+# fingerprint_log2 <- get_fingerprint(feat_imps_s, log2thresh = -2)
+# head(fingerprint_log2)
+# length(unique(fingerprint_log2$gene))
 
 tsne_mat <- select(drugnfeats, drugname_typaslab, process_broad, 
-  unique(fingerprint_log2$gene))
+  my_fingerprint)
 tsne_mat$process_broad <- factor(tsne_mat$process_broad)
 set.seed(5)
 tsne_res = Rtsne::Rtsne(X = tsne_mat[, -c(1,2)], dims = 3, perplexity = 10, 
@@ -137,19 +171,20 @@ plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad,
 colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
 
 p1 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
-  colors = moa_colours[levels(tsne_mat$process_broad)], 
-  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>% 
   add_markers(text = ~drug) %>% 
-  layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
+  layout(title = "Fingerprint tSNET map", scene = list(xaxis = list(title = 'tSNE1'), 
     yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
 p1
 
-save(p1, file = "./plots/tSNE_v2_morefeats.RData")
+save(p1, file = "./plots/tSNE_one-vs-rest_fingerprint.RData")
 ```
 
 Try same thing with stricter threshold.
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
 fingerprint_log2_strict <- get_fingerprint(feat_imps_s, log2thresh = 0)
 head(fingerprint_log2_strict)
 length(unique(fingerprint_log2_strict$gene))
@@ -167,13 +202,78 @@ colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
 
 p2 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
   colors = moa_colours[levels(tsne_mat$process_broad)], 
-  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', width = 1.5))) %>% 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>% 
   add_markers(text = ~drug) %>% 
   layout(title = "Best Features", scene = list(xaxis = list(title = 'tSNE1'), 
     yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
 p2
 save(p2, file = "./plots/tSNE_v2_fewerfeats.RData")
 ```
+
+
+# Multiclass model
+
+```{r}
+mcl <- readRDS("./data/programmatic_output/resampled_mcl_loo.rds")
+
+mcl_imps <- get_feat_imps(mcl)
+(mcl_imps_s <- group_by(mcl_imps, gene) %>%
+  summarise(med_imp = median(importance)) %>%
+  arrange(desc(med_imp)))
+
+top50_mcl <- mcl_imps_s$gene[1:50]
+
+filter(mcl_imps, gene %in% top50_mcl) %>%
+  mutate(imp_log2 = log2(importance), 
+    gene = fct_reorder(gene, imp_log2)) %>%
+  ggplot(aes(x = gene, y = imp_log2)) + 
+    stat_summary(geom = "pointrange", fun.y = "median", size = 0.5, 
+      fun.ymin = function(x) {fivenum(x)[2]}, 
+      fun.ymax = function(x) {fivenum(x)[4]}) + 
+  coord_flip() + 
+  labs(x = "Feature", y = "Feature importance (log2)")
+
+# for example, new fingerprint:
+my_fingerprint_mcl <- mcl_imps_s$gene[1:length(my_fingerprint)]
+```
+
+Overlap between fingerprints: 
+
+```{r}
+venn(list(one_vs_rest = my_fingerprint, multiclass = my_fingerprint_mcl))
+
+setdiff(my_fingerprint, my_fingerprint_mcl)
+setdiff(my_fingerprint_mcl, my_fingerprint)
+```
+
+tSNE with multiclass fingerprint:
+
+```{r}
+tsne_mat <- select(drugnfeats, drugname_typaslab, process_broad, 
+  my_fingerprint_mcl)
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+tsne_res = Rtsne::Rtsne(X = tsne_mat[, -c(1,2)], dims = 3, perplexity = 10, 
+  max_iter = 2000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", drugnfeats$conc))
+colnames(plotData)[1:3] = c("tSNE1", "tSNE2", "tSNE3")
+
+p2 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>% 
+  add_markers(text = ~drug) %>% 
+  layout(title = "Fingerprint tSNET map", scene = list(xaxis = list(title = 'tSNE1'), 
+    yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
+p2
+
+save(p2, file = "./plots/tSNE_multiclass_fingerprint.RData")
+```
+
+
 
 
 # Session information

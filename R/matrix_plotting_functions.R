@@ -1,13 +1,15 @@
-plot_auc_vs_moa <- function(dataset, xaxis, yaxis, colourvar, 
+plot_auc_vs_moa <- function(dataset, xaxis, yaxis, colourvar, groupvar, 
   facet_expr = quote(facet_grid(fitted_model ~ .)), 
-  additional_info, showPlot = TRUE) {
-  p <- 
-    ggplot(dataset, aes_string(x = xaxis, y = yaxis, colour = colourvar)) + 
-    geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
-    geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1, alpha = 0.5) + 
+  xlab, ylab, title, additional_info, showPlot = TRUE) {
+  p <- ggplot(dataset, aes_string(x = xaxis, y = yaxis, colour = colourvar, 
+    group = groupvar)) + 
+    # geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
+    # geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1, alpha = 0.5) + 
+    stat_summary(geom = "line", fun.y = median) + 
+    stat_summary(geom = "point", fun.y = median) + 
+    stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.5) + 
     eval(facet_expr) + 
-    labs(x = "Mode of action modelled", y = paste0(yaxis, "(one dot per repeat of nested CV)"), 
-      title = paste0("Performances of MoA predictions\n", additional_info)) + 
+    labs(x = xlab, y = ylab, title = title, subtitle = additional_info) + 
     theme_bw() + 
     theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(size = 18))
   
@@ -87,7 +89,7 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
   # fill up with empty plots for easier arrangement, hackhack
   for (elname in names(plotlist)) {
     el <- plotlist[[elname]]
-    while(length(el) < max(lengths(plotlist))) {
+    while (length(el) < max(lengths(plotlist))) {
       el <- append(el, list(pblank))
     }
     plotlist[[elname]] <- el
@@ -101,7 +103,8 @@ ultimate_plot_new <- function(matrix_ext_row, filename, base_width = 100, base_h
 
 plot_perf_from_container <- 
    function(containerObj, moa = c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), 
-            what = c("ROC", "prec-recall"), show_repeats = FALSE, row_var = NULL, col_var = NULL) {
+            what = c("ROC", "prec-recall"), show_repeats = FALSE, row_var = NULL, col_var = NULL) 
+     {
       moa <- match.arg(moa, several.ok = TRUE)
       what <- match.arg(what)
       facet_flag <- TRUE 
@@ -119,7 +122,7 @@ plot_perf_from_container <-
         }
       }
       
-      my_colours <- c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")
+      my_colours <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a")
       names(my_colours) <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
       
       perf_measures <- 
@@ -141,38 +144,41 @@ plot_perf_from_container <-
         arrange(moa_modelled, cvrep, threshold)
       
       containerObj_averaged <-
-         group_by(containerObj, moa_modelled, threshold, feat_preselect, fitted_model, drug_dosages, chemical_feats) %>%
+         group_by(containerObj, moa_modelled, threshold, feat_preselect, 
+           fitted_model, drug_dosages, chemical_feats) %>%
          summarise(tpr_min = min(tpr), tpr_max = max(tpr), tpr_mean = mean(tpr),
-           ppv_min = min(ppv), ppv_max = max(ppv), ppv_mean = mean(ppv), fpr_mean = mean(fpr)) %>%
+           ppv_min = min(ppv), ppv_max = max(ppv), ppv_mean = mean(ppv), 
+           fpr_mean = mean(fpr)) %>%
          ungroup() %>%
          mutate(moa_modelled = factor(moa_modelled, levels = moa))
       
       p <- ggplot(containerObj_averaged, 
-                  aes(x = if(what == "ROC") fpr_mean else tpr_mean, 
-                      y = if(what == "ROC") tpr_mean else ppv_mean, 
-                      group = moa_modelled, colour = moa_modelled, fill = moa_modelled))
+                  aes(x = if (what == "ROC") fpr_mean else tpr_mean, 
+                      y = if (what == "ROC") tpr_mean else ppv_mean, 
+                      group = moa_modelled, colour = moa_modelled, 
+                    fill = moa_modelled))
       p <- p + geom_line(aes(colour = moa_modelled), size = 0.75) + 
       if (show_repeats) {
         p <- p + geom_path(data = containerObj, 
-          aes(x = if(what == "ROC") fpr else tpr, y = if(what == "ROC") tpr else ppv, 
+          aes(x = if (what == "ROC") fpr else tpr, y = if (what == "ROC") tpr else ppv, 
           group = interaction(cvrep, moa_modelled), colour = moa_modelled), alpha = 0.25, 
-          inherit.aes = FALSE) 
+          inherit.aes = FALSE)
         # side note: inherits.aes = FALSE is necessary here otherwise ggplot will complain about 
         # aesthetics from top level not present in containerObj (bug???)
       }
       if (facet_flag) p <- p + facet_grid(facet_formula)
       p <- p + 
         coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) + 
-        labs(x = if(what == "ROC") "FPR (1-specificity)" else "TPR (recall)", 
-          y = if(what == "ROC") "TPR (recall)" else "PPV (precision)") + 
+        labs(x = if (what == "ROC") "FPR (1-specificity)" else "TPR (recall)", 
+          y = if (what == "ROC") "TPR (recall)" else "PPV (precision)") + 
         guides(fill = FALSE)
       
       if (!facet_flag & what == "ROC") {
         p <- p + 
-        scale_colour_manual("Mode of action:", labels = paste0(names(my_colours), " \n(AUC: ", 
-          perf_measures$mean_auc, "; AUC @10% FPR: ", perf_measures$mean_part_auc_01, ")\n"), 
-          values = my_colours) + 
-        theme(legend.position = c(0.7, 0.2))
+        scale_colour_manual("Mode of action:", labels = paste0(names(my_colours), " \nAUC: ", 
+          perf_measures$mean_auc, "\nAUC @10% FPR: ", perf_measures$mean_part_auc_01, "\n"), 
+          values = my_colours) #+ 
+        #theme(legend.position = c(0.7, 0.3))
       } else {
         p <- p + 
         scale_colour_manual("Mode of action:", labels = paste0(names(my_colours)), 
@@ -300,7 +306,7 @@ plot_mcl_probs_lines <- function(melted_pred_data, labels, colours, printplot = 
     facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") + 
     geom_hline(yintercept = c(0.5), linetype = c("dotted")) + 
     scale_colour_manual("Predicted probability\nfor class", 
-      labels = labels, values = colours) + 
+      values = unname(colours), labels = labels) + 
     coord_cartesian(ylim = c(0, 1))
   
   if (printplot) print(p)

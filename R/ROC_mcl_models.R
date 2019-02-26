@@ -65,9 +65,15 @@ get_thresh_vs_perf_mcl <- function(resampled_multiclass, positive,
   return(thresh_vs_perf)
 }
 
-plot_roc_mcl <- function(resampled_multiclass, positive) {
-  get_thresh_vs_perf_mcl(resampled_multiclass, positive = positive) %>%
-    ggplot(aes(x = fpr, y = tpr)) + 
-    geom_path(aes(group = 1, colour = positive)) + 
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1))
+plot_roc_mcl <- function(resampled_multiclass, positives) {
+  # simulates a number of 1-vs-rest models for all the classes passed in 
+  # positive
+  threshs <- map_dfr(positives, get_thresh_vs_perf_mcl, 
+    resampled_multiclass = resampled_multiclass)
+  ggplot(threshs, aes(x = fpr, y = tpr, colour = positive)) + 
+    geom_path(size = 0.75) + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    scale_colour_manual("Target process", values = moa_cols, 
+      labels = moa_repl[names(moa_cols)]) + 
+    labs(x = "FPR (1-specificity)", y = "TPR (recall)")
 }
