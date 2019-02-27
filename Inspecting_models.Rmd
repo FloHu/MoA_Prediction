@@ -93,7 +93,7 @@ head(feat_imps_s)
 
 Plot feature distributions across all nested CV repeats.
 
-```{r}
+```{r, fig.height = 10}
 my_top35 <- get_fingerprint(feat_imps_s, top_n = 35)
 
 imp_list <- plot_importance_distribs(feat_imps = feat_imps, 
@@ -149,8 +149,8 @@ feat_imps_s %>%
   ggplot(aes(x = med_imp_log2)) + 
   geom_histogram(aes(fill = pct_models_bin), alpha = 0.8)
 
-IQR(log2(feat_imps_s$median_importance))
-fivenum(log2(feat_imps_s$median_importance))
+IQR(log2(feat_imps_s$med_imp))
+fivenum(log2(feat_imps_s$med_imp))
 ```
 
 
@@ -235,16 +235,20 @@ filter(mcl_imps, gene %in% top50_mcl) %>%
   labs(x = "Feature", y = "Feature importance (log2)")
 
 # for example, new fingerprint:
-my_fingerprint_mcl <- mcl_imps_s$gene[1:length(my_fingerprint)]
+my_fingerprint_mcl <- mcl_imps_s$gene[1:30]
+(fp_imps <- log2(mcl_imps_s$med_imp)[match(my_fingerprint_mcl, mcl_imps_s$gene)])
+names(fp_imps) <- my_fingerprint_mcl
+
+save(my_fingerprint_mcl, file = "./data/programmatic_output/my_fingerprint_mcl.RData")
 ```
 
 Overlap between fingerprints: 
 
 ```{r}
-venn(list(one_vs_rest = my_fingerprint, multiclass = my_fingerprint_mcl))
-
-setdiff(my_fingerprint, my_fingerprint_mcl)
-setdiff(my_fingerprint_mcl, my_fingerprint)
+# venn(list(one_vs_rest = my_fingerprint, multiclass = my_fingerprint_mcl))
+# 
+# setdiff(my_fingerprint, my_fingerprint_mcl)
+# setdiff(my_fingerprint_mcl, my_fingerprint)
 ```
 
 tSNE with multiclass fingerprint:
@@ -273,7 +277,69 @@ p2
 save(p2, file = "./plots/tSNE_multiclass_fingerprint.RData")
 ```
 
+Heatmap with multiclass fingerprint:
 
+```{r, eval = FALSE}
+# take drug-feature matrix, add MIC information, rearrange rows by MoA broad 
+# and specific
+(mode_of_action <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv"))
+(mic_info <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
+m <- drugnfeats
+m <- left_join(m, mode_of_action[, c("drugname_typaslab", "process_subgroup")]) %>%
+  left_join(mic_info[, c("drugname_typaslab", "mic_curated")])
+m <- arrange(m, process_broad, process_subgroup, drugname_typaslab)
+row_order <- m$drugname_typaslab
+
+dfr <- as.data.frame(m[, c("process_broad")])
+clusters <- readRDS("./data/programmatic_output/clusters.rds")
+
+# matrix needed as input to Heatmaps
+#m$n_dosg <- rep(rle(m$drugname_typaslab)$lengths, 
+#  rle(m$drugname_typaslab)$lengths)
+rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
+  m$mic_curated, ")")
+
+m <- select(m, -drugname_typaslab, -conc, -process_broad, -process_subgroup, 
+  -mic_curated) %>%
+  select(my_fingerprint_mcl) %>% # cannot be mixed with previous select statement
+  as.matrix()
+dim(m)
+colnames(m) <- paste0(colnames(m), " (", round(fp_imps[colnames(m)], 2), ")")
+m[1:5, 1:5]
+
+# Make annotation object
+# ComplexHeatmap seems to have problems with tibbles! 
+row_annot <- HeatmapAnnotation(df = dfr, 
+  col = list(process_broad = moa_cols), which = "row", 
+  name = "MoA", annotation_width = 3)
+row_annot
+draw(row_annot, 1:20)
+
+my_distfun <- function(x, y) {1 - abs(cor(x, y))}
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = m, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  clustering_distance_rows = my_distfun, 
+  clustering_distance_columns = my_distfun, 
+  column_names_side = "top", 
+  row_names_side = "right", 
+  cluster_rows = FALSE, 
+  # row_order = row_order, 
+  #row_dend_side = "right", 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 5), 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+   grid.text(sprintf("%.2f", m[i, j]), x, y, 
+     gp = gpar(col = "black", fontsize = 2))
+   }) + row_annot
+
+pdf("./plots/Fingerprint_mcl_heatmap.pdf", width = 7, height = 15)
+h
+dev.off()
+```
 
 
 # Session information

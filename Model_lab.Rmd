@@ -39,6 +39,8 @@ moa_repl <- c(cell_wall = "Cell Wall", dna = "DNA",
   membrane_stress = "Membrane Stress", protein_synthesis = "Protein Synthesis")
 
 my_moa <- "cell_wall"
+
+head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
 ```
 
 # Section 1: Current production models + data
@@ -124,8 +126,8 @@ lapply(all_mtrys, table)
 
 
 ```{r}
-my_ntree <- 500
-my_mtry <- 18
+my_ntree <- 1000
+my_mtry <- 83
 ```
 
 
@@ -153,8 +155,25 @@ Fit the model, once with normal resampling, once with LOOCV.
 resampled_mcl_2019 <- fit_or_load(varname = "resampled_mcl_2019", 
   directory = datadir, dfm = mc_ext_dfm, fitting_fun = fit_multiclass_rf_def)
 
+resampled_mcl_2019_melt <- melt_pred_data(resampled_mcl_2019, 
+  model_type = "multiclass")
+
+plot_mcl_probs_heatmap(melted_pred_data = resampled_mcl_2019_melt, mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_mcl_normal_resmp.pdf", 
+    width = 20, height = 20)
+```
+
+
+```{r}
 resampled_mcl_loo <- fit_or_load(varname = "resampled_mcl_loo", 
   directory = datadir, dfm = mc_ext_dfm, fitting_fun = fit_multiclass_rf_loo_def)
+
+resampled_mcl_loo_melt <- melt_pred_data(resampled_mcl_loo, 
+  model_type = "multiclass")
+
+plot_mcl_probs_heatmap(melted_pred_data = resampled_mcl_loo_melt, mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_multiclassLOO.pdf", 
+    width = 20, height = 20)
 ```
 
 
@@ -209,11 +228,11 @@ but might be considered important in only *one* 1-vs-rest model.
 (feat_imps_1vsrest <- summarise_feat_imps(get_feat_imps(chosen_res)))
 
 (tmp <- left_join(feat_imps_multi, 
-  feat_imps_1vsrest[, c("moa", "gene", "median_importance")], 
+  feat_imps_1vsrest[, c("moa", "gene", "med_imp")], 
   by = "gene", suffix = c("_multi", "_1vsall")))
 
-ggplot(tmp, aes(x = log2(median_importance_1vsall), 
-  y = log2(median_importance_multi))) + 
+ggplot(tmp, aes(x = log2(med_imp_1vsall), 
+  y = log2(med_imp_multi))) + 
   geom_point() + 
   facet_wrap( ~ moa) + 
   labs(title = "Comparison of feature importances 1-vs-all and multi-class model")
@@ -426,7 +445,6 @@ Add MIC information
 ```{r}
 # # already run:
 # source("./parse_MIC_data.R")
-head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
 multicl_pred_melt_micinfo <- left_join(multicl_pred_melt, mics)
 
 # use slice() instead of top_n(), the latter implies some type of ordering!
@@ -456,16 +474,6 @@ ggsave(filename = "./plots/Probability_lines_multiclass_LOO.pdf",
 ```
 
 <a href="./plots/Multiclass_probabilities_LOO.pdf">LINK</a>
-
-Heatmap display:
-
-```{r}
-plot_mcl_probs_heatmap(melted_pred_data = multicl_pred_melt, mics = mics) %>% 
-  ggsave(filename = "./plots/Probability_heatmap_multiclassLOO.pdf", 
-    width = 20, height = 20)
-```
-
-<a href="./plots/Multiclass_probabilities_LOO_heatmap.pdf">LINK</a>
 
 
 Playing around with "winner approach"
@@ -616,7 +624,6 @@ number of significant interactions: not necessary anymore, is now taken care of
 in data preprocessing steps. 
 
 ```{r}
-# remove drug-dosage combinations with less than 11 significant interactions 
 (n_signif <- mc_ext$pred_data_with_n_signif[[the_line]])
 
 print(filter(n_signif, moa_modelled_is_truth, n_signif < 10) %>%
@@ -633,6 +640,8 @@ mc_ext_dfm_2highest <-
 resampled_mcl_loo_2highest <- fit_or_load("resampled_mcl_loo_2highest", 
   directory = datadir, dfm = mc_ext_dfm_2highest, fitting_fun = 
     fit_multiclass_rf_loo_def)
+
+resampled_mcl_loo_2highest$aggr
 ```
 
 Comparison with multi-class model using all dosages. 
@@ -657,7 +666,7 @@ plot_mcl_probs_lines(multicl_2highest_melt, labels = moas, colours = moa_cols,
     width = 30, height = 20)
 
 plot_mcl_probs_heatmap(melted_pred_data = multicl_2highest_melt, mics = mics) %>% 
-  ggsave(filename = "./plots/Prediction_heatmap_LOO_2highest_heatmap.pdf", 
+  ggsave(filename = "./plots/Prediction_heatmap_LOO_2highest.pdf", 
   width = 20, height = 20)
 ```
 
@@ -696,6 +705,7 @@ resampled_mcl_loo_subg <-
   blockingvar = "drugname_typaslab", paramlist = list(ntree = my_ntree, 
     mtry = my_mtry), cols_to_exclude = c("drugname_typaslab", "conc"))
 
+saveRDS(resampled_mcl_loo_subg, "./data/programmatic_output/resampled_mcl_loo_subg.rds")
 ```
 
 
@@ -705,7 +715,7 @@ resampled_mcl_loo_subg$aggr
 plot_wide_confmat(get_wide_confmat(resampled_mcl_loo_subg), 
   title = "Multiclass RF, LOO, subgroups")
 
-ggsave("./plots/Subgroup_prediction.pdf")
+ggsave("./plots/Confusion_matrix_subgroups.pdf")
 ```
 
 
@@ -713,7 +723,7 @@ ggsave("./plots/Subgroup_prediction.pdf")
 
 ## Applying model to Lucia's data (newsize)
 
-Prepare the data.
+### Data import
 
 ```{r}
 # get already preprocessed data: 
@@ -728,21 +738,299 @@ nichols <- nichols[, colnames(nichols) %in% colnames(mc_ext_dfm)]
 newsize <- 
   left_join(newsize, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
   select(drugname_typaslab, conc, process_broad, everything()) %>% 
-  select(colnames(mc_ext_dfm))
+  select(colnames(mc_ext_dfm_2highest))
 
 nichols <- 
   left_join(nichols, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
   select(drugname_typaslab, conc, process_broad, everything()) %>% 
-  select(colnames(mc_ext_dfm))
-
-# newsize keeping only overlapping conditions (dosage also needs to be the 
-# same)
-newsize_overlap <- semi_join(newsize, mc_ext_dfm, 
-  by = c("drugname_typaslab", "conc"))
-(shared_drugs <- unique(newsize_overlap$drugname_typaslab))
+  select(colnames(mc_ext_dfm_2highest))
 ```
 
+### Generating subsets of the data
+
+From Lucia's data, extract: (i) drugs with unknown MoA (to be predicted later), 
+(ii) "validation set 2": with overlapping drugs, only point is to see if 
+biological variability might screw up the predictions, (iii) test set, only 
+annotated drugs from Lucia's data, use to assess accuracy, confusion matrix. 
+
 ```{r}
+# extract unknown drugs for prediction later on
+unknown <- filter(newsize, process_broad == "unknown")
+(unknown <- bind_rows(unknown, 
+  filter(nichols, process_broad == "unknown")))
+
+# extract main moas for broad classification
+(newsize_main <- filter(newsize, process_broad %in% moas))
+
+# extract overlapping drugs: "validation set 2"
+(valset2 <- semi_join(newsize_main, mc_ext_dfm, 
+  by = "drugname_typaslab"))
+
+# test set: labelled drugs in Lucia's data
+(testset <- anti_join(newsize_main, mc_ext_dfm, 
+  by = "drugname_typaslab"))
+
+stopifnot(nrow(testset) + nrow(valset2) == nrow(newsize_main))
+
+(shared_drugs <- unique(valset2$drugname_typaslab))
+```
+
+Retrain Nichols model on the complete data set.
+
+```{r}
+retr_nichols <- mc_ext_dfm
+retr_nichols$process_broad %<>% factor()
+my_rle <- rle(retr_nichols$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+
+retr_nichols_tsk <- makeClassifTask(data = retr_nichols[, -c(1, 2)], 
+  target = "process_broad", blocking = my_blocks)
+
+retr_nichols_lrn <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry))
+
+retr_nichols_model <- train(learner = retr_nichols_lrn, task = retr_nichols_tsk)
+
+getLearnerModel(retr_nichols_model)
+
+sort(unlist(getFeatureImportance(retr_nichols_model)$res), decreasing = TRUE) %>% 
+  head(n = 20)
+```
+
+Predict with retrained model: validation set.
+
+```{r}
+(valset2_preds <- predict(retr_nichols_model, newdata = valset2))
+
+valset2_preds$data <- as_tibble(cbind(valset2[, 1:2], 
+  as.data.frame(valset2_preds)))
+View(valset2_preds$data)
+
+# Compare with original model:
+performance(valset2_preds, measures = mmce)
+resampled_mcl_loo$aggr
+
+# actually, one would need to compare the performance on the same subset:
+resampled_mcl_loo$pred$data %>%
+  filter(drugname_typaslab %in% valset2$drugname_typaslab) %>%
+  summarise(mmce = 1 - (sum(response == truth) / n()))
+
+valset2_preds_melt <- melt_pred_data(valset2_preds, "multiclass")
+plot_mcl_probs_heatmap(valset2_preds_melt, mics = mics)
+
+ggsave(filename = "./plots/Prediction_heatmap_valset2.pdf", plot = p, 
+  width = 15, height = 6)
+```
+
+Predict with retrained model: test set.
+
+```{r}
+(testset_preds <- predict(retr_nichols_model, newdata = testset))
+performance(testset_preds, measures = mmce)
+resampled_mcl_loo$aggr
+
+testset_preds$data <- as_tibble(cbind(testset[, 1:2], 
+  as.data.frame(testset_preds)))
+View(testset_preds$data)
+
+melt_pred_data(testset_preds, "multiclass") %>%
+  plot_mcl_probs_heatmap(mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_testset.pdf", width = 15, 
+  height = 10)
+```
+
+Predict with retrained model: unknown drugs.
+
+```{r}
+(unknown_preds <- predict(retr_nichols_model, newdata = unknown))
+
+unknown_preds$data <- as_tibble(cbind(unknown[, 1:2], 
+  as.data.frame(unknown_preds)))
+View(unknown_preds$data)
+
+melt_pred_data(unknown_preds, "multiclass") %>%
+  plot_mcl_probs_heatmap(mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_unknown.pdf", width = 15, 
+  height = 10)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-------------------------------------------------------------->
+<!-- rewrite - same as above - put into function --> 
+<!-------------------------------------------------------------->
+
+```{r}
+# get already preprocessed data: 
+sscores <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
+newsize <- sscores$newsize.sscores
+nichols <- sscores$nichols_2011.sscores
+
+# keep only features that are in the_matrix and then sort them in the same way
+newsize <- newsize[, colnames(newsize) %in% c("drugname_typaslab", "conc", "process_broad", my_fingerprint_mcl)]
+nichols <- nichols[, colnames(nichols) %in% c("drugname_typaslab", "conc", "process_broad", my_fingerprint_mcl)]
+
+### NB! ------------------------
+mc_ext_dfm_red <- mc_ext_dfm[, c("drugname_typaslab", "conc", "process_broad", my_fingerprint_mcl)]
+### NB! ------------------------
+
+newsize <- 
+  left_join(newsize, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
+  select(drugname_typaslab, conc, process_broad, everything())
+
+nichols <- 
+  left_join(nichols, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
+  select(drugname_typaslab, conc, process_broad, everything())
+```
+
+### Generating subsets of the data
+
+From Lucia's data, extract: (i) drugs with unknown MoA (to be predicted later), 
+(ii) "validation set 2": with overlapping drugs, only point is to see if 
+biological variability might screw up the predictions, (iii) test set, only 
+annotated drugs from Lucia's data, use to assess accuracy, confusion matrix. 
+
+```{r}
+# extract unknown drugs for prediction later on
+unknown <- filter(newsize, process_broad == "unknown")
+(unknown <- bind_rows(unknown, 
+  filter(nichols, process_broad == "unknown")))
+
+# extract main moas for broad classification
+(newsize_main <- filter(newsize, process_broad %in% moas))
+
+# extract overlapping drugs: "validation set 2"
+(valset2 <- semi_join(newsize_main, mc_ext_dfm, 
+  by = "drugname_typaslab"))
+
+# test set: labelled drugs in Lucia's data
+(testset <- anti_join(newsize_main, mc_ext_dfm, 
+  by = "drugname_typaslab"))
+
+stopifnot(nrow(testset) + nrow(valset2) == nrow(newsize_main))
+
+(shared_drugs <- unique(valset2$drugname_typaslab))
+```
+
+Retrain Nichols model on the complete data set.
+
+```{r}
+retr_nichols <- mc_ext_dfm_red
+retr_nichols$process_broad %<>% factor()
+my_rle <- rle(retr_nichols$drugname_typaslab)
+my_blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+
+retr_nichols_tsk <- makeClassifTask(data = retr_nichols[, -c(1, 2)], 
+  target = "process_broad", blocking = my_blocks)
+
+# need to use default for mtry
+retr_nichols_lrn <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree))
+
+retr_nichols_model <- train(learner = retr_nichols_lrn, task = retr_nichols_tsk)
+
+getLearnerModel(retr_nichols_model)
+```
+
+Predict with retrained model: validation set.
+
+```{r}
+(valset2_preds <- predict(retr_nichols_model, newdata = valset2))
+
+valset2_preds$data <- as_tibble(cbind(valset2[, 1:2], 
+  as.data.frame(valset2_preds)))
+#View(valset2_preds$data)
+
+# Compare with original model:
+performance(valset2_preds, measures = mmce)
+resampled_mcl_loo$aggr
+
+# actually, one would need to compare the performance on the same subset:
+resampled_mcl_loo$pred$data %>%
+  filter(drugname_typaslab %in% valset2$drugname_typaslab) %>%
+  summarise(mmce = 1 - (sum(response == truth) / n()))
+
+valset2_preds_melt <- melt_pred_data(valset2_preds, "multiclass")
+plot_mcl_probs_heatmap(valset2_preds_melt, mics = mics)
+
+ggsave(filename = "./plots/Prediction_heatmap_valset2_parsimonious.pdf",  
+  width = 15, height = 6)
+```
+
+Predict with retrained model: test set.
+
+```{r}
+(testset_preds <- predict(retr_nichols_model, newdata = testset))
+performance(testset_preds, measures = mmce)
+resampled_mcl_loo$aggr
+
+testset_preds$data <- as_tibble(cbind(testset[, 1:2], 
+  as.data.frame(testset_preds)))
+#View(testset_preds$data)
+
+melt_pred_data(testset_preds, "multiclass") %>%
+  plot_mcl_probs_heatmap(mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_testset_parsimonious.pdf", width = 15, 
+  height = 10)
+```
+
+Predict with retrained model: unknown drugs.
+
+```{r}
+(unknown_preds <- predict(retr_nichols_model, newdata = unknown))
+
+unknown_preds$data <- as_tibble(cbind(unknown[, 1:2], 
+  as.data.frame(unknown_preds)))
+#View(unknown_preds$data)
+
+melt_pred_data(unknown_preds, "multiclass") %>%
+  plot_mcl_probs_heatmap(mics = mics) %>% 
+  ggsave(filename = "./plots/Prediction_heatmap_unknown_parsimonious.pdf", width = 15, 
+  height = 10)
+```
+
+<!-------------------------------------------------------------->
+<!-------------------------------------------------------------->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, eval = FALSE}
 # Retrain 'old' model but only with non-overlapping drugs
 # training in mlr: call train() on a learner + suitable task
 retrain_nichols <- mc_ext_dfm
@@ -766,7 +1054,7 @@ sort(unlist(getFeatureImportance(retrained_model)$res), decreasing = TRUE) %>%
 
 Predict with retrained model.
 
-```{r}
+```{r, eval = FALSE}
 (newsize_preds <- predict(retrained_model, newdata = newsize_overlap))
 performance(newsize_preds, measures = mmce)
 
@@ -777,7 +1065,7 @@ View(newsize_preds$data)
 
 Comparing old with new predictions.
 
-```{r}
+```{r, eval = FALSE}
 newsize_preds_melt <- melt_pred_data(newsize_preds, "multiclass")
 p <- plot_mcl_probs_heatmap(newsize_preds_melt, mics = mics)
 
@@ -802,7 +1090,7 @@ ggplot(compare_preds, aes(x = prob.med.nichols, y = prob.med.newsize)) +
 
 Fraction of predictions that agree:
 
-```{r}
+```{r, eval = FALSE}
 agreement <- 
   group_by(compare_preds, drugname_typaslab, conc) %>% 
   summarise(agree = which.max(prob.med.nichols) == 
@@ -815,7 +1103,7 @@ sum(agreement$agree) / nrow(agreement)
 Can also define differently: if both models predict the MoA wrong, they still 
 'agree' (in the sense that both are wrong):
 
-```{r}
+```{r, eval = FALSE}
 agreement2 <- 
   mutate(compare_preds, truth = as.character(truth), predicted_prob = 
       str_extract(predicted_prob, 
@@ -834,7 +1122,7 @@ sum(agreement2$agree) / nrow(agreement2)
 
 First for the four main modes:
 
-```{r}
+```{r, eval = FALSE}
 # rbind nichols and newsize but only add new conditions
 stopifnot({
   ncol(nichols) == ncol(newsize)
@@ -865,7 +1153,7 @@ nunique(merged_mainmodes$drugname_typaslab) - nunique(mc_ext_dfm$drugname_typasl
 View(merged_mainmodes[merged_mainmodes$drugname_typaslab %in% shared_drugs, c(1:10)])
 ```
 
-```{r}
+```{r, eval = FALSE}
 resampled_mcl_merged <- fit_multiclass_rf_loo(data = merged_mainmodes, 
   targetvar = "process_broad", blockingvar = "drugname_typaslab", 
   paramlist = list(ntree = my_ntree, mtry = my_mtry), 
@@ -877,7 +1165,7 @@ saveRDS(resampled_mcl_merged,
 
 Results:
 
-```{r}
+```{r, eval = FALSE}
 resampled_mcl_merged$aggr
 
 plot_wide_confmat(get_wide_confmat(resampled_mcl_merged), 
@@ -894,7 +1182,7 @@ ggsave(filename = "./plots/Prediction_heatmap_integrated.pdf", plot = p,
 
 And now for subgroups:
 
-```{r}
+```{r, eval = FALSE}
 table(merged$process_broad)
 
 merged_subg <- merged
@@ -921,7 +1209,7 @@ saveRDS(resampled_mcl_merged_subg,
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 resampled_mcl_merged_subg$aggr
 
 plot_wide_confmat(get_wide_confmat(resampled_mcl_merged_subg), 
@@ -944,7 +1232,7 @@ as.data.frame(resampled_mcl_merged_subg$pred) %>%
 
 Predicting unknown drugs:
 
-```{r}
+```{r, eval = FALSE}
 # Retrain 'old' model but only with non-overlapping drugs
 # training in mlr: call train() on a learner + suitable task
 production_data <- merged_mainmodes
@@ -968,7 +1256,7 @@ sort(unlist(getFeatureImportance(production_model)$res), decreasing = TRUE) %>%
 
 Predict with retrained model.
 
-```{r}
+```{r, eval = FALSE}
 (unknown_data <- filter(merged, process_broad == "unknown"))
 (unknown_preds <- predict(production_model, newdata = unknown_data))
 performance(unknown_preds, measures = mmce)

@@ -150,7 +150,7 @@ compare_importances <- function(l) {
   ## can't provide proper suffixes here because ggplot() has problem parsing strings with commas
   joined <- inner_join(l[[xlab]], l[[ylab]], by = c("gene"), suffix = c(".x", ".y"))
   
-  p <- ggplot(joined, aes(x = log2(median_importance.x), y = log2(median_importance.y))) + 
+  p <- ggplot(joined, aes(x = log2(med_imp.x), y = log2(med_imp.y))) + 
     geom_point() + 
     geom_abline(slope = 1, intercept = 0) + 
     labs(x = paste0("log2 median feat importances ", xlab), y = paste0("log2 median feat importances ", ylab), 
