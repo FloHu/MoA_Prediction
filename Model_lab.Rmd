@@ -38,6 +38,10 @@ moas <- names(moa_cols)
 moa_repl <- c(cell_wall = "Cell Wall", dna = "DNA", 
   membrane_stress = "Membrane Stress", protein_synthesis = "Protein Synthesis")
 
+moa_repl2 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA", 
+  prob.membrane_stress = "Membrane Stress", 
+  prob.protein_synthesis = "Protein Synthesis")
+
 my_moa <- "cell_wall"
 
 head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
@@ -76,7 +80,7 @@ mc_ext_sub %>%
 
 # retrieve our results object:
 chosen_res <- readRDS(file.path(resultsdir, make_filename(mc_ext[the_line, ])))
-saveRDS(chosen_res, file = "./data/programmatic_output/chosen_res.rds")
+# saveRDS(chosen_res, file = "./data/programmatic_output/chosen_res.rds")
 
 # mmces:
 main_mmces <- map(moas, function(moa) {
@@ -173,7 +177,7 @@ resampled_mcl_loo_melt <- melt_pred_data(resampled_mcl_loo,
 
 plot_mcl_probs_heatmap(melted_pred_data = resampled_mcl_loo_melt, mics = mics) %>% 
   ggsave(filename = "./plots/Prediction_heatmap_multiclassLOO.pdf", 
-    width = 20, height = 20)
+    width = 12, height = 5)
 ```
 
 
@@ -738,12 +742,12 @@ nichols <- nichols[, colnames(nichols) %in% colnames(mc_ext_dfm)]
 newsize <- 
   left_join(newsize, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
   select(drugname_typaslab, conc, process_broad, everything()) %>% 
-  select(colnames(mc_ext_dfm_2highest))
+  select(colnames(mc_ext_dfm))
 
 nichols <- 
   left_join(nichols, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
   select(drugname_typaslab, conc, process_broad, everything()) %>% 
-  select(colnames(mc_ext_dfm_2highest))
+  select(colnames(mc_ext_dfm))
 ```
 
 ### Generating subsets of the data
@@ -804,7 +808,7 @@ Predict with retrained model: validation set.
 
 valset2_preds$data <- as_tibble(cbind(valset2[, 1:2], 
   as.data.frame(valset2_preds)))
-View(valset2_preds$data)
+# View(valset2_preds$data)
 
 # Compare with original model:
 performance(valset2_preds, measures = mmce)
@@ -825,6 +829,15 @@ ggsave(filename = "./plots/Prediction_heatmap_valset2.pdf", plot = p,
 Predict with retrained model: test set.
 
 ```{r}
+perfs <- vector("numeric", length = 10)
+
+for (i in 1:length(perfs)) {
+  retr_nichols_model <- train(learner = retr_nichols_lrn, task = retr_nichols_tsk)
+  (valset2_preds <- predict(retr_nichols_model, newdata = valset2))
+  perfs[i] <- performance(valset2_preds, measures = mmce)
+}
+
+retr_nichols_model <- train(learner = retr_nichols_lrn, task = retr_nichols_tsk)
 (testset_preds <- predict(retr_nichols_model, newdata = testset))
 performance(testset_preds, measures = mmce)
 resampled_mcl_loo$aggr
@@ -850,8 +863,8 @@ View(unknown_preds$data)
 
 melt_pred_data(unknown_preds, "multiclass") %>%
   plot_mcl_probs_heatmap(mics = mics) %>% 
-  ggsave(filename = "./plots/Prediction_heatmap_unknown.pdf", width = 15, 
-  height = 10)
+  ggsave(filename = "./plots/Prediction_heatmap_unknown.pdf", width = 9, 
+  height = 6.5)
 ```
 
 
@@ -954,6 +967,14 @@ getLearnerModel(retr_nichols_model)
 Predict with retrained model: validation set.
 
 ```{r}
+perfs <- vector("numeric", length = 10)
+
+for (i in 1:length(perfs)) {
+  retr_nichols_model <- train(learner = retr_nichols_lrn, task = retr_nichols_tsk)
+  (testset_preds <- predict(retr_nichols_model, newdata = testset))
+  perfs[i] <- performance(testset_preds, measures = mmce)
+}
+
 (valset2_preds <- predict(retr_nichols_model, newdata = valset2))
 
 valset2_preds$data <- as_tibble(cbind(valset2[, 1:2], 

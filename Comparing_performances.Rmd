@@ -20,6 +20,7 @@ editor_options:
 This part is the general setup, whichever model we are using.
 
 ```{r setup}
+rm(list = ls())
 # function to check if a package is installed, if so, load it, else install and then load it
 source("./R/ipak.R")
 # set chunk options and load libraries, load custom functions
@@ -61,7 +62,7 @@ and `stability_assessment` are now deprecated and I deleted the corresponding ch
 # What follows is a loop to extract information from our results objects and adding this into 
 # new columns. Since this takes some time, it's written in a way that the matrix_container can be 
 # updated. 
-(matrix_container <- readRDS("./data/programmatic_output/matrix_container_2019.rds"))
+# (matrix_container <- readRDS("./data/programmatic_output/matrix_container_2019.rds"))
 
 # results we already have
 #if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
@@ -142,9 +143,9 @@ for (rownum in seq_len(nrow(matrix_container))) {
    gc()
 }
 
-matrix_container$feat_preselect <- 
-   factor(matrix_container$feat_preselect, levels =  c("top5pct", "top10pct", "top15pct", 
-     "top20pct", "top25pct", "top30pct", "top40pct", "top50pct", "keepall"))
+matrix_container$feat_preselect <- factor(matrix_container$feat_preselect, 
+  levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", 
+    "top30pct", "top40pct", "top50pct", "keepall"))
 
 saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_container_ext_2019.rds")
 ```
@@ -437,24 +438,60 @@ ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = drug_dosages)) +
 ggsave("./plots/POSTER_stability_comp.pdf", width = 9, height = 5)
 
 # for GB seminar:
-ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = fitted_model, 
-  group = fitted_model)) + 
-  stat_summary(geom = "line", fun.y = median) + 
-  stat_summary(geom = "point", fun.y = median) + 
-  stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.4, 
-    fun.ymin = function(x) {fivenum(x)[2]}, 
-    fun.ymax = function(x) {fivenum(x)[4]}) + 
-  facet_wrap( ~ process_broad) + 
-  labs(x = "Subset of features kept", y = "Model instability [median s.d. of predictions +- IQR]", 
-    title = "Model instabilities: lasso vs. random forests") + # may wanna add a subtitle ... 
-  theme_bw() + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
-    text = element_text(size = 14), panel.grid = element_blank()) + 
-  scale_colour_manual("Model", values = model_cols[2:3], 
-    labels = names(model_cols)[2:3])
+# ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = fitted_model, 
+#   group = fitted_model)) + 
+#   stat_summary(geom = "line", fun.y = median) + 
+#   stat_summary(geom = "point", fun.y = median) + 
+#   stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.4, 
+#     fun.ymin = function(x) {fivenum(x)[2]}, 
+#     fun.ymax = function(x) {fivenum(x)[4]}) + 
+#   facet_wrap( ~ process_broad) + 
+#   labs(x = "Subset of features kept", y = "Model instability [median s.d. of predictions +- IQR]", 
+#     title = "Model instabilities: lasso vs. random forests") + # may wanna add a subtitle ... 
+#   theme_bw() + 
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
+#     text = element_text(size = 14), panel.grid = element_blank()) + 
+#   scale_colour_manual("Model", values = model_cols[2:3], 
+#     labels = names(model_cols)[2:3])
+# 
+# ggsave("./plots/Stability_comp_RF_Lasso_alldosg_nochem.pdf", width = 8, 
+#   height = 6)
 
-ggsave("./plots/Stability_comp_RF_Lasso_alldosg_nochem.pdf", width = 8, 
-  height = 6)
+
+# GB seminar, version 2:
+
+filter(foo, feat_preselect == "top15pct") %>%
+  ggplot(aes(x = fitted_model, y = prob.moa_sd2)) + 
+  geom_boxplot(notch = TRUE, outlier.shape = NA, width = 0.5) + 
+  geom_point(shape = 1, stroke = 1, alpha = 0.75, 
+    position = position_jitter(width = 0.15)) + 
+  labs(title = "Prediction variability between\ncross-validation repeats", 
+    x = "", y = "S.D. of predictions") + 
+  #scale_colour_manual("MoA", values = moa_cols, labels = names(moa_cols)) + 
+  theme(text = element_text(size = 14), panel.grid = element_blank())
+
+ggsave("./plots/Stability_comparison_GBseminar.pdf", width = 3.8, height = 5)
+
+# need a scheme for the prediction variabilities
+tmp <- filter_container(matrix_container, feats = "top15pct", chemfeats = FALSE, 
+  models = "classif.randomForest", dosgs = "all") %>%
+  pull(pred_data) %>%
+  `[[`(1) %>%
+  filter(drugname_typaslab == "TETRACYCLINE", conc == 1)
+
+
+
+ggplot(tmp, aes(x = moa_modelled, y = prob.moa, colour = moa_modelled)) + 
+  geom_point(position = position_jitter(width = 0.15), size = 2, shape = 1, 
+    stroke = 1.2, alpha = 0.8) + 
+  labs(title = "Prediction probabilities for\ntetracycline", 
+    x = "Prediction for class", y = "Probability") + 
+  scale_x_discrete(labels = moa_repl) + 
+  scale_colour_manual(values = unname(moa_cols)) + 
+  theme(text = element_text(size = 14), axis.text.x = element_text(angle = 45, 
+    hjust = 1), panel.grid = element_blank(), legend.position = "None")
+
+ggsave("./plots/Probabilities_tetracycline.pdf", width = 3.5, height = 5)
 ```
 
 
@@ -469,7 +506,7 @@ foo <- filter_container(matrix_container, chemfeats = FALSE,
     "Membrane Stress" = "membrane_stress", "DNA" = "dna"), 
     moa_modelled = as.character(moa_modelled))
 
-ggplot(foo, aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
+ggplot(filter(foo, moa_modelled == "Membrane Stress"), aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
   stat_summary(geom = "line", fun.y = median, mapping = aes(group = drug_dosages)) + 
   stat_summary(geom = "point", fun.y = median) + 
   stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.5, 
@@ -478,13 +515,16 @@ ggplot(foo, aes(x = feat_preselect, y = auc, colour = drug_dosages)) +
   geom_hline(yintercept = c(0.7, 0.75, 0.8), linetype = "dotted") + 
   facet_wrap( ~ moa_modelled) + 
   labs(x = "Subset of features kept", y = "Model performance [AUC]", 
-    title = "Model performances: impact of dosage and feature selection") + # may wanna add a subtitle ... 
+    title = "Impact of dosage and feature selection\non model performance") + # may wanna add a subtitle ... 
   theme_bw() + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12), 
     text = element_text(size = 14), panel.grid = element_blank()) + 
   scale_colour_manual("Dosages kept", values = c("#1f78b4", "#33a02c"), 
     labels = c("All", "Most interactions")) + 
   NULL
+
+ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem_Membrane.pdf", width = 6, 
+  height = 4)
 
 ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem.pdf", width = 8, 
   height = 6)
@@ -698,18 +738,19 @@ tmp <- tmp$pred_data_with_n_signif[[1]] %>%
   filter(moa_modelled_is_truth) %>%
   mutate(moa_modelled = recode(moa_modelled, !!!moa_repl))
 
-ggplot(tmp, aes(x = n_signif, y = median_prob.moa, colour = moa_modelled)) + 
-  geom_point() + 
+ggplot(tmp, aes(x = conc_rank, y = median_prob.moa, colour = moa_modelled)) + 
+  geom_point(position = position_jitter(width = 0.15, height = 0), alpha = 0.8) + 
   theme_bw() + 
   facet_wrap( ~ moa_modelled) + 
   theme(text = element_text(size = 12)) + 
-  labs(x = "Number of significant interactions", 
+  labs(x = "Concentration rank", 
     y = "Median probability for MoA for each drug", 
     title = "Probabilities vs. number of interactions") + 
   scale_colour_manual("Target process", labels = names(moa_cols), 
     values = moa_cols)
+  
 
-ggsave("./plots/Probs_vs_nsignif.pdf", width = 6, height = 4.5)
+ggsave("./plots/Probs_vs_conc.pdf", width = 6, height = 4.5)
 
 group_by(tmp, moa_modelled) %>%
   summarise(rho = cor(x = n_signif, y = median_prob.moa, method = "spearman"), 

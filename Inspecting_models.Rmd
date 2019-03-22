@@ -25,7 +25,7 @@ rm(list = ls())
 source("./R/ipak.R")
 # set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
 
 moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
   membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
@@ -175,7 +175,7 @@ p1 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA,
   marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
     width = 1.5))) %>% 
   add_markers(text = ~drug) %>% 
-  layout(title = "Fingerprint tSNET map", scene = list(xaxis = list(title = 'tSNE1'), 
+  layout(title = "Fingerprint tSNE map", scene = list(xaxis = list(title = 'tSNE1'), 
     yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
 p1
 
@@ -226,16 +226,22 @@ top50_mcl <- mcl_imps_s$gene[1:50]
 
 filter(mcl_imps, gene %in% top50_mcl) %>%
   mutate(imp_log2 = log2(importance), 
-    gene = fct_reorder(gene, imp_log2)) %>%
+    gene = fct_reorder(gene, imp_log2, .desc = TRUE)) %>%
   ggplot(aes(x = gene, y = imp_log2)) + 
     stat_summary(geom = "pointrange", fun.y = "median", size = 0.5, 
       fun.ymin = function(x) {fivenum(x)[2]}, 
       fun.ymax = function(x) {fivenum(x)[4]}) + 
-  coord_flip() + 
-  labs(x = "Feature", y = "Feature importance (log2)")
+  #coord_flip() + 
+  labs(title = "Top 50 features driving MoA prediction", 
+    x = "Feature driving prediction", y = "Log2 feature importance") + 
+  theme(text = element_text(size = 12), axis.text.x = element_text(size = 6, 
+    angle = 45, hjust = 1))
+
+ggsave(filename = "./plots/Fingerprint_mcl.pdf", width = 7, height = 5)
 
 # for example, new fingerprint:
 my_fingerprint_mcl <- mcl_imps_s$gene[1:30]
+
 (fp_imps <- log2(mcl_imps_s$med_imp)[match(my_fingerprint_mcl, mcl_imps_s$gene)])
 names(fp_imps) <- my_fingerprint_mcl
 
@@ -270,7 +276,7 @@ p2 <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA,
   marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
     width = 1.5))) %>% 
   add_markers(text = ~drug) %>% 
-  layout(title = "Fingerprint tSNET map", scene = list(xaxis = list(title = 'tSNE1'), 
+  layout(title = "Fingerprint tSNE map", scene = list(xaxis = list(title = 'tSNE1'), 
     yaxis = list(title = 'tSNE2'), zaxis = list(title = 'tSNE3')))
 p2
 
@@ -339,6 +345,57 @@ h <- Heatmap(matrix = m,
 pdf("./plots/Fingerprint_mcl_heatmap.pdf", width = 7, height = 15)
 h
 dev.off()
+```
+
+For presentation:
+
+```{r}
+m <- drugnfeats
+m <- left_join(m, mode_of_action[, c("drugname_typaslab", "process_subgroup")]) %>%
+  left_join(mic_info[, c("drugname_typaslab", "mic_curated")])
+m <- arrange(m, process_broad, process_subgroup, drugname_typaslab)
+
+(msplit <- split(m, m$process_broad))
+
+(msplit <- map(msplit, function(m) {
+  rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
+  m$mic_curated, ")")
+  
+  m <- select(m, -drugname_typaslab, -conc, -process_broad, 
+  -process_subgroup, -mic_curated) %>%
+  select(my_fingerprint_mcl) %>% # cannot be mixed with previous select statement
+  as.matrix()
+  
+  colnames(m) <- paste0(colnames(m), " (", round(fp_imps[colnames(m)], 2), ")")
+  
+  return(m)
+  }))
+
+msplit$cell_wall[1:5, 1:5]
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+for (mode in moas) {
+  mat <- msplit[[mode]]
+  h <- Heatmap(matrix = mat, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  column_names_side = "top", 
+  row_names_side = "right", 
+  show_column_dend = FALSE, 
+  row_names_gp = gpar(fontsize = 7), 
+  column_names_gp = gpar(fontsize = 7), 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+   grid.text(sprintf("%.2f", mat[i, j]), x, y, 
+     gp = gpar(col = "black", fontsize = 3.5))
+   })
+  pdf(paste0("./plots/Fingerprint_mcl_heatmap", mode, ".pdf"), width = 9, 
+    height = 7.8)
+  print(h)
+  dev.off()
+}
+
 ```
 
 

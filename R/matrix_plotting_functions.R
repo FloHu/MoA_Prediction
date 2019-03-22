@@ -317,21 +317,34 @@ plot_mcl_probs_lines <- function(melted_pred_data, labels, colours, printplot = 
 plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
   tmp <- left_join(melted_pred_data, mics)
   tmp <- tmp %>%
-    mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (mic = ", mic_curated, ")"), 
-      prob.med = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1)), 
+    # mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (mic = ", mic_curated, ")"), 
+    mutate(drug_conc = paste0(drugname_typaslab, "_", conc), 
+      prob.med = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1), 
+        labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%", 
+          "60-70%", "70-80%", "80-90%", "90-100%")), 
       drug_conc = factor(drug_conc, 
         levels = rev(unique(drug_conc[order(truth, drugname_typaslab, conc)]))))
+  
+  tmp$truth <- fct_recode(tmp$truth, "Drugs with MoA cell wall" = "cell_wall", 
+    "Drugs with MoA DNA" = "dna", "Drugs with MoA membrane stress" = "membrane_stress", 
+    "Drugs with MoA protein synthesis" = "protein_synthesis")
   
   tmp <- group_by(tmp, drug_conc) %>%
     mutate(is_max = (prob.max) == max(prob.max))
   tmp$geompoint <- ifelse(tmp$is_max, tmp$drug_conc, NA)
   tmp$geompoint <- levels(tmp$drug_conc)[tmp$geompoint]
   
-  p <- ggplot(tmp, aes(x = predicted_prob, y = drug_conc)) + 
+  p <- ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) + 
     geom_tile(aes(fill = prob.med)) + 
-    geom_point(aes(y = geompoint)) + 
-    scale_fill_brewer(palette = "BuPu") + 
-    facet_wrap( ~ truth, scales = "free")
+    geom_point(aes(x = geompoint)) + 
+    coord_flip() + 
+    scale_fill_brewer("Probability", palette = "BuPu") + 
+    scale_y_discrete(labels = (moa_repl2)) + 
+    facet_wrap(. ~ truth, scales = "free") + 
+    labs(x = "", y = "") + 
+    theme(text = element_text(size = 12), 
+      axis.text.x = element_text(size = 12))
+    
   
   if (printplot) suppressWarnings(print(p))
   

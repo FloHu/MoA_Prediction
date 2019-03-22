@@ -25,3 +25,6 @@ data/programmatic_output
 *.xlsx
 *.tiff
 .httr-oauth
+*.pptx
+*Untracked.* # test area for code
+

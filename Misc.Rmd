@@ -107,6 +107,7 @@ dev.off()
 ## PCA: first 4 PCs of most interactions, top 10% variance, no chemical features
 
 ```{r}
+m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
 m_matrix <- as.matrix(m[, c(4:ncol(m))])
 rownames(m_matrix) <- paste0(m$drugname_typaslab, "_", m$conc)
 
@@ -119,8 +120,8 @@ names(pve) <- paste0("PC", seq_along(pve))
 
 pdf("./plots/PCA.pdf", width = 8, height = 5)
 par(mfrow = c(1, 2))
-plot(pve, xlab = "Principal component index", ylab = "Percentage of variance explained", 
-  pch = )
+plot(pve, xlab = "Principal component index", 
+  ylab = "Percentage of variance explained", pch = )
 plot(cumsum(pve), type = "l", pch = 19, xlab = "Principal component index", 
   ylab = "Cumulative proportion of variance")
 dev.off()
@@ -137,12 +138,9 @@ my_legend <- scale_colour_manual("Target process", labels = names(moa_cols),
 
 # there are some interesting dots in the PC1-PC2 component that I would like to 
 # label
-prcomps$label <- ifelse(prcomps$PC1 > 10 & prcomps$PC2 > 5, 
-  prcomps$drugname_typaslab, "")
 
 p1 <- ggplot(prcomps, aes(x = PC1, y = PC2)) + 
   geom_point(aes(colour = process_broad), alpha = 0.75) + 
-  geom_text(aes(label = label), size = 2, nudge_y = 1, alpha = 0.75) + 
   theme_bw() + my_legend + 
   ggtitle("PCA (Nichols, all dosages, all features)")
 
@@ -161,9 +159,120 @@ p4 <- ggplot(prcomps, aes(x = PC3, y = PC4)) +
 
 p <- grid.arrange(p1, p2, p3, p4, nrow = 2)
 p
-ggsave(p, file = "./plots/PCA_plots.pdf", width = 11, height = 6)
+ggsave(p, file = "./plots/PCA_plots.pdf", width = 9, height = 6)
+```
+
+PCA with fingerprint
+
+```{r}
+(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
+m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
+
+m_matrix <- as.matrix(m[, c(4:ncol(m))])
+m_matrix <- m_matrix[, my_fingerprint_mcl]
+
+rownames(m_matrix) <- paste0(m$drugname_typaslab, "_", m$conc)
+
+pr.out <- prcomp(m_matrix, scale = TRUE)
+
+# screeplot:
+pve <- pr.out$sdev ^ 2
+pve <- pve / sum(pve)
+names(pve) <- paste0("PC", seq_along(pve))
+
+pdf("./plots/PCA_fingerprint.pdf", width = 8, height = 5)
+par(mfrow = c(1, 2))
+plot(pve, xlab = "Principal component index", 
+  ylab = "Percentage of variance explained", pch = )
+plot(cumsum(pve), type = "l", pch = 19, xlab = "Principal component index", 
+  ylab = "Cumulative proportion of variance")
+dev.off()
+
+prcomps <- as.data.frame(pr.out$x)
+prcomps$drug_conc <- row.names(prcomps)
+prcomps <- separate(prcomps, col = drug_conc, 
+  into = c("drugname_typaslab", "conc"), sep = "_")
+prcomps <- left_join(prcomps, unique(m[, c("drugname_typaslab", "process_broad")]))
+prcomps <- select(prcomps, drugname_typaslab, process_broad, everything())
+
+my_legend <- scale_colour_manual("Target process", labels = names(moa_cols), 
+  values = moa_cols)
+
+# there are some interesting dots in the PC1-PC2 component that I would like to 
+# label
+
+p1 <- ggplot(prcomps, aes(x = PC1, y = PC2)) + 
+  geom_point(aes(colour = process_broad), alpha = 0.75) + 
+  theme_bw() + my_legend + 
+  ggtitle("PCA (Nichols, all dosages, all features)")
+
+p2 <- ggplot(prcomps, aes(x = PC1, y = PC3)) + 
+  geom_point(aes(colour = process_broad), alpha = 0.75) + 
+  theme_bw() + ggtitle("") + 
+  my_legend
+
+p3 <- ggplot(prcomps, aes(x = PC2, y = PC3)) + 
+  geom_point(aes(colour = process_broad), alpha = 0.75) + 
+  theme_bw() + my_legend
+
+p4 <- ggplot(prcomps, aes(x = PC3, y = PC4)) + 
+  geom_point(aes(colour = process_broad), alpha = 0.75) + 
+  theme_bw() + my_legend
+
+p <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+p
+ggsave(p, file = "./plots/PCA_plots_fingerprint.pdf", width = 9, height = 6)
+```
+
+
+tSNE with same matrix:
+
+```{r}
+set.seed(5)
+tsne_input <- m_matrix
+m$drug_conc <- paste0(m$drugname_typaslab, "_", m$conc)
+
+tsne <- Rtsne::Rtsne(X = tsne_input, dims = 3, perplexity = 10, max_iter = 2000)
+tsne_data <- data.frame(tsne$Y)
+colnames(tsne_data)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+tsne_data$drug_conc <- m$drug_conc
+tsne_data <- left_join(tsne_data, m[, c("drug_conc", "process_broad")])
+
+ggplot(tsne_data, aes(x = tSNE1, y = tSNE2, colour = process_broad)) + 
+  geom_point(alpha = 0.75) + 
+  scale_colour_manual("MoA", values = moa_cols) + 
+  theme(legend.position = "None")
+
+ggsave(filename = "./plots/tSNE_allfeats.pdf", width = 3.5, height = 3.5)
+```
+
+tSNE for fingerprint:
+
+```{r}
+(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
+
+set.seed(5)
+tsne_input <- m_matrix
+tsne_input <- tsne_input[, my_fingerprint_mcl]
+
+m$drug_conc <- paste0(m$drugname_typaslab, "_", m$conc)
+
+tsne <- Rtsne::Rtsne(X = tsne_input, dims = 3, perplexity = 10, max_iter = 2000)
+tsne_data <- data.frame(tsne$Y)
+colnames(tsne_data)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+tsne_data$drug_conc <- m$drug_conc
+tsne_data <- left_join(tsne_data, m[, c("drug_conc", "process_broad")])
+
+ggplot(tsne_data, aes(x = tSNE1, y = tSNE2, colour = process_broad)) + 
+  geom_point(alpha = 0.75) + 
+  scale_colour_manual("MoA", values = moa_cols) + 
+  theme(legend.position = "None")
+
+ggsave(filename = "./plots/tSNE_fingerprint.pdf", width = 3.5, height = 3.5)
 
 ```
+
+
 
 ## Plots for presentations/posters
 
@@ -338,6 +447,30 @@ dev.off()
 
 pdf("./plots/Heatmap_thematrix_all_corrdist.pdf", width = 130, 
   height = 30)
+h
+dev.off()
+```
+
+With fingerprint features:
+
+```{r}
+(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
+
+h <- Heatmap(matrix = m[, my_fingerprint_mcl], 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  clustering_distance_rows = "euclidean", 
+  clustering_distance_columns = "euclidean", 
+  column_names_side = "top", 
+  row_names_side = "right", 
+  row_dend_side = "right", 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 3), 
+  split = 4) + row_annot
+h
+
+pdf("./plots/Heatmap_fingerprint_euclidean.pdf", width = 10, 
+  height = 20)
 h
 dev.off()
 ```
