@@ -150,3 +150,43 @@ fit_or_load <- function(varname, directory, dfm, fitting_fun, ...) {
     return(my_fit)
   }
 }
+
+generate_corpairs <- function() {
+  # just outsourced for readability
+  corpairs <- melt_cormat_to_pairs(feats_cor)
+  
+  # retrieving all protein complexes, code from notebook 1 (Leonard) -----------
+  cmplx = read_tsv(file = "./data/All_instances_of_Protein-Complexes_in_Escherichia_coli_K-12_substr._MG1655.txt")
+  (load("./data/genesWithEG_ID.RData"))
+  gene_synonyms$synonym = toupper(gene_synonyms$synonym)
+  
+  genes_cmplx = lapply(cmplx$`Genes of polypeptide, complex, or RNA`,
+    FUN = function(x){
+      genenames = str_match_all(string = x, pattern = "[a-zA-Z]{3,4}")
+      genenames = toupper(unlist(genenames))
+    })
+  
+  names(genes_cmplx) = cmplx$`Protein-Complexes`
+  genes_cmplx = genes_cmplx[!is.na(genes_cmplx)]
+  
+  lens = lapply(genes_cmplx, function(x){length(x)})
+  genes_cmplx = genes_cmplx[lens != 1]
+  saveRDS(genes_cmplx, file = file.path(outdir, "genes_cmplx.rds"))
+  
+  # add to each pair the information if the two genes are also part of the same 
+  # protein complex
+  genes_cmplx_v <- unique(unname(unlist(genes_cmplx)))
+  
+  corpairs$in_same_cmplx <- 
+    map2_lgl(corpairs$featA, corpairs$featB, function(.featA, .featB) {
+      drugpair <- c(.featA, .featB)
+      if (!all(c(.featA, .featB) %in% genes_cmplx_v)) {
+        FALSE
+      } else {
+        any(map_lgl(genes_cmplx, ~ (sum(.x %in% drugpair) == 2)))
+      }
+    })
+  
+  return(corpairs)
+}
+
