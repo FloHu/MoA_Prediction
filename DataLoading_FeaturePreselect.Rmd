@@ -426,7 +426,6 @@ sum(corpairs$cor > 0.6)
 
 If we don't require them to be in the same complex we get 
 `r sum(corpairs$cor > 0.6)` pairs with, among others:
-
 * ribonucleotide biosynthesis (pyrX, purX)
 * LPS biosynthesis: rfaX
 
@@ -698,7 +697,6 @@ improved and some issues with nested CV setup were corrected.
 
 Each row of the matrix container should have all the information to run 
 repeated instanced blocked stratified nested cross-validation. We will compare: 
-
   * Algorithms
   * Impact of two ways of selecting dosages
   * Influence of including chemical features (just out of curiosity, we do not plan to use them at all)
@@ -762,161 +760,172 @@ stopifnot(dim(the_matrix) == dim(the_matrix_signifs))
 ```
 
 
+## Further data preprocessing
+
+Put all information for subsequent model fitting into `mc` (= matrix container), 
+which should contain all information to fit a machine learning model. 
+
+Comparisons:
+  1. algorithms
+  2. dosage selection: all vs. dosg. closest to MIC
+  3. features: with or without chemical features
+
+For 2.: all dosages: take at most 3 dosages to mitigate imbalances. 
+If there are more than 3 dosages: take those 3 closest to the MIC (log2-scale). 
+If they are NA keep 3 highest dosages. 
+
+```{r}
+dosg_tab <- dosg_check$nichols_2011.sscores %>%
+  semi_join(the_matrix, by = c("drugname_typaslab", "conc"))
+
+dosg_tab$frac_of_mic_log2 <- log2(dosg_tab$frac_of_mic)
+
+# two arrange steps so that drugs with an NA mic value are ordered such that 
+# the highest dosage will be selected
+# keep_all_dosg: indicates which drugs to keep for the "all dosages" table
+# keep_one_dosg: indicates which drugs to keep for the table where dosage 
+# closest to MIC is kept
+dosg_tab_top3 <- 
+  group_by(dosg_tab, drugname_typaslab) %>%
+  arrange(desc(conc), .by_group = TRUE) %>%
+  arrange(abs(frac_of_mic_log2), .by_group = TRUE) %>%
+  mutate(
+    keep_all_dosg = ifelse(seq_len(n()) %in% c(1:3), TRUE, FALSE), 
+    keep_one_dosg = ifelse(seq_len(n()) == 1, TRUE, FALSE)) %>%
+  arrange(drugname_typaslab, conc, .by_group = TRUE) %>%
+  select(-one_of("dataset")) %>%
+  ungroup()
+
+# this must be TRUE now:
+stopifnot(nunique(dosg_tab_top3$drugname_typaslab) == sum(dosg_tab_top3$keep_one_dosg))
+
+# for later inspection if desired:
+saveRDS(dosg_tab_top3, file = file.path(outdir, "dosg_tab_top3"))
+```
+
+Can now subset `the_matrix`. Rename to `m` for less typing. 
+
+```{r}
+tmp <- dosg_tab_top3[dosg_tab_top3$keep_all_dosg, ]
+# "m_all" and "m_signif_all"
+m_all <- filter(the_matrix, paste(drugname_typaslab, conc) %in% 
+    paste(tmp$drugname_typaslab, tmp$conc))
+m_signif_all <- filter(the_matrix_signifs, paste(drugname_typaslab, conc) %in% 
+    paste(tmp$drugname_typaslab, tmp$conc))
+
+stopifnot({
+  dim(m_all) == dim(m_signif_all)
+  nrow(m_all) == sum(tmp$keep_all_dosg)
+})
+
+# "m_one" and "m_signif_one"
+tmp <- dosg_tab_top3[dosg_tab_top3$keep_one_dosg, ]
+m_one <- filter(the_matrix, paste(drugname_typaslab, conc) %in% 
+    paste(tmp$drugname_typaslab, tmp$conc))
+m_signif_one <- filter(the_matrix_signifs, paste(drugname_typaslab, conc) %in% 
+    paste(tmp$drugname_typaslab, tmp$conc))
+stopifnot({
+  dim(m_one) == dim(m_signif_one)
+  nrow(m_one) == sum(tmp$keep_one_dosg)
+})
+```
+
+Add MoA information. 
+
+```{r}
+m_one <- 
+  left_join(m_one, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>% 
+  select(drugname_typaslab, conc, process_broad, everything())
+nunique(m_one$drugname_typaslab)
+table(m_one$process_broad)
+saveRDS(m_one, file.path(outdir, "m_one.rds"))
+
+m_all <- 
+  left_join(m_all, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
+  select(drugname_typaslab, conc, process_broad, everything())
+nunique(m_all$drugname_typaslab)
+table(m_all$process_broad)
+saveRDS(m_all, file.path(outdir, "m_all.rds"))
+```
+
+Add information on physicochemical properties. 
+
+```{r}
+chem_info <- select(drugs_complete, drugname_typaslab, SlogP:data_effective_rotor_count)
+m_one_chem <- left_join(m_one, chem_info)
+saveRDS(m_one_chem, file.path(outdir, "m_one_chem.rds"))
+
+m_all_chem <- left_join(m_all, chem_info)
+saveRDS(m_all_chem, file.path(outdir, "m_all_chem.rds"))
+```
+
+
 ## Making the container
 
-### Generating different versions of the_matrix
-
-Put all information for subsequent model fitting into `matrix_container`, which 
-should contain all information to fit a machine learning model. 
-
 ```{r}
-matrix_container <- 
-   tibble(datasets_included = list("nichols_2011"), 
-          drug_dosages = c("all"), 
-          feat_preselect = c("keepall"), 
-          chemical_feats = c(FALSE), 
-          drug_feature_matrices = list(the_matrix))
-```
-
-### Selecting variances
-
-Keep features with highest variance (top x%, but only the mutants). 
-
-```{r}
-variances_to_select <- c(5, 10, 15, 20, 25, 30, 40, 50)
-
-# add some datasets to our matrix_container: for the table using all dosages, 
-# we want to select the genes which have the highest variance (top x%)
-stopifnot(nrow(matrix_container) == 1)
-targetrow <- 1
-targetmat <- matrix_container$drug_feature_matrices[[targetrow]]
-for (v in variances_to_select) {
-  # tmp_row contains matrix with all drug dosages to do feature preselection
-  tmp_row <- matrix_container[targetrow, ] 
-  # tmp_mat <- tmp_row$drug_feature_matrices[[1]]
-  tmp_mat <- feature_selection_variance(targetmat, featStart = 3, percentTop = v)
-  tmp_row$drug_feature_matrices[[1]] <- tmp_mat # replace the matrix
-  tmp_row$feat_preselect <- paste0("top", v, "pct") # update metadata
-  matrix_container <- bind_rows(matrix_container, tmp_row) # and the data container
-}
-```
-
-### Selecting dosages
-
-Either keep all dosages or dosage with most number of interactions (after 
-selecting for most variant features). 
-
-```{r}
-(matrix_container <- 
-  matrix_container %>% 
-  mutate(drug_dosages = "most_interactions", 
-    drug_feature_matrices = 
-      map(drug_feature_matrices, select_most_ias, 
-        the_matrix_signifs = the_matrix_signifs)) %>%
-  bind_rows(matrix_container))
-```
-
-### Adding chemical features
-
-Don't use all chemical features from KNIME. Make tables with and without 
-chemical features.
-
-```{r}
-# Make sure we have all drugs recorded in drugs_subset:
-stopifnot(
-   all(unique(flatten_chr(map(matrix_container$drug_feature_matrices, "drugname_typaslab")))
-      %in%
-      drugs_subset$drugname_typaslab)
+mc <- tibble(
+  drug_dosages = c("all", "all", "one", "one"), 
+  chemical_feats = c(FALSE, TRUE, FALSE, TRUE), 
+  drug_feature_matrices = list(m_all, m_all_chem, m_one, m_one_chem)
 )
 
-# keep selected chemical features
-drugs_subset_selected_features <- drugs_subset[, c("drugname_typaslab", 
-  "SlogP", "LabuteASA", "TPSA", "ExactMW", "NumLipinskiHBA", "NumLipinskiHBD",
-  "NumRotatableBonds", "NumAmideBonds", "NumRings", "NumAromaticRings", 
-  "NumSaturatedRings", "NumAliphaticRings", "data_effective_rotor_count")]
-
-# take whole matrix_container, add chemical features, update metadata and 
-# rbind to old container
-(matrix_container <- 
-   matrix_container %>%
-   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, drugs_subset_selected_features), 
-          chemical_feats = TRUE, 
-          datasets_included = map(datasets_included, append, "knime")) %>%
-   bind_rows(matrix_container) %>%
-   arrange(drug_dosages, feat_preselect, chemical_feats))
+# variances_to_select <- c(5, 10, 15, 20, 25, 30, 40, 50)
 ```
 
-### Adding MoA labels
+### Adding CV instances
+
+Generating the instances. 
 
 ```{r}
-my_labels <- drugs_subset[, c("drugname_typaslab", "process_broad")]
+# for single dosage:
+task_one <- make_my_task(dfm = m_one, targetvar = "process_broad", 
+  blockvar = "drugname_typaslab")
 
-# add MoA information to all drug_feature_matrices
-matrix_container <- 
-   matrix_container %>%
-   mutate(drug_feature_matrices = map(drug_feature_matrices, left_join, my_labels))
-
-# arrange columns nicely
-matrix_container$drug_feature_matrices <- 
-   map(matrix_container$drug_feature_matrices, select, drugname_typaslab, conc, 
-     process_broad, everything())
-```
-
-### Generating nested CV instances
-
-Need one matrix for all dosages and another one for dosage with most 
-interactions. While the drug-dosage combination may differ depending on the 
-variance selection, it doesn't matter for the CV instance creation which one 
-to take as long as it's the same drugs in the same order. 
-
-```{r, cvinst_generation}
-# ensure that the order of the drugs is the same throughout:
-invisible(filter(matrix_container, drug_dosages == "all") %>%
-  pull(drug_feature_matrices) %>%
-  map("drugname_typaslab") %>%
-  reduce(function(a, b) {
-    if (all(a == b)) return(a) else stop()
-  }))
-
-invisible(filter(matrix_container, drug_dosages == "most_interactions") %>%
-  pull(drug_feature_matrices) %>%
-  map("drugname_typaslab") %>%
-  reduce(function(a, b) {
-    if (all(a == b)) return(a) else stop()
-  }))
-
-cvinst_alldosg_input <- 
-  (filter(matrix_container, drug_dosages == "all") %>%
-  pull(drug_feature_matrices))[[1]]
-saveRDS(cvinst_alldosg_input, file.path(outdir, "cvinst_alldosg_input.rds"))
-
-cvinst_mostias_input <- 
-  (filter(matrix_container, drug_dosages == "most_interactions") %>%
-  pull(drug_feature_matrices))[[1]]
-saveRDS(cvinst_mostias_input, file.path(outdir, "cvinst_mostias_input.rds"))
-
-# most interactions repeated nested cv instance required as input for cv 
-# instance generation of all dosages
-rep_ncvinst_mostias <- list()
-for (i in 1:10) {
-  rep_ncvinst_mostias[[paste0("NCV_", i)]] <- 
-    instance_creation(dataset = cvinst_mostias_input, nFoldsOuter = 8, 
-      nFoldsInner = 8)
+if (!file.exists(file.path(outdir, "cvinsts_one.rds"))) {
+  cvinsts_one <- replicate(10, 
+    make_cvinst_blocked_stratified(task_data_all_cols = task_one$data_complete, 
+      mlr_task = task_one, folds = 8, strat_var = "process_broad"), 
+    simplify = FALSE)
+  
+  saveRDS(cvinsts_one, file.path(outdir, "cvinsts_one.rds"))
+} else {
+  cvinsts_one <- readRDS(file.path(outdir, "cvinsts_one.rds"))
 }
-run_cv_tests(rep_ncvinst_mostias, data = cvinst_mostias_input)
-saveRDS(rep_ncvinst_mostias, file.path(outdir, "rep_ncvinst_mostias.rds"))
+  
 
-# now generate rep nested cv instance for all dosages (works via mapping 
-# approach, drugs with different dosages are moved together)
-rep_ncvinst_alldosg <- 
-  RepNCV_instance_map_drugname(instance_oneDrug = rep_ncvinst_mostias, 
-    dataset_oneDosage = cvinst_mostias_input, 
-    dataset_allDosage = cvinst_alldosg_input)
-run_cv_tests(rep_ncvinst_alldosg, data = cvinst_alldosg_input)
-saveRDS(rep_ncvinst_alldosg, file.path(outdir, "rep_ncvinst_alldosg.rds"))
+# for all dosages:
+task_all <- make_my_task(dfm = m_all, targetvar = "process_broad", 
+  blockvar = "drugname_typaslab")
+
+if (!file.exists(file.path(outdir, "cvinsts_all.rds"))) {
+  cvinsts_all <- replicate(10, 
+    make_cvinst_blocked_stratified(task_data_all_cols = task_all$data_complete, 
+      mlr_task = task_all, folds = 8, strat_var = "process_broad"), 
+    simplify = FALSE)
+  
+  saveRDS(cvinsts_all, file.path(outdir, "cvinsts_all.rds"))
+} else {
+  cvinsts_all <- readRDS(file.path(outdir, "cvinsts_all.rds"))
+}
+```
+
+Adding them to the container.
+
+```{r}
+mc$resamp_instance <- ifelse(mc$drug_dosages == "all", list(cvinsts_all), 
+  list(cvinsts_one))
 ```
 
 
+### Adding model and hyperparameter specifications
+
+```{r}
+
+```
+
+
+
+<!--
 ## Adding model and hyperparameter specifications
 
 For all of the above drug-feature matrices we want to run the following:
@@ -927,7 +936,7 @@ For all of the above drug-feature matrices we want to run the following:
     + (iii) trying out subsample parameters
   * lasso regression
 
-```{r}
+```{r, eval = FALSE}
 matrix_container.bak <- matrix_container
 
 # stuff common to all: tuning measures, CV instances
@@ -1036,7 +1045,7 @@ interactions (and keeping all genes = 'keepall', and no chemical features,
 note that drug-dosage combinations kept may differ in the not 'keepall' 
 data sets).
 
-```{r}
+```{r, eval = FALSE}
 filter_container(matrix_container, dosgs = "all", feats = "keepall", 
   chemfeats = FALSE, models = "classif.randomForest")$drug_feature_matrices[[1]] %>%
   saveRDS(file = file.path(outdir, "the_matrix_matrixcontainer_alldosg_2019.rds"))
@@ -1046,6 +1055,7 @@ filter_container(matrix_container, dosgs = "most_interactions", feats = "keepall
   saveRDS(file = file.path(outdir, "the_matrix_matrixcontainer_mostias_2019.rds"))
 ```
 
+-->
 
 # System and session info
 

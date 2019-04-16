@@ -152,65 +152,66 @@ RepNCV_instance_map_drugname <- function(instance_oneDrug, dataset_oneDosage, da
   return(Rep_Nest_CV_instance_allDosage)
 }
 
-make_cvinst_blocked_stratified <- function(task_data_all_cols, 
-                                           mlr_task, 
-                                           folds, 
-                                           strat_var, 
-                                           max_dev = 0.05) {
-  # takes a task object from mlr and produces a CV instance with folds folds 
-  # from it that is (i) stratified according to strat_var and (ii) blocked 
-  # according to block_var
-  # task_data_all_cols: should contain also drugname_typaslab and conc to check if 
-  # blocking worked correctly
-  # mlr currently doesn't support this (specifying stratify = TRUE in 
-  # makeResampleDesc() will throw an error in subsequent makeResampleInstance() 
-  # functions if combined with blocked tasks)
-  # Relative fractions in strat_var are allowed to differ by max_dev
-  stopifnot(is(mlr_task, "Task"))
-  if (is.null(mlr_task$blocking)) {
-    stop("Blocking has not been set for passed mlr task")
-  }
-  
-  rdesc <- mlr::makeResampleDesc("CV", iters = folds)
-  data <- mlr::getTaskData(mlr_task)
-  
-  ref_fracs <- table(data[[strat_var]]) / length(data[[strat_var]])
-  counter <- 0
-  try_again <- TRUE
-  
-  while (try_again) {
-    # generate resampling instance
-    rin <- mlr::makeResampleInstance(rdesc, mlr_task)
-    # and check stratification
-    for (split in seq_len(folds)) {
-      tab <- table(data[[strat_var]][rin$train.inds[[split]]])
-      # prevent empty classes in the test set
-      if (any(tab == 0)) break
-      train_fracs <- tab / sum(tab)
-      # make sure that relative fractions don't differ more than max_dev
-      if (any(abs(ref_fracs - train_fracs) > max_dev)) break
-      # if we get here it means we were successful
-      try_again <- FALSE
+make_cvinst_blocked_stratified <- 
+  function(task_data_all_cols, mlr_task, folds, strat_var) {
+    # takes a task object from mlr and produces a CV instance with folds folds 
+    # from it that is (i) stratified according to strat_var and (ii) blocked 
+    # (blocking is already specified in the task)
+    # task_data_all_cols: should contain also drugname_typaslab and conc to check if 
+    # blocking worked correctly
+    # mlr currently doesn't support this (specifying stratify = TRUE in 
+    # makeResampleDesc() will throw an error in subsequent makeResampleInstance() 
+    # functions if combined with blocked tasks)
+    
+    # ! intended for use with multiclass models, only ensures that training/test 
+    # set are not empty
+    stopifnot(is(mlr_task, "Task"))
+    if (is.null(mlr_task$blocking)) {
+      stop("Blocking has not been set for passed mlr task")
     }
-    counter <- counter + 1
+    
+    # usually we would set stratify = TRUE here
+    rdesc <- mlr::makeResampleDesc("CV", iters = folds)
+    data <- mlr::getTaskData(mlr_task)
+    counter <- 0
+    
+    # make sure there is at least one observation in the test set of each class 
+    # and in each train-test set split - this is our "stratification"
+    try_again <- TRUE
+    while (try_again) {
+      # generate resampling instance
+      rin <- mlr::makeResampleInstance(rdesc, mlr_task)
+      # and check stratification
+      for (split in seq_len(folds)) {
+        tab <- table(data[[strat_var]][rin$test.inds[[split]]])
+        # prevent empty classes in the test set
+        if (any(tab == 0)) break
+        # but also prevent empty classes in the training set
+        tab <- table(data[[strat_var]][rin$train.inds[[split]]])
+        if (any(tab == 0)) break
+        try_again <- FALSE
+      }
+      counter <- counter + 1
+    }
+    
+    # make sure that blocking worked correctly: drugs should not overlap 
+    # between training and test set
+    train_test_intersects <- 
+      purrr::map2(rin$train.inds, rin$test.inds, function(train, test) {
+        intersect(task_data_all_cols$drugname_typaslab[train], 
+          task_data_all_cols$drugname_typaslab[test])
+      })
+    
+    if (!all(sapply(train_test_intersects, length) == 0)) {
+      stop("Something went wrong - drugs were found both in the train and 
+        in the test set")
+    }
+    
+    message("Generated blocked stratified resampling instance after ", counter, 
+      " attempts")
+    return(rin)
   }
-  
-  # make sure that blocking worked correctly: drugs should not overlap 
-  # between training and test set
-  train_test_intersects <- 
-    purrr::map2(rin$train.inds, rin$test.inds, function(train, test) {
-      intersect(task_data_all_cols$drugname_typaslab[train], 
-        task_data_all_cols$drugname_typaslab[test])
-    })
-  if (!all(sapply(train_test_intersects, length) == 0)) {
-    stop("Something went wrong - drugs were found both in the train and 
-      in the test set")
-  }
-  
-  message("Generated blocked stratified resampling instance after ", counter, 
-    " attempts")
-  return(rin)
-}
+
 
 make_rep_ncv <- function(task_data_all_cols, 
                          mlr_task, 

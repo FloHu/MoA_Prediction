@@ -190,3 +190,24 @@ generate_corpairs <- function() {
   return(corpairs)
 }
 
+make_my_task <- function(dfm, targetvar = "process_broad", blockvar = NULL) {
+  # dfm = drug-feature matrix
+  # this function just removes drugname_typaslab, conc; then defines 
+  # process_broad as target column for a task
+  # can provide a blocking variable 
+  dfm <- as.data.frame(dfm)
+  if (!is.null(blockvar)) blocks <- make_blocks(dfm, blockvar = blockvar)
+  
+  to_remove <- c("drugname_typaslab", "conc")
+  df <- dfm[, !colnames(dfm) %in% to_remove]
+  
+  le_task <- makeClassifTask(data = df, target = targetvar, 
+    blocking = if (!is.null(blockvar)) blocks else NULL)
+  
+  # annoying thing about mlr task is that there is no option to save metadata 
+  # about the task 
+  # so we generate our own custom slot
+  le_task$data_complete <- as_tibble(dfm)
+  
+  return(le_task)
+}
