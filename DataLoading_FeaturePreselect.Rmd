@@ -145,6 +145,35 @@ feature_stats %>%
     y = "Number of 'NA' values per mutant across all conditions")
 ```
 
+Number of NA values across mutants per condition. 
+
+```{r}
+drug_stats %>%
+  bind_rows() %>%
+  ggplot(aes(x = dataset, y = n_NA_sscores)) + 
+  geom_jitter(shape = 1, height = 0) + 
+  labs(title = "Number of NA values per condition", 
+    y = "Number of 'NA' values per condition across all mutants")
+```
+
+There are some outliers in Newsize. They will be excluded. Let's see which 
+drugs have at least one dosage with, say, more than 40 NA values. 
+
+```{r}
+drug_stats[c("newsize", "nichols_2011")] %>%
+  bind_rows() %>%
+  group_by(dataset, drugname_typaslab) %>%
+  arrange(desc(n_NA_sscores)) %>%
+  filter(any(n_NA_sscores > 40)) %>%
+  arrange(dataset, drugname_typaslab) %>% 
+  print(n = 50)
+```
+
+I would argue for excluding the outliers in Newsize because there clearly 
+something went wrong. In the Nichols set there are some drugs that just tend to 
+have more NA values, across dosages, but an order of magnitude less than the 
+Newsize drugs. 
+
 Statistics of how many mutants have 0, 1, 2, etc. number of interactions.
 
 ```{r}
@@ -156,7 +185,7 @@ feature_stats %>%
   geom_bar(stat = "identity") + 
   facet_wrap( ~ dataset, scales = "free") + 
   labs(title = "How many mutants have how many significant interactions?", 
-    x = "Number of significant interactions", y = "Number of genes")
+    x = "Number of significant interactions", y = "Number of mutants")
 ```
 
 Do the same for drugs. It looks like price and shiver data sets behave very 
@@ -183,20 +212,20 @@ Inspecting the data suggests the following:
   already present in Nichols and Newsize. 
   
 Therefore, for Nichols and Newsize:
-  * Remove features that have 10 or more NA values. 
-  * Remove conditions with less than 5 significant interactions. 
-  * Finally, we also want to remove mutants that have no significant 
-  interaction with any drug as they are likely to not yield any information. 
+  * Remove mutants (features) that have 10 or more NA values.
+  * Remove mutants that have no significant interaction with any drug.
+  * Remove conditions in Newsize that apparently did not work (> 500 NA values).
+  * Remove conditions with less than 5 significant interactions.
 
 ```{r}
 (feats_to_exclude_NAs <- 
   map(feature_stats[c("nichols_2011", "newsize")], ~filter(.x, n_NA_sscores > 10)))
 
-(conds_to_exclude <- 
-  map(drug_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif < 5)))
-
 (feats_no_IAs <- 
   map(feature_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif == 0)))
+
+(conds_to_exclude <- 
+  map(drug_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif < 5 | n_NA_sscores > 500)))
 ```
 
 To actually exclude conditions/features, run the following procedure: 
@@ -204,6 +233,9 @@ To actually exclude conditions/features, run the following procedure:
   1. Features with many NAs: if a feature fulfills this criterion, remove it everywhere.
   2. Features with no interactions: only remove if they don't interact in all of the data sets. 
   3. Finally: only keep features that are in both nichols and newsize. 
+
+Conditions to exclude: just exclude them in the respective dataset, no special 
+procedure here. 
 
 ```{r}
 # Features that don't interact with anything neither in Nichols nor Newsize
@@ -217,20 +249,21 @@ removing the features.
 ```{r}
 kept_studies <- all_studies[c("nichols_2011", "newsize")]
 saveRDS(kept_studies, file.path(outdir, "kept_datasets_long_nochanges.rds"))
+saveRDS(conds_to_exclude, file.path(outdir, "removed_conditions_quality_ctrl.rds"))
 
 # excluding conditions
 kept_studies <- imap(kept_studies, function(data, name) {
-  # remove conditions with few interactions
+  # remove conditions with few interactions/lots of NAs from respective dataset
   to_remove <- conds_to_exclude[[name]]
   data <- data[!(paste(data$drugname_typaslab, data$conc) %in% 
       paste(to_remove$drugname_typaslab, to_remove$conc)), ]
   
-  # remove features with lots of NAs
-  data <- data[!(data$gene_synonym %in% 
-      feats_to_exclude_NAs[[name]][["gene_synonym"]]), ]
+  # remove features with lots of NAs from all datasets
+  to_remove <- bind_rows(feats_to_exclude_NAs[c("nichols_2011", "newsize")])$gene_synonym
+  data <- data[!(data$gene_synonym %in% to_remove), ]
   
-  # remove features never interacting with anything
-  to_remove <- reduce(map(feats_no_IAs, "gene_synonym"), dplyr::intersect)
+  # remove features never interacting with anything in any dataset
+  to_remove <- reduce(map(feats_no_IAs[c("nichols_2011", "newsize")], "gene_synonym"), dplyr::intersect)
   data <- data[!(data$gene_synonym %in% to_remove), ]
   return(data)
 })
@@ -248,6 +281,7 @@ kept_studies <- map(kept_studies, function(data) {
   total_intersect <- reduce(map(kept_studies, "gene_synonym"), dplyr::intersect)
   data <- data[data$gene_synonym %in% total_intersect, ]
 })
+
 venn(list(nichols = unique(kept_studies$nichols_2011$gene_synonym), 
   newsize = unique(kept_studies$newsize$gene_synonym)))
 ```
@@ -296,9 +330,10 @@ group_by(cors, drugname_typaslab, conc) %>%
 ## Spread data, replace NA values
 
 Convert to wide format. `NA` values are replaced by 0 for s-scores and `FALSE` 
-for significance values (qvalues). 
+for significance values (qvalues). Save the output. 
 
 ```{r}
+# lose calcofluor due to NA concentration
 kept_studies_wide <- unlist(
   map(kept_studies, function(data) {
     data <- filter(data, !is.na(conc))
@@ -313,11 +348,7 @@ kept_studies_wide <- unlist(
     return(list(sscores = sscores, qvals = qvals))
   }), 
   recursive = FALSE)
-```
 
-Save.
-
-```{r}
 saveRDS(kept_studies_wide, file.path(outdir, 
   "kept_datasets_wide_featsndrugs_removed_noNAs.rds"))
 ```
@@ -529,9 +560,6 @@ kept_studies_wide[tmp] <-
 tmp <- c("nichols_2011.qvals", "newsize.qvals")
 kept_studies_wide[tmp] <- 
   map(kept_studies_wide[tmp], merge_features, cluster_fr = clusters, f = any)
-
-saveRDS(kept_studies_wide, file = file.path(outdir, 
-  "kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds"))
 ```
 
 
@@ -555,8 +583,7 @@ if (!file.exists("./plots/Correlation_all_by_all_aftermerge.png")) {
 ## Dosage selection
 
 ```{r}
-the_matrix <- kept_studies_wide$nichols_2011.sscores
-the_matrix_signifs <- kept_studies_wide$nichols_2011.qvals
+matrices <- kept_studies_wide[c("nichols_2011.sscores", "newsize.sscores")]
 
 if (!file.exists(file.path(outdir, "MICs.csv"))) {
   source("./parse_MIC_data.R")
@@ -564,18 +591,99 @@ if (!file.exists(file.path(outdir, "MICs.csv"))) {
   (mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
 }
 
-
 # drugs that are not in the MIC table
-unique(the_matrix$drugname_typaslab)[!unique(the_matrix$drugname_typaslab) %in% 
-    mics$drugname_typaslab]
+map(matrices, ~ setdiff(.x$drugname_typaslab, mics$drugname_typaslab))
 
-dosg_check <- left_join(select(the_matrix, drugname_typaslab, conc), mics) %>% 
-  mutate(frac_of_mic = conc / mic_curated) %>% 
-  select(drugname_typaslab, mic_curated, conc, frac_of_mic, resistant)
+# table for asking a few things about dosages
+dosg_check <- 
+  map(matrices, function(.x) {
+    .x <- left_join(select(.x, drugname_typaslab, conc), mics) %>% 
+    mutate(frac_of_mic = conc / mic_curated) %>% 
+    group_by(drugname_typaslab) %>% 
+    mutate(n_conc = n()) %>%
+    ungroup() %>%
+    select(drugname_typaslab, conc, mic_curated, frac_of_mic, resistant, n_conc)
+    return(.x)
+  })
 
-group_by(dosg_check, drugname_typaslab) %>%
-  filter(all(frac_of_mic < 0.05)) %>% 
-  View()
+dosg_check$nichols_2011.sscores <- 
+  left_join(dosg_check$nichols_2011.sscores, drug_stats$nichols_2011, 
+    by = c("drugname_typaslab", "conc"))
+
+dosg_check$newsize.sscores <- 
+  left_join(dosg_check$newsize.sscores, drug_stats$newsize, 
+    by = c("drugname_typaslab", "conc"))
+```
+
+How often is the concentration (allegedly) higher than the MIC? 
+
+```{r}
+# how often is the actual concentration higher than the MIC?
+map(dosg_check, function(.x) {
+  group_by(.x, drugname_typaslab) %>%
+  filter(any(frac_of_mic > 1))
+})
+```
+
+We will exclude conditions that were measured at a concentration less than 5% 
+of the MIC (keep everything that is NA). This means we lose the following drugs 
+completely: 
+
+```{r}
+removal_by_dosg <- map(dosg_check, function(.x) {
+  filter(.x, frac_of_mic < 0.05) %>%
+    arrange(drugname_typaslab)
+})
+
+map(removal_by_dosg, ~ filter(group_by(.x, drugname_typaslab), n_conc == n()))
+```
+
+The following conditions will be removed: 
+
+```{r}
+print(removal_by_dosg$nichols_2011.sscores, n = 100)
+print(removal_by_dosg$newsize.sscores, n = 100)
+
+saveRDS(removal_by_dosg, file = file.path(outdir, "removal_by_dosg.rds"))
+
+tmp <- c("nichols_2011.sscores", "nichols_2011.qvals")
+kept_studies_wide[tmp] <- map(kept_studies_wide[tmp], function(.x) {
+  to_remove <- paste(removal_by_dosg$nichols_2011.sscores$drugname_typaslab, 
+    removal_by_dosg$nichols_2011.sscores$conc)
+  .x <- .x[!(paste(.x$drugname_typaslab, .x$conc) %in% to_remove), ]
+  return(.x)
+})
+
+tmp <- c("newsize.sscores", "newsize.qvals")
+kept_studies_wide[tmp] <- map(kept_studies_wide[tmp], function(.x) {
+  to_remove <- paste(removal_by_dosg$newsize.sscores$drugname_typaslab, 
+    removal_by_dosg$newsize.sscores$conc)
+  
+  .x <- .x[!(paste(.x$drugname_typaslab, .x$conc) %in% to_remove), ]
+
+    return(.x)
+})
+
+saveRDS(kept_studies_wide, file = file.path(outdir, 
+  "kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds"))
+```
+
+Could be useful to save the respective matrices without features but with 
+MoA information: 
+
+```{r}
+tmp <- kept_studies_wide
+tmp$nichols_2011.qvals <- NULL
+tmp$newsize.qvals <- NULL
+
+tmp <- map(tmp, function(.x) {
+  .x <- select(.x, drugname_typaslab, conc) %>%
+    left_join(mode_of_action[, c("drugname_typaslab", "process_broad", "process_subgroup")]) %>% 
+    arrange(drugname_typaslab, conc)
+  return(.x)
+})
+
+saveRDS(tmp, file = file.path(outdir, "matrices_wide_featsndrugs_removed_noNAs_featsmerged.rds"))
 ```
 
 
@@ -615,32 +723,46 @@ Therefore, only keep drugs that:
   * Have chemical features defined
   * Have one of the four "main" modes of action: cell_wall, dna, membrane_stress, protein_synthesis
 
---> Tables `drugs_complete` and `drugs_subset`. 
-
 ```{r}
+# refer to Nichols data from this point on as "the_matrix"
+the_matrix <- kept_studies_wide$nichols_2011.sscores
+the_matrix_signifs <- kept_studies_wide$nichols_2011.qvals
+saveRDS(the_matrix, file.path(outdir, "the_matrix_complete.rds"))
+
+# check that no drugs will be lost:
+setdiff(the_matrix$drugname_typaslab, 
+  drugs_complete$drugname_typaslab[drugs_complete$dataset == "NICHOLS"])
+
 main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+
+# drugs_complete contains all drugs with MoA and chemical feature information 
 drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP), 
   process_broad %in% main_moas)
-drugs_subset
-table(drugs_subset$process_broad)
-saveRDS(drugs_subset, file = file.path(outdir, "drugs_subset.rds"))
-```
 
-Subset `the_matrix` accordingly. 
+drugs_kept_for_container <- 
+  unique(the_matrix$drugname_typaslab[the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
+drugs_kept_for_container
+saveRDS(drugs_kept_for_container, file = file.path(outdir, "drugs_kept_for_container"))
 
-```{r}
+drugs_rmvd_from_container <- 
+  unique(the_matrix$drugname_typaslab[!the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
+drugs_rmvd_from_container
+saveRDS(drugs_rmvd_from_container, file = file.path(outdir, "drugs_rmvd_from_container"))
+
 # keep only drugs in drug_subset
-the_matrix <- filter(the_matrix, drugname_typaslab %in% 
-    unique(drugs_subset$drugname_typaslab))
-saveRDS(the_matrix, file = file.path(outdir, "the_matrix_keepall_wide.rds"))
+the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_kept_for_container)
+nunique(the_matrix$drugname_typaslab)
+saveRDS(the_matrix, file = file.path(outdir, "the_matrix_for_container.rds"))
 
 the_matrix_signifs <- filter(the_matrix_signifs, drugname_typaslab %in% 
-    unique(drugs_subset$drugname_typaslab))
-saveRDS(the_matrix_signifs, file = file.path(outdir, "the_matrix_signifs_keepall_wide.rds"))
+    drugs_kept_for_container)
+saveRDS(the_matrix_signifs, file = file.path(outdir, "the_matrix_signifs_for_container.rds"))
+
+stopifnot(dim(the_matrix) == dim(the_matrix_signifs))
 ```
 
 
-## Generating `matrix_container`
+## Making the container
 
 ### Generating different versions of the_matrix
 

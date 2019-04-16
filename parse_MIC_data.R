@@ -1,14 +1,4 @@
-# aim: get MIC data for all drugs
-# based on Chemicals used-Ecoli_MICs.xls
-
-# setup -----------------
-rm(list = ls())
-library(tidyverse)
 library(readxl)
-source("./R/misc.R")
-
-# drug_synonyms_file <- "/Volumes/typas/Florian/dbsetup_tables/drug_synonyms.csv"
-# drug_synonyms <- read_delim(drug_synonyms_file, delim = ";")
 drug_synonyms <- read_delim("/Volumes/typas/Florian/dbsetup_tables_new/drug_synonyms.csv", 
   delim = ";")
 mics <- read_excel("./data/Chemicals used-Ecoli_MICs.xls", range = "A1:L112")
@@ -57,10 +47,20 @@ mics <- select(mics, drugname_typaslab, mic, mic_parsed, mic_tested, mic_tested_
 
 arrange(mics, drugname_typaslab) %>% print(n = 100)
 
+# MIC acriflavine? probably lower than 400, check papers, plus clear phenotype 
+# already at 100
+# CCCP: 25 after reviewing Ana's data
+# mitomycin C: 1 after reviewing Ana's data
+# ethidium bromide: changed to 150 based on doi: 10.1186/1754-1611-3-18
+# nigericin: probably correct, see https://link.springer.com/chapter/10.1007/978-3-642-46051-7_45
+# pyocyanin: changed to 20 based on Ana's data
+
 corrections <- c("A22" = 2, "TRICLOSAN" = 0.8, "EPINEPHRINE" = NA, 
   "NOREPINEPHRINE" = NA, "NOVOBIOCIN" = 40, "CYCLOSERINED" = 10, 
   "POLYMYXINB" = 0.5, "BACITRACIN" = NA, "STREPTOMYCIN" = NA, "SDS" = 5, 
-  "BENZALKONIUM" = 20, "CCCP" = 50, "FUSIDICACID" = 200, "STREPTOMYCIN" = 8)
+  "BENZALKONIUM" = 20, "CCCP" = 25, "FUSIDICACID" = 200, "STREPTOMYCIN" = 8, 
+  "ACRIFLAVINE" = 100, "MITOMYCINC" = 1, "ETHIDIUMBROMIDE" = 150, 
+  "PYOCYANIN" = 20)
 
 mics$mic_curated[match(names(corrections), mics$drugname_typaslab)] <- corrections
 mics <- select(mics, drugname_typaslab, mic_curated, resistant, comments)
