@@ -929,11 +929,10 @@ Currently those three:
   * classif.xgboost
 
 ```{r}
-mc <- bind_rows(rep(list(mc), 4))
+mc <- bind_rows(rep(list(mc), 3))
 
 mc$fitted_model <- 
-  rep(c("classif.randomForest", "classif.glmnet", "classif.xgboost", 
-    "classif.qda"), each = 4)
+  rep(c("classif.randomForest", "classif.glmnet", "classif.xgboost"), each = 4)
 
 # hyperparameter grids
 # this is not an ideal solution
@@ -956,14 +955,9 @@ lasso_grid <- makeParamSet(
 xgboost_grid <- makeParamSet(
   makeDiscreteParam("nrounds", values = c(1, 5, 10, 20, 30)), 
   makeDiscreteParam("eta", values = c(0.2, 0.3, 0.4, 0.5, 0.6)), 
-  makeDiscreteParam("max_depth", values = c(3, 5, 6, 8)), 
-  makeDiscreteParam("fw.perc", values = c(0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 
+  makeDiscreteParam("max_depth", values = c(3, 5, 7)), 
+  makeDiscreteParam("fw.perc", values = c(0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 
     0.5, 1))
-)
-
-# just out of curiosity, probably won't use because p >> n
-qda_grid <- makeParamSet(
-  makeDiscreteParam("fw.perc", values = c(0.005, 0.01, 0.015))
 )
 
 mc$hyperparam_grid <- 
@@ -971,9 +965,7 @@ mc$hyperparam_grid <-
     list(rf_grid), 
     ifelse(mc$fitted_model == "classif.glmnet", 
       list(lasso_grid), 
-      ifelse(mc$fitted_model == "classif.xgboost", 
-        list(xgboost_grid), 
-        list(qda_grid))))
+      list(xgboost_grid)))
 
 # tuning_measure
 mc$tuning_measure <- list(list(mmce, kappa))

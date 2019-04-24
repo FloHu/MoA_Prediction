@@ -20,12 +20,204 @@ editor_options:
 This part is the general setup, whichever model we are using.
 
 ```{r setup}
-rm(list = ls())
-# function to check if a package is installed, if so, load it, else install and then load it
-source("./R/ipak.R")
 # set chunk options and load libraries, load custom functions
 source("./setup.R")
+resdir <- "./run_results_from_server/mc_2019"
+outdir <- "./data/programmatic_output"
+
+mc <- readRDS("./data/programmatic_output/mc.rds")
 ```
+
+
+# Data preparation
+
+```{r}
+# old results object
+res_old <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top10pct_FALSE.rds")
+pryr::object_size(res_old)
+
+# new one
+res_new <- readRDS(file.path(resdir, "classif.randomForest_one_FALSE.rds"))
+pryr::object_size(res_new)
+```
+
+
+```{r}
+mc_ext <- mc
+mc_ext_old <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
+
+# # just demonstrate what the loop does
+# # test set performances
+# get_perf_measures_mcl(resobj = res_new)
+# get_pred_data_mcl(resobj = res_new)
+# 
+# # to be added: 
+# # - routine for confusion matrix data
+# # - MoA information, number of significant interactions, how many 
+# #   concentrations the drug had etc.
+# # - model stabilities (possibly outside of loop)
+# 
+# # hyperparameter tuning metrics: 
+# # first just get the optimal hyperparameters + their performance (in the inner 
+# # loop) - may get whole paths later on if desired 
+# 
+# get_opt_path(resobj = res_new)
+# get_opt_pars(resobj = res_new)
+
+mc_ext <- mc
+mc_ext_path <- file.path(outdir, "mc_ext.rds")
+newcols <- c("perf_measures", "pred_data", "opt_path", "opt_pars")
+if (file.exists(mc_ext_path)) {
+  mc_ext <- readRDS(mc_ext_path)
+} else {
+  mc_ext[, newcols] <- list(rep(list(NA), 4))
+}
+
+for (row in seq_len(nrow(mc_ext))) {
+  gc()
+  
+  targetfile <- 
+    select(mc_ext[row, ], fitted_model, drug_dosages, chemical_feats) %>%
+    reduce(paste, sep = "_") %>% 
+    paste0(".rds")
+  
+  stopifnot(length(targetfile) == 1)
+  
+  if (!(file.exists(file.path(resdir, targetfile)))) {
+    cat(targetfile, ": no matching file found, continuing ...\n")
+    next
+  }
+  
+  cat("Now processing file ", targetfile, "\n")
+  resobj <- readRDS(file.path(resdir, targetfile))
+  
+  mc_ext[row, newcols] <- 
+    map(list(get_perf_measures_mcl, get_pred_data_mcl, get_opt_path, 
+      get_opt_pars), function(f) list(f(resobj = resobj))) # need to wrap into list()
+  
+  rm(resobj)
+  gc()
+}
+```
+
+Adding some derived metrics.
+
+```{r}
+# model stabilities
+mc_ext$pred_stabs <- map_if(mc_ext$pred_data, is_tibble, get_pred_stabs)
+```
+
+
+
+
+Ignore the rest of the notebook for the time being, currently rewriting 
+functions to accommodate multiclass models. 
+
+
+```{r}
+if (file.exists("./data/programmatic_output/matrix_container_ext_2019.rds")) {
+  matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
+} else {
+   matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
+   matrix_container$perf_measures <- list(NA)
+   matrix_container$thresh_vs_perf <- list(NA)
+   matrix_container$pred_data <- list(NA)
+   matrix_container$prob.moa_stabilities <- list(NA)
+   matrix_container$pred_data_with_n_signif <- list(NA)
+}
+
+# for fastness:
+(most_ia_mat <- matrix_container$drug_feature_matrices[[180]])
+# stopifnot(nrow(most_ia_mat) == 78)
+
+# the_matrix_complete_strainsgenesremoved <- 
+#  readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
+the_matrix_complete_strainsgenesremoved <- 
+  readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")$nichols_2011
+
+# (foo <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds"))
+
+# loop to read in results files
+indir <- "./run_results_from_server/matrix_container_result_2019"
+
+for (rownum in seq_len(nrow(matrix_container))) {
+  gc()
+   matrix_container_row <- matrix_container[rownum, ]
+#   available_files <- list.files("./run_results_from_server/matrix_container_result/", 
+#     pattern = "xgboost|rf|lasso")
+   available_files <- list.files(indir, pattern = "xgboost|rf|lasso")
+
+  moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
+
+  # look for a file corresponding to a row
+  targetfile <- make_filename(matrix_container_row)
+  my_match <- available_files[available_files == targetfile]
+   
+   # check if values are not defined: if yes: check if matching file exists or continue
+   # if values are already defined means we parsed a corresponding results object previously so we 
+   # can continue
+   if (length(matrix_container_row$pred_data[[1]]) == 1 && is.na(matrix_container_row$pred_data[[1]])) {
+      if (length(my_match) > 0) {
+         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
+      } else {
+         message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
+         next
+      }
+   } else {
+      message("Row ", rownum, " already populated, continuing to next line.")
+      next
+   }
+   
+   resultsobj <- readRDS(file.path(indir, my_match))
+   
+   perf_measures <- get_auc_info(resultsobj)
+   # this data frame is just for convenience as its information is already contained in perf_measures
+   thresh_vs_perf <- map_dfr(perf_measures$thresh_vs_perf, "data")
+   
+   pred_data <- suppressWarnings(get_pred_data(resultsobj, matrix_container_row))
+   pred_data <- add_info_to_pred_data(pred_data, most_ia_mat = most_ia_mat)
+   
+   prob.moa_stabilities <- get_prob.moa_sds(pred_data)
+   
+   pred_data_with_n_signif <- get_nsignif(drugfeatmat = matrix_container_row$drug_feature_matrices[[1]], 
+     predDataTbl = pred_data, the_matrix = the_matrix_complete_strainsgenesremoved)
+   
+   matrix_container[rownum, c("perf_measures", "pred_data", "prob.moa_stabilities", 
+     "pred_data_with_n_signif", "thresh_vs_perf")] <- 
+     list(list(perf_measures), list(pred_data), list(prob.moa_stabilities), 
+       list(pred_data_with_n_signif), list(thresh_vs_perf))
+   
+   rm(resultsobj)
+   gc()
+}
+
+matrix_container$feat_preselect <- factor(matrix_container$feat_preselect, 
+  levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", 
+    "top30pct", "top40pct", "top50pct", "keepall"))
+
+saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_container_ext_2019.rds")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Modify some options for knitr. 
 

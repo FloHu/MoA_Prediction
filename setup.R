@@ -1,5 +1,6 @@
 knitr::opts_chunk$set(cache = F)
 Sys.setlocale("LC_ALL", "en_IE.UTF-8")
+source("./R/ipak.R")
 
 ipak(magrittr)
 ipak(tidyverse)
