@@ -18,10 +18,6 @@ editor_options:
 # Setup
 
 ```{r setup}
-rm(list = ls())
-# function to check if a package is installed, if so, load it, else install and then load it
-source("./R/ipak.R")
-# set chunk options and load libraries
 source("./setup.R")
 ```
 

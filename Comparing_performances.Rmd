@@ -26,6 +26,11 @@ resdir <- "./run_results_from_server/mc_2019"
 outdir <- "./data/programmatic_output"
 
 mc <- readRDS("./data/programmatic_output/mc.rds")
+head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
+
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+moas <- names(moa_cols)
 ```
 
 
@@ -98,6 +103,8 @@ for (row in seq_len(nrow(mc_ext))) {
   rm(resobj)
   gc()
 }
+
+saveRDS(mc_ext, file = mc_ext_path)
 ```
 
 Adding some derived metrics.
@@ -105,6 +112,158 @@ Adding some derived metrics.
 ```{r}
 # model stabilities
 mc_ext$pred_stabs <- map_if(mc_ext$pred_data, is_tibble, get_pred_stabs)
+
+# adding additional information to pred_data
+m_signif_all <- readRDS("./data/programmatic_output/m_signif_all.rds")
+n_ias <- 
+  m_signif_all %>%
+  select(-one_of("drugname_typaslab", "conc", "process_broad")) %>% 
+  apply(1, sum)
+
+ia_stats <- bind_cols(
+  m_signif_all[, c("drugname_typaslab", "conc", "process_broad")], 
+  n_signif = n_ias)
+
+ia_stats <- 
+  group_by(ia_stats, drugname_typaslab) %>%
+  mutate(conc_rank = rank(conc), n_conc = length(conc), 
+    n_signif_rank = order(order(n_signif, conc)), 
+    conc_mostias = which.max(n_signif) == seq_len(n()))
+
+saveRDS(ia_stats, file = "./data/programmatic_output/ia_stats.rds")
+
+# add additional info to pred data
+mc_ext$pred_data <- map_if(mc_ext$pred_data, is_tibble, function(.x) {
+  left_join(.x, select(ia_stats, -one_of("process_broad")))
+})
+```
+
+
+```{r}
+# Most important plots: model performances, then model stabilities
+# perhaps some total confusion matrix? 
+select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
+  unnest() %>%
+  group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
+  summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
+  ggplot(aes(x = fitted_model, y = mmce_mean)) + 
+    geom_boxplot(outlier.shape = NA) + 
+    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
+    facet_grid(chemical_feats ~ drug_dosages)
+
+# interesting outlier:
+select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
+  unnest() %>%
+  group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
+  summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
+  ggplot(aes(x = fitted_model, y = kappa_mean)) + 
+    geom_boxplot(outlier.shape = NA) + 
+    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
+    facet_grid(chemical_feats ~ drug_dosages)
+
+# stabilities - how to deal with cv repeats? 
+select(mc_ext, fitted_model, drug_dosages, chemical_feats, pred_stabs) %>%
+  unnest() %>%
+  #group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
+  #summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
+  ggplot(aes(x = fitted_model, y = sd_of_probs)) + 
+    geom_boxplot() + 
+    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
+    facet_grid(chemical_feats ~ drug_dosages)
+
+# comparison inner and outer performances
+tmp <- 
+  select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures, 
+  opt_pars) %>%
+  unnest()
+all(tmp$cvrep == tmp$cvrep1)
+all(tmp$split == tmp$split1)
+
+ggplot(tmp, aes(x = mmce.cv.inner, y = mmce)) + 
+  geom_point() + 
+  coord_fixed() + 
+  facet_grid(chemical_feats ~ drug_dosages)
+
+ggplot(tmp, aes(x = mmce - mmce.cv.inner)) + 
+  geom_histogram() + 
+  facet_grid(chemical_feats ~ drug_dosages)
+
+# stability of optimal hyperparameter values: do independently for each 
+# model
+# random forests:
+tmp <- 
+  mc_ext %>%
+  filter(fitted_model == "classif.randomForest") %>%
+  select(fitted_model, drug_dosages, chemical_feats, opt_pars) %>% 
+  unnest() %>%
+  mutate(opt_pars_value = map(opt_pars, unlist), opt_pars_name = map(opt_pars, names)) %>%
+  unnest()
+
+tmp2 <- filter(tmp, !chemical_feats, drug_dosages == "one")
+
+ggplot(tmp2, aes(x = factor(opt_pars_value))) + 
+  geom_bar() + 
+  facet_grid(drug_dosages ~ opt_pars_name, scales = "free_x")
+
+# prediction heatmap, pseudo ROC curves, confusion matrix
+# general trends of prediction quality depending on hyperparameter chosen
+```
+
+
+Prediction heatmap, prediction lines, ROC curves, confusion matrix.
+
+```{r}
+melt_pred_data_mcl <- function(pred_data) {
+  # input: pred_data from mc_ext
+  # output: melted data frame that can be used to plot a prediction heatmap
+
+  my_cols <- colnames(pred_data)
+  
+  if (!("conc" %in% my_cols)) {
+    stop("Specified data frame doesn't contain a drug concentration")
+  }
+  
+  # melt and average probabilities
+
+  tryCatch(
+    {melted <- tidyr::gather(pred_data, prob.cell_wall:prob.protein_synthesis, 
+      key = "predicted_prob", value = "probability") %>%
+      group_by(conc, predicted_prob, truth, drugname_typaslab) %>%
+      summarise(prob.min = boxplot.stats(probability)$stats[2], 
+        prob.max = boxplot.stats(probability)$stats[4], 
+        prob.med = median(probability)) %>%
+      ungroup()
+    }, 
+    error = function(cnd) {
+      stop("It looks like the data frame doesn't contain the four main modes of action.")
+      }
+    )
+
+  return(melted)
+}
+
+
+tmp <- mc_ext$pred_data[[5]]
+melt_pred_data_mcl(tmp)
+plot_mcl_probs_heatmap(melt_pred_data_mcl(tmp), mics = mics)
+
+# profiles to see probabilities better
+plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(tmp), 
+  labels = moas, colours = moa_cols)
+
+pdf(width = 20, height = 20, file = "./plots/tmp.pdf")
+plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(tmp), 
+  labels = moas, colours = moa_cols)
+dev.off()
+
+# ROC curves
+plot_roc_mcl(resampled_multiclass = tmp, positives = moas)
+```
+
+Calibration plot.
+
+```{r}
+plot_prob_calib(resample_result = tmp, title = "muuuh!")
 ```
 
 

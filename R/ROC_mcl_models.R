@@ -3,14 +3,15 @@ prep_roc <- function(resampled_multiclass, positive) {
   # has been defined as positive and returns the predictions accordingly in 
   # the long format
   # intended to be used for making a ROC-curve
-  stopifnot(is(resampled_multiclass, "ResampleResult"))
-  stopifnot(positive %in% resampled_multiclass$pred$data$truth)
-  stopifnot(length(positive) == 1)
+  #stopifnot(is(resampled_multiclass, "ResampleResult"))
+  #stopifnot(positive %in% resampled_multiclass$pred$data$truth)
+  #stopifnot(length(positive) == 1)
   
   # a bit of renaming and data type changing
   preproc <- 
     resampled_multiclass %>%
-    melt_pred_data(model_type = "multiclass") %>%
+    #melt_pred_data(model_type = "multiclass") %>%
+    melt_pred_data_mcl() %>%
     mutate(truth = as.character(truth), 
       predicted_prob = str_replace(string = predicted_prob, 
         pattern = "prob\\.", replacement = "")) %>%
@@ -74,6 +75,6 @@ plot_roc_mcl <- function(resampled_multiclass, positives) {
     geom_path(size = 0.75) + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
     scale_colour_manual("Target process", values = moa_cols, 
-      labels = moa_repl[names(moa_cols)]) + 
+      labels = names(moa_cols)) + 
     labs(x = "FPR (1-specificity)", y = "TPR (recall)")
 }

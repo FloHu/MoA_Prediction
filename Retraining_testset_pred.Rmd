@@ -1,0 +1,162 @@
+---
+title: ""
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r setup}
+source("./setup.R")
+```
+
+# Retrain model. 
+
+Retrain model on whole Nichols data according with following setup: random 
+forest, all dosages, no chemical features. 
+
+```{r}
+# get the data set
+mc_ext <- readRDS("./data/programmatic_output/mc_ext.rds")
+
+chosen <- filter(mc_ext, fitted_model == "classif.randomForest", 
+  drug_dosages == "all", !chemical_feats)
+
+# overall performance: 70% accuracy 
+chosen$perf_measures[[1]] %>%
+  group_by(cvrep) %>%
+  summarise(mean_mmce = mean(mmce)) %>%
+  ggplot(aes(x = "chosen", y = mean_mmce)) + 
+    geom_boxplot(outlier.shape = NA) + 
+    geom_point(position = position_jitter(width = 0.2, height = 0), shape = 1)
+
+# our input data set
+dfm <- chosen$drug_feature_matrices[[1]]
+
+# cvinstance we will use for tuning:
+rin <- chosen$resamp_instance[[1]][[1]]
+```
+
+Tune with routine of inner loop. Source the functions from fit_one_row.R first. 
+
+```{r}
+lrn <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
+lrn_wrapped <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
+  fw.perc = 0.05)
+
+tsk <- make_my_task(dfm = dfm, blockvar = "drugname_typaslab")
+
+sqrt_p <- floor(sqrt(ncol(dfm)))
+rf_grid <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(200, 500, 1000)), 
+  makeDiscreteParam("mtry", values = c(sqrt_p, sqrt_p + 25, sqrt_p + 50, 
+    sqrt_p + 75, sqrt_p + 100)), 
+  makeDiscreteParam("fw.perc", values = c(0.25, 0.5, 1))
+)
+
+my_file <- "./data/programmatic_output/tuned_params_chosen.rds"
+if (!file.exists(my_file)) {
+  tuned_params <- tuneParams(learner = lrn_wrapped, task = tsk, resampling = rin, 
+    measures = chosen$tuning_measure[[1]], par.set = rf_grid, 
+    control = makeTuneControlGrid())
+  saveRDS(object = tuned_params, file = my_file)
+} else {
+  tuned_params <- readRDS(my_file)
+}
+```
+
+Retrain tuned learner.
+
+```{r}
+# set seed? 
+(tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x))
+(trained_model <- mlr::train(learner = tuned_lrn, task = tsk))
+
+# feature importances resemble old ones
+sort(unlist(getFeatureImportance(trained_model)$res), decreasing = TRUE)
+```
+
+Predict: (i) test set drugs (Lucia) not present in trained model, (ii) "test" 
+set drugs (Lucia) overlapping with trained model, (iii) unknown drugs or drugs 
+excluded due to other reasons. 
+
+Define drug sets.
+
+```{r}
+all_data <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
+
+# TO DO: didn't do "top3" selection here - fix (and in the other notebook it was done too early)
+# TO DO: should've perhaps put MoA information already in the dfms
+moa <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
+all_data <- all_data[c("nichols_2011.sscores", "newsize.sscores")]
+all_data <- map(all_data, function(.x) {
+  left_join(.x, moa[, c("drugname_typaslab", "process_broad")]) %>%
+    select(drugname_typaslab, conc, process_broad, everything())
+  })
+
+(nic <- all_data$nichols_2011.sscores)
+(new <- all_data$newsize.sscores)
+
+unknown <- map(list(nic, new), ~ filter(.x, process_broad == "unknown")) %>%
+  bind_rows()
+
+(nic_to_test <- nic %>%
+    filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
+      !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
+
+(new_to_test <- new %>%
+    filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
+      !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
+```
+
+Predict!
+
+```{r}
+# left out drugs from Nichols
+nic_to_test_preds <- predict(trained_model, newdata = nic_to_test)
+nic_to_test_preds$data <- as_tibble(
+  cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds))
+  )
+nic_to_test_preds
+performance(nic_to_test_preds)
+View(nic_to_test_preds$data)
+
+# actual test set
+new_to_test_preds <- predict(trained_model, newdata = new_to_test)
+new_to_test_preds$data <- as_tibble(
+  cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds))
+  )
+new_to_test_preds
+performance(new_to_test_preds)
+View(new_to_test_preds$data)
+
+# unknown drugs
+unknown_preds <- predict(trained_model, newdata = unknown)
+unknown_preds$data <- as_tibble(
+  cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds))
+  )
+unknown_preds
+View(unknown_preds$data)
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics)
+```
+
+
+
+# Session info
+
+```{r session_info}
+R.version
+sessionInfo()
+```

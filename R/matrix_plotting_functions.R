@@ -317,9 +317,8 @@ plot_mcl_probs_lines <- function(melted_pred_data, labels, colours, printplot = 
 plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
   tmp <- left_join(melted_pred_data, mics)
   tmp <- tmp %>%
-    # mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (mic = ", mic_curated, ")"), 
     mutate(drug_conc = paste0(drugname_typaslab, "_", conc), 
-      prob.med = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1), 
+      prob.med.range = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1), 
         labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%", 
           "60-70%", "70-80%", "80-90%", "90-100%")), 
       drug_conc = factor(drug_conc, 
@@ -334,12 +333,17 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
   tmp$geompoint <- ifelse(tmp$is_max, tmp$drug_conc, NA)
   tmp$geompoint <- levels(tmp$drug_conc)[tmp$geompoint]
   
+  # cols <- RColorBrewer::brewer.pal(9, "BuPu")
+  # cols <- colorRampPalette(cols)(10)
+  cols <- RColorBrewer::brewer.pal(min(9, nlevels(tmp$prob.med.range)), "BuPu")
+  cols <- colorRampPalette(cols)(min(10, nlevels(tmp$prob.med.range)))
+  
   p <- ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) + 
-    geom_tile(aes(fill = prob.med)) + 
+    geom_tile(aes(fill = prob.med.range)) + 
     geom_point(aes(x = geompoint)) + 
     coord_flip() + 
-    scale_fill_brewer("Probability", palette = "BuPu") + 
-    scale_y_discrete(labels = (moa_repl2)) + 
+    scale_fill_manual("Probability", values = cols) + 
+    # scale_y_discrete(labels = (moa_repl2)) + 
     facet_wrap(. ~ truth, scales = "free") + 
     labs(x = "", y = "") + 
     theme(text = element_text(size = 12), 

@@ -34,9 +34,9 @@ plot_wide_confmat <- function(wide_confmat, title) {
 
 plot_prob_calib <- function(resample_result, title) {
   # input: resample result
-  if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
+#  if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
   
-  multicl_pred_melt <- melt_pred_data(resample_result, model_type = "multiclass")
+  multicl_pred_melt <- melt_pred_data_mcl(resample_result)
   prob_calib <- multicl_pred_melt
   prob_calib$prob_bin <- cut(prob_calib$prob.med, breaks = seq(from = 0, to = 1, by = 0.1))
   levels(prob_calib$prob_bin)
