@@ -19,9 +19,10 @@ editor_options:
 
 ```{r setup}
 source("./setup.R")
+mics <- mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
 ```
 
-# Retrain model. 
+# Retrain models
 
 Retrain model on whole Nichols data according with following setup: random 
 forest, all dosages, no chemical features. 
@@ -47,6 +48,8 @@ dfm <- chosen$drug_feature_matrices[[1]]
 # cvinstance we will use for tuning:
 rin <- chosen$resamp_instance[[1]][[1]]
 ```
+
+## Whole dataset: tuning
 
 Tune with routine of inner loop. Source the functions from fit_one_row.R first. 
 
@@ -76,22 +79,66 @@ if (!file.exists(my_file)) {
 }
 ```
 
-Retrain tuned learner.
+## Parsimonious model: tuning
+
+Tune also fingerprint-based learner. Only tune number of trees
+
+```{r}
+lrn_fpt <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
+
+fpt <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+dfm_fpt <- dfm[, c("drugname_typaslab", "conc", "process_broad", fpt)]
+
+tsk_fpt <- make_my_task(dfm = dfm_fpt, blockvar = "drugname_typaslab")
+
+rf_grid_fpt <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(200, 500, 1000))
+)
+
+my_file <- "./data/programmatic_output/tuned_params_chosen_fpt.rds"
+if (!file.exists(my_file)) {
+  tuned_params_fpt <- tuneParams(learner = lrn_fpt, task = tsk_fpt, 
+    resampling = rin, measures = chosen$tuning_measure[[1]], 
+    par.set = rf_grid_fpt, control = makeTuneControlGrid())
+  saveRDS(object = tuned_params_fpt, file = my_file)
+} else {
+  tuned_params_fpt <- readRDS(my_file)
+}
+```
+
+## Training tuned learners
 
 ```{r}
 # set seed? 
-(tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x))
-(trained_model <- mlr::train(learner = tuned_lrn, task = tsk))
+# original model
+my_file <- "./data/programmatic_output/trained_model.rds"
+if (!file.exists(my_file)) {
+  tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x)
+  trained_model <- mlr::train(learner = tuned_lrn, task = tsk)
+  saveRDS(object = trained_model, file = my_file)
+} else {
+  trained_model <- readRDS(my_file)
+}
 
-# feature importances resemble old ones
-sort(unlist(getFeatureImportance(trained_model)$res), decreasing = TRUE)
+# fingerprint model
+my_file <- "./data/programmatic_output/trained_model_fpt.rds"
+if (!file.exists(my_file)) {
+  tuned_lrn_fpt <- setHyperPars(lrn_fpt, par.vals = tuned_params_fpt$x)
+  trained_model_fpt <- mlr::train(learner = tuned_lrn_fpt, task = tsk_fpt)
+  saveRDS(object = trained_model_fpt, file = my_file)
+} else {
+  trained_model_fpt <- readRDS(my_file)
+}
 ```
+
+
+# Predictions with retrained models
+
+## Define drug sets
 
 Predict: (i) test set drugs (Lucia) not present in trained model, (ii) "test" 
 set drugs (Lucia) overlapping with trained model, (iii) unknown drugs or drugs 
 excluded due to other reasons. 
-
-Define drug sets.
 
 ```{r}
 all_data <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
@@ -120,7 +167,7 @@ unknown <- map(list(nic, new), ~ filter(.x, process_broad == "unknown")) %>%
       !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
 ```
 
-Predict!
+## Run predictions: original model
 
 ```{r}
 # left out drugs from Nichols
@@ -130,7 +177,7 @@ nic_to_test_preds$data <- as_tibble(
   )
 nic_to_test_preds
 performance(nic_to_test_preds)
-View(nic_to_test_preds$data)
+nic_to_test_preds$data
 
 # actual test set
 new_to_test_preds <- predict(trained_model, newdata = new_to_test)
@@ -139,7 +186,9 @@ new_to_test_preds$data <- as_tibble(
   )
 new_to_test_preds
 performance(new_to_test_preds)
-View(new_to_test_preds$data)
+print(new_to_test_preds$data, n = 50)
+
+ggsave(filename = "./plots/pred_heatmap_testset.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds$data), mics = mics, printplot = FALSE), width = 12, height = 6)
 
 # unknown drugs
 unknown_preds <- predict(trained_model, newdata = unknown)
@@ -147,9 +196,58 @@ unknown_preds$data <- as_tibble(
   cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds))
   )
 unknown_preds
-View(unknown_preds$data)
+print(unknown_preds$data, n = 50)
 
-plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics)
+ggsave(filename = "./plots/pred_heatmap_unknown.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, printplot = FALSE), width = 12, height = 6)
+```
+
+## Run predictions: parsimonious model 
+
+```{r}
+# left out drugs from Nichols
+nic_to_test_preds_fpt <- predict(trained_model_fpt, newdata = nic_to_test)
+nic_to_test_preds_fpt$data <- as_tibble(
+  cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds_fpt))
+  )
+nic_to_test_preds_fpt
+performance(nic_to_test_preds_fpt)
+nic_to_test_preds_fpt$data
+
+# actual test set
+new_to_test_preds_fpt <- predict(trained_model_fpt, newdata = new_to_test)
+new_to_test_preds_fpt$data <- as_tibble(
+  cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds_fpt))
+  )
+new_to_test_preds_fpt
+performance(new_to_test_preds_fpt)
+print(new_to_test_preds_fpt$data, n = 50)
+
+ggsave(filename = "./plots/pred_heatmap_testset_fpt.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds_fpt$data), mics = mics, printplot = FALSE), 
+  width = 12, height = 6)
+
+# unknown drugs
+unknown_preds_fpt <- predict(trained_model_fpt, newdata = unknown)
+unknown_preds_fpt$data <- as_tibble(
+  cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds_fpt))
+  )
+unknown_preds_fpt
+print(unknown_preds_fpt$data, n = 50)
+
+ggsave(filename = "./plots/pred_heatmap_unknown_fpt.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds_fpt$data), mics = mics), 
+  width = 12, height = 6)
+```
+
+## 
+
+```{r}
+## what if we add classweights to the trained model? 
+#props <- table(dfm$process_broad) / sum(table(dfm$process_broad))
+#(weights <- round(1 / (props/min(props)), digits = 2))
+
+#tsk_dat <- as_tibble(getTaskData(tsk))
+#tsk_dat$process_broad <- as.character(tsk_dat$process_broad)
+
+#trained_model_wts <- mlr::train(learner = tuned_lrn, task = tsk)
 ```
 
 

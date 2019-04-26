@@ -1,0 +1,102 @@
+---
+title: ""
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r setup}
+source("./setup.R")
+```
+
+
+Get feature importances from retrained model. 
+
+```{r}
+mod <- readRDS(file = "./data/programmatic_output/trained_model.rds")
+
+# getFeatureImportance(mod)$res is a 1-row data frame with each column being 
+# a gene
+mod_imp <- gather(getFeatureImportance(mod)$res, key = "gene", value = "imp", 
+  everything()) %>%
+  filter(imp != 0) %>%
+  arrange(desc(imp)) %>% 
+  mutate(gene = fct_reorder(gene, imp), log2imp = log2(imp)) %>%
+  as_tibble()
+
+mod_imp
+```
+
+Showing it on a linear scale doesn't help much. The following plot suggests 
+some "jumps" in the feature importance but this could be just by chance. One 
+could take these "blocks" as cutoff for the fingerprint:
+
+  * block 1: 4 genes
+  * block 2: 5 genes
+  * block 3: 12 genes
+  * block 4: 13 genes
+  * block 5: 14 genes
+
+```{r, fig.height = 8}
+ggplot(mod_imp[1:75, ], aes(x = log2(imp), y = gene)) + 
+  geom_point()
+```
+
+Take, say, the first 4 blocks for the fingerprint = 34 genes: 
+
+```{r}
+ggplot(mod_imp[1:34, ], aes(x = log2(imp), y = gene)) + 
+  geom_point()
+
+fingerprint_mcl <- as.character(mod_imp$gene[1:34])
+saveRDS(fingerprint_mcl, file = "./data/programmatic_output/fingerprint_mcl.rds")
+```
+
+tSNE map:
+
+```{r}
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+tsne_mat <- select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl)
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 10, 
+  max_iter = 6000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+
+p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>%
+  add_markers(text = ~ drug) %>%
+  layout(title = "Fingerprint tSNE map", 
+    scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
+      zaxis = list(title = 'tSNE3')))
+p
+
+saveRDS(object = p, file = "./data/programmatic_output/tSNE_fingerprint.rds")
+```
+
+
+
+# Session info
+
+```{r session_info}
+R.version
+sessionInfo()
+```
+

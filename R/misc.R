@@ -211,3 +211,33 @@ make_my_task <- function(dfm, targetvar = "process_broad", blockvar = NULL) {
   
   return(le_task)
 }
+
+melt_pred_data_mcl <- function(pred_data) {
+  # input: pred_data from mc_ext
+  # output: melted data frame that can be used to plot a prediction heatmap
+  
+  my_cols <- colnames(pred_data)
+  
+  if (!("conc" %in% my_cols)) {
+    stop("Specified data frame doesn't contain a drug concentration")
+  }
+  
+  # melt and average probabilities
+  
+  tryCatch(
+    {melted <- tidyr::gather(pred_data, prob.cell_wall:prob.protein_synthesis, 
+      key = "predicted_prob", value = "probability") %>%
+      group_by(conc, predicted_prob, truth, drugname_typaslab) %>%
+      summarise(prob.min = boxplot.stats(probability)$stats[2], 
+        prob.max = boxplot.stats(probability)$stats[4], 
+        prob.med = median(probability)) %>%
+      ungroup()
+    }, 
+    error = function(cnd) {
+      stop("It looks like the data frame doesn't contain the four main modes of action.")
+    }
+  )
+  
+  return(melted)
+}
+

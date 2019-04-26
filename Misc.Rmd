@@ -672,7 +672,7 @@ hist(probdiffs$diff, breaks = 50)
 probdiffs_big <- probdiffs[abs(probdiffs$diff) > 0.2, ]
 
 library(htmlTable)
-cat(htmlTable(probdiffs_big), file = "./tables/probdiffs.html")
+cat(htmlTable(probdiffs_big), file = "./data/programmatic_output/probdiffs.html")
 ```
 
 The 7 drugs with the highest difference are gentamicin, amikacin, streptomycin, clarythromycin, 

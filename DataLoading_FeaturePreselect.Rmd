@@ -38,7 +38,7 @@ data-driven parameters are different in terms of performance.
 
 ## Reading in and joining of tables
 
-```{r, data_import}
+```{r, data_import, cache = TRUE}
 (nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
 (newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
 (shiver <- read_delim(file.path(indir, "shiver.csv"), delim = ";"))
@@ -485,7 +485,7 @@ max_col <- plasma(2)[2]
 # before splitting into nclust clusters:
 p <- Heatmap(feats_cor_high, 
   col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
-  name = "Spearman's ρ", 
+  name = "Spearman's rho", 
   row_dend_side = "right", 
   column_names_side = "top", 
   row_names_gp = gpar(fontsize = 6), 
@@ -508,7 +508,7 @@ dev.off()
 # anymore - fix later, does not really matter
 p <- Heatmap(feats_cor_high, 
   col = colorRamp2(breaks = c(-1, 1), colors = c(min_col, max_col)), 
-  name = "Spearman's ρ", 
+  name = "Spearman's rho", 
   row_dend_side = "right", 
   column_names_side = "top", 
   row_names_gp = gpar(fontsize = 6), 
@@ -739,12 +739,12 @@ drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP),
 drugs_kept_for_container <- 
   unique(the_matrix$drugname_typaslab[the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
 drugs_kept_for_container
-saveRDS(drugs_kept_for_container, file = file.path(outdir, "drugs_kept_for_container"))
+saveRDS(drugs_kept_for_container, file = file.path(outdir, "drugs_kept_for_container.rds"))
 
 drugs_rmvd_from_container <- 
   unique(the_matrix$drugname_typaslab[!the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
 drugs_rmvd_from_container
-saveRDS(drugs_rmvd_from_container, file = file.path(outdir, "drugs_rmvd_from_container"))
+saveRDS(drugs_rmvd_from_container, file = file.path(outdir, "drugs_rmvd_from_container.rds"))
 
 # keep only drugs in drug_subset
 the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_kept_for_container)
@@ -799,7 +799,7 @@ dosg_tab_top3 <-
 stopifnot(nunique(dosg_tab_top3$drugname_typaslab) == sum(dosg_tab_top3$keep_one_dosg))
 
 # for later inspection if desired:
-saveRDS(dosg_tab_top3, file = file.path(outdir, "dosg_tab_top3"))
+saveRDS(dosg_tab_top3, file = file.path(outdir, "dosg_tab_top3.rds"))
 ```
 
 Can now subset `the_matrix`. Rename to `m` for less typing. 
