@@ -22,11 +22,17 @@ ipak(mmpf)
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 # default colours for mode of action
-moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
+moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02",
   membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
 moas <- names(moa_cols)
+moa_repl <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane Stress",
+  protein_synthesis = "Protein Synthesis", dna = "DNA")
 
-# change plot defaults
+# plotting themes
 theme_set(theme_bw())
-theme_update(text = element_text(size = 12))
 
+comparison_theme <- theme(
+  line = element_line(size = 0.1), # in mm
+  text = element_text(size = 7),
+  axis.text.x = element_text(angle = 45, hjust = 1)
+)

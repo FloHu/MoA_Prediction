@@ -15,9 +15,7 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
 # set chunk options and load libraries, load custom functions
@@ -34,7 +32,7 @@ moas <- names(moa_cols)
 ```
 
 
-# Data preparation
+# Extracting information from nested CV runs 
 
 ```{r}
 # old results object
@@ -46,28 +44,10 @@ res_new <- readRDS(file.path(resdir, "classif.randomForest_one_FALSE.rds"))
 pryr::object_size(res_new)
 ```
 
+## Importing results from cluster
 
 ```{r}
-mc_ext <- mc
 mc_ext_old <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
-
-# # just demonstrate what the loop does
-# # test set performances
-# get_perf_measures_mcl(resobj = res_new)
-# get_pred_data_mcl(resobj = res_new)
-# 
-# # to be added: 
-# # - routine for confusion matrix data
-# # - MoA information, number of significant interactions, how many 
-# #   concentrations the drug had etc.
-# # - model stabilities (possibly outside of loop)
-# 
-# # hyperparameter tuning metrics: 
-# # first just get the optimal hyperparameters + their performance (in the inner 
-# # loop) - may get whole paths later on if desired 
-# 
-# get_opt_path(resobj = res_new)
-# get_opt_pars(resobj = res_new)
 
 mc_ext <- mc
 mc_ext_path <- file.path(outdir, "mc_ext.rds")
@@ -107,7 +87,7 @@ for (row in seq_len(nrow(mc_ext))) {
 saveRDS(mc_ext, file = mc_ext_path)
 ```
 
-Adding some derived metrics.
+## Parsing results objects
 
 ```{r}
 # model stabilities
@@ -138,39 +118,40 @@ mc_ext$pred_data <- map_if(mc_ext$pred_data, is_tibble, function(.x) {
 })
 ```
 
+# Comparison of models
+
+## Performances
 
 ```{r}
 # Most important plots: model performances, then model stabilities
 # perhaps some total confusion matrix? 
-select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
-  unnest() %>%
-  group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
-  summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
-  ggplot(aes(x = fitted_model, y = mmce_mean)) + 
-    geom_boxplot(outlier.shape = NA) + 
-    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
-    facet_grid(chemical_feats ~ drug_dosages)
+plot_perf(mc_ext = mc_ext, what = "mmce_mean", save = TRUE, 
+  file = "./plots/Comparison_performance_mmce.pdf")
 
-# interesting outlier:
-select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
-  unnest() %>%
-  group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
-  summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
-  ggplot(aes(x = fitted_model, y = kappa_mean)) + 
-    geom_boxplot(outlier.shape = NA) + 
-    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
-    facet_grid(chemical_feats ~ drug_dosages)
+plot_perf(mc_ext = mc_ext, what = "kappa_mean", save = TRUE, 
+  file = "./plots/Comparison_performance_kappa.pdf")
 
-# stabilities - how to deal with cv repeats? 
+## TO DO: IMPORTANT!
+# number of preselected features, chemical features etc.: these parameters 
+# should perhaps be plotted against the resulting performance (equivalent of 
+# old plots where we had e.g. "impact of feature_preselect")
+```
+
+## Stabilities
+
+```{r}
 select(mc_ext, fitted_model, drug_dosages, chemical_feats, pred_stabs) %>%
   unnest() %>%
-  #group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
-  #summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
   ggplot(aes(x = fitted_model, y = sd_of_probs)) + 
-    geom_boxplot() + 
-    geom_point(position = position_jitter(width = 0.15, height = 0), shape = 1) + 
-    facet_grid(chemical_feats ~ drug_dosages)
+  geom_violin() + 
+    facet_grid(chemical_feats ~ drug_dosages) + 
+  scale_x_discrete("Classifier type", labels = classifier_repl) + 
+  comparison_theme
+```
 
+## Inner vs. outer performances
+
+```{r}
 # comparison inner and outer performances
 tmp <- 
   select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures, 
@@ -239,240 +220,19 @@ plot_prob_calib(resample_result = tmp, title = "muuuh!")
 
 
 
+
+
+
+
+<!-------------------------------------------------------------------------> 
+<!-------------------------------------------------------------------------> 
+
+
 Ignore the rest of the notebook for the time being, currently rewriting 
 functions to accommodate multiclass models. 
 
-
 ```{r}
-if (file.exists("./data/programmatic_output/matrix_container_ext_2019.rds")) {
-  matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
-} else {
-   matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
-   matrix_container$perf_measures <- list(NA)
-   matrix_container$thresh_vs_perf <- list(NA)
-   matrix_container$pred_data <- list(NA)
-   matrix_container$prob.moa_stabilities <- list(NA)
-   matrix_container$pred_data_with_n_signif <- list(NA)
-}
-
-# for fastness:
-(most_ia_mat <- matrix_container$drug_feature_matrices[[180]])
-# stopifnot(nrow(most_ia_mat) == 78)
-
-# the_matrix_complete_strainsgenesremoved <- 
-#  readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
-the_matrix_complete_strainsgenesremoved <- 
-  readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")$nichols_2011
-
-# (foo <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds"))
-
-# loop to read in results files
-indir <- "./run_results_from_server/matrix_container_result_2019"
-
-for (rownum in seq_len(nrow(matrix_container))) {
-  gc()
-   matrix_container_row <- matrix_container[rownum, ]
-#   available_files <- list.files("./run_results_from_server/matrix_container_result/", 
-#     pattern = "xgboost|rf|lasso")
-   available_files <- list.files(indir, pattern = "xgboost|rf|lasso")
-
-  moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
-
-  # look for a file corresponding to a row
-  targetfile <- make_filename(matrix_container_row)
-  my_match <- available_files[available_files == targetfile]
-   
-   # check if values are not defined: if yes: check if matching file exists or continue
-   # if values are already defined means we parsed a corresponding results object previously so we 
-   # can continue
-   if (length(matrix_container_row$pred_data[[1]]) == 1 && is.na(matrix_container_row$pred_data[[1]])) {
-      if (length(my_match) > 0) {
-         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
-      } else {
-         message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
-         next
-      }
-   } else {
-      message("Row ", rownum, " already populated, continuing to next line.")
-      next
-   }
-   
-   resultsobj <- readRDS(file.path(indir, my_match))
-   
-   perf_measures <- get_auc_info(resultsobj)
-   # this data frame is just for convenience as its information is already contained in perf_measures
-   thresh_vs_perf <- map_dfr(perf_measures$thresh_vs_perf, "data")
-   
-   pred_data <- suppressWarnings(get_pred_data(resultsobj, matrix_container_row))
-   pred_data <- add_info_to_pred_data(pred_data, most_ia_mat = most_ia_mat)
-   
-   prob.moa_stabilities <- get_prob.moa_sds(pred_data)
-   
-   pred_data_with_n_signif <- get_nsignif(drugfeatmat = matrix_container_row$drug_feature_matrices[[1]], 
-     predDataTbl = pred_data, the_matrix = the_matrix_complete_strainsgenesremoved)
-   
-   matrix_container[rownum, c("perf_measures", "pred_data", "prob.moa_stabilities", 
-     "pred_data_with_n_signif", "thresh_vs_perf")] <- 
-     list(list(perf_measures), list(pred_data), list(prob.moa_stabilities), 
-       list(pred_data_with_n_signif), list(thresh_vs_perf))
-   
-   rm(resultsobj)
-   gc()
-}
-
-matrix_container$feat_preselect <- factor(matrix_container$feat_preselect, 
-  levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", 
-    "top30pct", "top40pct", "top50pct", "keepall"))
-
-saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_container_ext_2019.rds")
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Modify some options for knitr. 
-
-```{r global_options, include = FALSE}
-knitr::opts_chunk$set(fig.width = 18, fig.height = 14, cache = TRUE)
-theme_set(theme_bw())
-theme_update(text = element_text(size = 16))
-
-model_cols <- c("Boosting" = "#7570b3", "Lasso" = "#d95f02", 
-  "Random forests" = "#1b9e77")
-moa_cols <- c("Cell Wall" = "#1b9e77", "DNA" = "#d95f02", 
-  "Membrane Stress" = "#7570b3", "Protein Synthesis" = "#e7298a")
-
-moa_repl <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane Stress", 
-  protein_synthesis = "Protein Synthesis", dna = "DNA")
-```
-
-
-# Data preparation
-
-## Reading in `run_results_from_server` and extracting information
-
-On the cluster, each of the rows of `matrix_container` was run; each row was a different combination 
-of models, feature preselections etc and was saved in a separate results object 
-(`./run_results_from_server/matrix_container_result`). Since the results objects are too big for 
-putting them into `matrix_container` we will add new columns just containing the parts we are 
-interested in. 
-
-Note 2018-11-05: All extracted information is now in `matrix_container_ext`. `matrix_container_with_extractions` 
-and `stability_assessment` are now deprecated and I deleted the corresponding chunks (commit after 
-2b89). This was also necessary for correct auc and precision-recall curve calculation and plotting. 
-
-```{r reading_in, message = FALSE}
-# What follows is a loop to extract information from our results objects and adding this into 
-# new columns. Since this takes some time, it's written in a way that the matrix_container can be 
-# updated. 
-# (matrix_container <- readRDS("./data/programmatic_output/matrix_container_2019.rds"))
-
-# results we already have
-#if (file.exists("./data/programmatic_output/matrix_container_ext.rds")) {
-#   matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
-if (file.exists("./data/programmatic_output/matrix_container_ext_2019.rds")) {
-  matrix_container <- readRDS("./data/programmatic_output/matrix_container_ext_2019.rds")
-} else {
-   matrix_container$hyperparam_grid_name <- names(matrix_container$hyperparam_grid)
-   matrix_container$perf_measures <- list(NA)
-   matrix_container$thresh_vs_perf <- list(NA)
-   matrix_container$pred_data <- list(NA)
-   matrix_container$prob.moa_stabilities <- list(NA)
-   matrix_container$pred_data_with_n_signif <- list(NA)
-}
-
-# for fastness:
-(most_ia_mat <- matrix_container$drug_feature_matrices[[180]])
-# stopifnot(nrow(most_ia_mat) == 78)
-
-# the_matrix_complete_strainsgenesremoved <- 
-#  readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
-the_matrix_complete_strainsgenesremoved <- 
-  readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")$nichols_2011
-
-# (foo <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds"))
-
-# loop to read in results files
-indir <- "./run_results_from_server/matrix_container_result_2019"
-
-for (rownum in seq_len(nrow(matrix_container))) {
-  gc()
-   matrix_container_row <- matrix_container[rownum, ]
-#   available_files <- list.files("./run_results_from_server/matrix_container_result/", 
-#     pattern = "xgboost|rf|lasso")
-   available_files <- list.files(indir, pattern = "xgboost|rf|lasso")
-
-  moas <- c("dna", "cell_wall", "protein_synthesis", "membrane_stress")
-
-  # look for a file corresponding to a row
-  targetfile <- make_filename(matrix_container_row)
-  my_match <- available_files[available_files == targetfile]
-   
-   # check if values are not defined: if yes: check if matching file exists or continue
-   # if values are already defined means we parsed a corresponding results object previously so we 
-   # can continue
-   if (length(matrix_container_row$pred_data[[1]]) == 1 && is.na(matrix_container_row$pred_data[[1]])) {
-      if (length(my_match) > 0) {
-         message("Match for unpopulated row ", rownum, "\t==>\t", my_match, sep = "")
-      } else {
-         message("Didn't find a match for line ", rownum, ", continuing to next line.", sep = "")
-         next
-      }
-   } else {
-      message("Row ", rownum, " already populated, continuing to next line.")
-      next
-   }
-   
-   resultsobj <- readRDS(file.path(indir, my_match))
-   
-   perf_measures <- get_auc_info(resultsobj)
-   # this data frame is just for convenience as its information is already contained in perf_measures
-   thresh_vs_perf <- map_dfr(perf_measures$thresh_vs_perf, "data")
-   
-   pred_data <- suppressWarnings(get_pred_data(resultsobj, matrix_container_row))
-   pred_data <- add_info_to_pred_data(pred_data, most_ia_mat = most_ia_mat)
-   
-   prob.moa_stabilities <- get_prob.moa_sds(pred_data)
-   
-   pred_data_with_n_signif <- get_nsignif(drugfeatmat = matrix_container_row$drug_feature_matrices[[1]], 
-     predDataTbl = pred_data, the_matrix = the_matrix_complete_strainsgenesremoved)
-   
-   matrix_container[rownum, c("perf_measures", "pred_data", "prob.moa_stabilities", 
-     "pred_data_with_n_signif", "thresh_vs_perf")] <- 
-     list(list(perf_measures), list(pred_data), list(prob.moa_stabilities), 
-       list(pred_data_with_n_signif), list(thresh_vs_perf))
-   
-   rm(resultsobj)
-   gc()
-}
-
-matrix_container$feat_preselect <- factor(matrix_container$feat_preselect, 
-  levels =  c("top5pct", "top10pct", "top15pct", "top20pct", "top25pct", 
-    "top30pct", "top40pct", "top50pct", "keepall"))
-
-saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_container_ext_2019.rds")
-```
-
-```{r}
-(matrix_container <- matrix_container[!is.na(matrix_container$pred_data), ])
+knitr::opts_chunk$set(eval = FALSE)
 ```
 
 
@@ -480,444 +240,165 @@ saveRDS(object = matrix_container, file = "./data/programmatic_output/matrix_con
 
 ## Model performances: comparing AUCs
 
-Which models have the best AUCs and how does it change between models, feature_preselections and so 
-on. Also allows assessing how stable AUCs are across repetitions of nested CV. 
-
-### AUCs: impact of feat_preselect 
-
-Without chemical features, using most_interactions. "keepall" corresponds to 1712 features.
-
-```{r}
-foo <- filter_container(matrix_container, dosgs = "most_interactions", chemfeats = FALSE) %>%
-  select(fitted_model, feat_preselect, perf_measures) %>%
-  unnest()
-
-plot_auc_vs_moa(foo, xaxis = "moa_modelled", y = "auc", colourvar = "feat_preselect", 
-                additional_info = "(no chem. feats, most_interactions)")
-```
-
-Conclusions: it depends on the MoA:
-
-- `cell_wall` performs best overall and is relatively stable. top15pct seems to be better for RF 
-whereas top5pct is best for lasso. For lasso performance seems to drop slightly with the higher 
-number of features that are kept. 
-- `dna` also has a decent performance (a bit better for RF) which is again quite stable. For lasso 
-again the performance seems to drop slightly with the increasing number of features. But perhaps 
-it also just reflects the instability of the lasso model as performance goes up again later on. 
-- `membrane_stress` has overall the worst performance and is also the least stable. 
-- `protein_synthesis` performs poorly for RF and lasso with top5 and top10pct but performance goes 
-up with top15pct (RF) and top20pct (lasso), respectively. 
-
-When looking closely: cell_wall and dna are a bit more stable with RF. 
-
-But how does this compare to partial AUCs (fpr.stop = 0.1)? Note that for this threshold random 
-chance is a partial auc of `r round((0.1^2) / 2, digits = 3)`. 
-
-```{r}
-plot_auc_vs_moa(foo, xaxis = "moa_modelled", y = "part_auc_01", colourvar = "feat_preselect", 
-                additional_info = "(no chem. feats, most_interactions)")
-```
-
-The trends are the same for cell_wall and dna. For protein synthesis, it seems more clear that more 
-features = better - take at least top20pct. Membrane_stress performs poorly and partial AUCs suggest 
-that some of the curves do not perform better than chance at a low fpr cutoff. 
-
-XGBOOST models don't seem to bring a particular performance benefit. As they vary a lot depending 
-on the hyperparameter grid but are difficult to understand I'd rather prefer lasso/RF models. 
-
+### AUCs: impact of feat_preselect
 
 ### AUCs: all dosages vs. most_interactions
 
-```{r}
-foo <- filter_container(matrix_container, chemfeats = FALSE) %>%
-  select(fitted_model, drug_dosages, feat_preselect, perf_measures) %>%
-  unnest()
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "drug_dosages", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(no chem. feats)")
-```
-
-
-```{r, for_poster, echo = FALSE}
-# this is just for the poster
-foo <- filter(foo, fitted_model %in% c("classif.randomForest", "classif.glmnet"))
-
-foo$moa_modelled <- 
-   fct_recode(foo$moa_modelled, 
-              "Cell Wall" = "cell_wall", 
-              "Protein Synthesis" = "protein_synthesis", 
-              "Membrane Stress" = "membrane_stress", 
-              "DNA" = "dna")
-
-foo$fitted_model <- 
-   fct_recode(foo$fitted_model, 
-              "Random forests" = "classif.randomForest", 
-              "Lasso" = "classif.glmnet")
-
-# foofilt <- filter(foo, fitted_model == "Lasso", moa_modelled == "DNA")
-foo_by_repndosg <- 
-   group_by(foo, fitted_model, moa_modelled, drug_dosages, feat_preselect) %>%
-   summarise(median_auc = median(auc), 
-             lower = boxplot.stats(auc)$stats[2], 
-             upper = boxplot.stats(auc)$stats[4])
-foo_by_repndosg
-
-ggplot(foo, aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
-   # geom_boxplot(position = position_dodge(), outlier.shape = NA) + 
-   # geom_point(position = position_jitterdodge(jitter.width = 0.1), size = 1, alpha = 0.5) + 
-   geom_pointrange(data = foo_by_repndosg, aes(y = median_auc, ymin = lower, ymax = upper), fatten = 1) + 
-   geom_line(data = foo_by_repndosg, aes(y = median_auc, group = drug_dosages)) + 
-   # stat_summary(geom = "line", group = "drug_dosages", fun.y = "median") + # this doesn't work, it will not draw separate line per drug_dosages - why?
-   facet_grid(fitted_model ~ moa_modelled) + 
-   labs(x = "Subset of features kept", y = "AUC", title = "Performances of MoA predictions", 
-        subtitle = "Medians +- IQR across CV repeats indicated") + 
-   theme_bw() + 
-   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
-   scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
-                       labels = c("All measured", "Conc. with \nmost interactions"))
-
-ggsave("./plots/POSTER_performance_comp.pdf", width = 9, height = 5)
-```
-
-Conclusions: RF: most_interactions performs a bit better for cell_wall and dna, all dosages 
-clearly improves performances for membrane_stress and, for lower feature numbers, protein_synthesis. 
-Similar trend for lasso and membrane_stress/protein_synthesis. For lasso and dna/cell_wall it's less 
-uniform, all dosages performs better for cell_wall and high feature numbers. 
-
-Let's check again for partial AUCs:
-
-```{r}
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "drug_dosages", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(no chem. feats)")
-```
-
-Trends in favour of all dosages are even clearer. cell_wall and RF has an inverted trend with all 
-dosages now performing better. Overall, performance measures argue for using all dosages. 
-
-There doesn't seem to be a big difference. 
-
-
 ### AUCs: with and without chemical features
-
-```{r}
-foo <- filter_container(matrix_container, dosgs = "all") %>%
-  select(fitted_model, drug_dosages, chemical_feats, feat_preselect, perf_measures) %>%
-  unnest()
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(all dosages)")
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(all dosages)")
-```
-
-Conclusions: chemical features bring big improvement in performance for protein_synthesis and, 
-for occasional repeats, for membrane_stress. Interestingly, when choosing "most_interactions", the 
-performance improvement for protein_synthesis is only there for low feature numbers:
-
-```{r}
-foo <- filter_container(matrix_container, dosgs = "most_interactions") %>%
-  select(fitted_model, drug_dosages, chemical_feats, feat_preselect, perf_measures) %>%
-  unnest()
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "auc", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(most interactions)")
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(most interactions)")
-```
-
-With partial AUCs.
-
-```{r}
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", y = "part_auc_01", colourvar = "chemical_feats", 
-                facet_expr = quote(facet_grid(fitted_model ~ moa_modelled)), 
-                additional_info = "(most interactions)")
-```
-
 
 But caution: physicochemical features may not be truly predictive - compare file 
 drug_drug_similarities_RDKit.pdf. 
 
-From the plots above we would probably say: take all dosages, with chemical features, top20pct/
-top25pct, slight preference for RF. 
-
-
 ## Model stabilities (of probabilities)
-
-Stability here means: how much do prediction probabilities fluctuate for drugs across different ways 
-of splitting the data (i.e. each repetition of the nested CV). 
-
 
 ### 'Ultimate plot'
 
-Shows the distribution of probabilities for each drug across repeats of the nested CV. Can plot 
-only one model at a time. Grey rectangles indicate the dosage with the most interactions. 
+Shows the distribution of probabilities for each drug across repeats of the 
+nested CV. Can plot only one model at a time. Grey rectangles indicate the 
+dosage with the most interactions. 
 
 ```{r, ultimate_plots}
-tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-  models = "classif.randomForest", dosgs = "all")
-
-ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages_nochemfeats.pdf")
-
-
-# let's try also for one of the lasso models
-tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-  models = "classif.glmnet", dosgs = "all")
-
-ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_alldosages_nochemfeats.pdf")
-
-
-# and now both of them with just the "most_interactions" dosage
-tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-  models = "classif.randomForest", dosgs = "most_interactions")
-
-ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_mostinteractions_nochemfeats.pdf")
-
-
-tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-  models = "classif.glmnet", dosgs = "most_interactions")
-
-ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_mostinteractions_nochemfeats.pdf")
+# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
+#   models = "classif.randomForest", dosgs = "all")
+# 
+# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages_nochemfeats.pdf")
+# 
+# 
+# # let's try also for one of the lasso models
+# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
+#   models = "classif.glmnet", dosgs = "all")
+# 
+# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_alldosages_nochemfeats.pdf")
+# 
+# 
+# # and now both of them with just the "most_interactions" dosage
+# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
+#   models = "classif.randomForest", dosgs = "most_interactions")
+# 
+# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_mostinteractions_nochemfeats.pdf")
+# 
+# 
+# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
+#   models = "classif.glmnet", dosgs = "most_interactions")
+# 
+# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_mostinteractions_nochemfeats.pdf")
 ```
 
 
 ### Stabilities of probabilities: impact of feat_preselect
 
-Fixing the following:
-
-- chemical_feats == FALSE
-- drug_dosages == "most_interactions"
-- moa_modelled == truth
-
-What is the impact of feat_preselect on model stability, depending on the model type and the 
-hyperparameter grid?
-
-```{r}
-foo <- filter_container(matrix_container, chemfeats = FALSE, dosgs = "most_interactions") %>%
-  select(prob.moa_stabilities, feat_preselect, chemical_feats, fitted_model, drug_dosages) %>%
-  unnest() %>%
-  filter(moa_modelled_is_truth)
-
-plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar = "feat_preselect", 
-                facet_expr = quote(facet_grid(fitted_model ~ .)), 
-                additional_info = "no chem. feats, most_interactions, MoA modelled = MoA truth")
-
-
-#### TO DO: we need a more systematic comparison here
-# # What about 'classif.xgboost'? - Possible that stabilities depend on hyperparameter grid?
-# foo <- foo[foo$fitted_model == "classif.xgboost", ]
-# plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd", colourvar = "feat_preselect", 
-#                 facet_expr = quote(facet_grid(hyperparam_grid_name ~ .)), 
-#                 additional_info = "classif.xgboost only\nno chem. feats, most_interactions, MoA modelled = MoA truth")
-# 
-# #ggsave(plot = p, filename = "./plots/Prob_stabilities_by_feat_preselect_onlyxgboost.pdf")
-```
-
 
 ```{r, for_poster_again, echo = FALSE}
-# just for the poster
-foo <- 
-   matrix_container %>%
-   select(drug_dosages, feat_preselect, chemical_feats, fitted_model, prob.moa_stabilities) %>%
-   unnest() %>%
-   filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-     moa_modelled_is_truth, drug_dosages == "all", !chemical_feats)
-
-foo$process_broad <- 
-   fct_recode(foo$process_broad, 
-              "Cell Wall" = "cell_wall", 
-              "Protein Synthesis" = "protein_synthesis", 
-              "Membrane Stress" = "membrane_stress", 
-              "DNA" = "dna")
-
-foo$fitted_model <- 
-   fct_recode(foo$fitted_model, 
-              "Random forests" = "classif.randomForest", 
-              "Lasso" = "classif.glmnet")
-
-ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = drug_dosages)) + 
-   stat_summary(geom = "pointrange", group = "drug_dosages", fun.y = "median", fatten = 1, 
-                fun.ymin = function(x) {fivenum(x)[2]}, 
-                fun.ymax = function(x) {fivenum(x)[4]}) + 
-   stat_summary(geom = "line", fun.y = median, group = "drug_dosages") + 
-   facet_grid(fitted_model ~ process_broad) + 
-   labs(x = "Subset of features kept", y = "Median s.d. of prediction probability", 
-        title = "Stabilities of MoA prediction probabilities", 
-        subtitle = "Indicates s.d. of probabilities across nested CV repeats") + 
-   theme_bw() + 
-   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
-   scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
-                       labels = c("All measured", "Conc. with \nmost interactions"))
-
-ggsave("./plots/POSTER_stability_comp.pdf", width = 9, height = 5)
-
-# for GB seminar:
-# ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = fitted_model, 
-#   group = fitted_model)) + 
-#   stat_summary(geom = "line", fun.y = median) + 
-#   stat_summary(geom = "point", fun.y = median) + 
-#   stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.4, 
-#     fun.ymin = function(x) {fivenum(x)[2]}, 
-#     fun.ymax = function(x) {fivenum(x)[4]}) + 
-#   facet_wrap( ~ process_broad) + 
-#   labs(x = "Subset of features kept", y = "Model instability [median s.d. of predictions +- IQR]", 
-#     title = "Model instabilities: lasso vs. random forests") + # may wanna add a subtitle ... 
-#   theme_bw() + 
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), 
-#     text = element_text(size = 14), panel.grid = element_blank()) + 
-#   scale_colour_manual("Model", values = model_cols[2:3], 
-#     labels = names(model_cols)[2:3])
+# # just for the poster
+# foo <- 
+#    matrix_container %>%
+#    select(drug_dosages, feat_preselect, chemical_feats, fitted_model, prob.moa_stabilities) %>%
+#    unnest() %>%
+#    filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
+#      moa_modelled_is_truth, drug_dosages == "all", !chemical_feats)
 # 
-# ggsave("./plots/Stability_comp_RF_Lasso_alldosg_nochem.pdf", width = 8, 
-#   height = 6)
-
-
-# GB seminar, version 2:
-
-filter(foo, feat_preselect == "top15pct") %>%
-  ggplot(aes(x = fitted_model, y = prob.moa_sd2)) + 
-  geom_boxplot(notch = TRUE, outlier.shape = NA, width = 0.5) + 
-  geom_point(shape = 1, stroke = 1, alpha = 0.75, 
-    position = position_jitter(width = 0.15)) + 
-  labs(title = "Prediction variability between\ncross-validation repeats", 
-    x = "", y = "S.D. of predictions") + 
-  #scale_colour_manual("MoA", values = moa_cols, labels = names(moa_cols)) + 
-  theme(text = element_text(size = 14), panel.grid = element_blank())
-
-ggsave("./plots/Stability_comparison_GBseminar.pdf", width = 3.8, height = 5)
-
-# need a scheme for the prediction variabilities
-tmp <- filter_container(matrix_container, feats = "top15pct", chemfeats = FALSE, 
-  models = "classif.randomForest", dosgs = "all") %>%
-  pull(pred_data) %>%
-  `[[`(1) %>%
-  filter(drugname_typaslab == "TETRACYCLINE", conc == 1)
-
-
-
-ggplot(tmp, aes(x = moa_modelled, y = prob.moa, colour = moa_modelled)) + 
-  geom_point(position = position_jitter(width = 0.15), size = 2, shape = 1, 
-    stroke = 1.2, alpha = 0.8) + 
-  labs(title = "Prediction probabilities for\ntetracycline", 
-    x = "Prediction for class", y = "Probability") + 
-  scale_x_discrete(labels = moa_repl) + 
-  scale_colour_manual(values = unname(moa_cols)) + 
-  theme(text = element_text(size = 14), axis.text.x = element_text(angle = 45, 
-    hjust = 1), panel.grid = element_blank(), legend.position = "None")
-
-ggsave("./plots/Probabilities_tetracycline.pdf", width = 3.5, height = 5)
+# foo$process_broad <- 
+#    fct_recode(foo$process_broad, 
+#               "Cell Wall" = "cell_wall", 
+#               "Protein Synthesis" = "protein_synthesis", 
+#               "Membrane Stress" = "membrane_stress", 
+#               "DNA" = "dna")
+# 
+# foo$fitted_model <- 
+#    fct_recode(foo$fitted_model, 
+#               "Random forests" = "classif.randomForest", 
+#               "Lasso" = "classif.glmnet")
+# 
+# ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = drug_dosages)) + 
+#    stat_summary(geom = "pointrange", group = "drug_dosages", fun.y = "median", fatten = 1, 
+#                 fun.ymin = function(x) {fivenum(x)[2]}, 
+#                 fun.ymax = function(x) {fivenum(x)[4]}) + 
+#    stat_summary(geom = "line", fun.y = median, group = "drug_dosages") + 
+#    facet_grid(fitted_model ~ process_broad) + 
+#    labs(x = "Subset of features kept", y = "Median s.d. of prediction probability", 
+#         title = "Stabilities of MoA prediction probabilities", 
+#         subtitle = "Indicates s.d. of probabilities across nested CV repeats") + 
+#    theme_bw() + 
+#    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
+#    scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
+#                        labels = c("All measured", "Conc. with \nmost interactions"))
+# 
+# ggsave("./plots/POSTER_stability_comp.pdf", width = 9, height = 5)
+# 
+# # GB seminar, version 2:
+# 
+# filter(foo, feat_preselect == "top15pct") %>%
+#   ggplot(aes(x = fitted_model, y = prob.moa_sd2)) + 
+#   geom_boxplot(notch = TRUE, outlier.shape = NA, width = 0.5) + 
+#   geom_point(shape = 1, stroke = 1, alpha = 0.75, 
+#     position = position_jitter(width = 0.15)) + 
+#   labs(title = "Prediction variability between\ncross-validation repeats", 
+#     x = "", y = "S.D. of predictions") + 
+#   #scale_colour_manual("MoA", values = moa_cols, labels = names(moa_cols)) + 
+#   theme(text = element_text(size = 14), panel.grid = element_blank())
+# 
+# ggsave("./plots/Stability_comparison_GBseminar.pdf", width = 3.8, height = 5)
+# 
+# # need a scheme for the prediction variabilities
+# tmp <- filter_container(matrix_container, feats = "top15pct", chemfeats = FALSE, 
+#   models = "classif.randomForest", dosgs = "all") %>%
+#   pull(pred_data) %>%
+#   `[[`(1) %>%
+#   filter(drugname_typaslab == "TETRACYCLINE", conc == 1)
+# 
+# 
+# 
+# ggplot(tmp, aes(x = moa_modelled, y = prob.moa, colour = moa_modelled)) + 
+#   geom_point(position = position_jitter(width = 0.15), size = 2, shape = 1, 
+#     stroke = 1.2, alpha = 0.8) + 
+#   labs(title = "Prediction probabilities for\ntetracycline", 
+#     x = "Prediction for class", y = "Probability") + 
+#   scale_x_discrete(labels = moa_repl) + 
+#   scale_colour_manual(values = unname(moa_cols)) + 
+#   theme(text = element_text(size = 14), axis.text.x = element_text(angle = 45, 
+#     hjust = 1), panel.grid = element_blank(), legend.position = "None")
+# 
+# ggsave("./plots/Probabilities_tetracycline.pdf", width = 3.5, height = 5)
 ```
 
 
 ```{r, more_pretty_plots}
-foo <- filter_container(matrix_container, chemfeats = FALSE, 
-  models = "classif.randomForest") %>%
-  select(fitted_model, drug_dosages, feat_preselect, perf_measures) %>%
-  unnest() %>% 
-  filter(fitted_model == "classif.randomForest") %>% 
-  mutate(moa_modelled = fct_recode(moa_modelled, "Cell Wall" = "cell_wall", 
-    "Protein Synthesis" = "protein_synthesis", 
-    "Membrane Stress" = "membrane_stress", "DNA" = "dna"), 
-    moa_modelled = as.character(moa_modelled))
-
-ggplot(filter(foo, moa_modelled == "Membrane Stress"), aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
-  stat_summary(geom = "line", fun.y = median, mapping = aes(group = drug_dosages)) + 
-  stat_summary(geom = "point", fun.y = median) + 
-  stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.5, 
-    fun.ymin = function(x) {fivenum(x)[2]}, 
-    fun.ymax = function(x) {fivenum(x)[4]}) + 
-  geom_hline(yintercept = c(0.7, 0.75, 0.8), linetype = "dotted") + 
-  facet_wrap( ~ moa_modelled) + 
-  labs(x = "Subset of features kept", y = "Model performance [AUC]", 
-    title = "Impact of dosage and feature selection\non model performance") + # may wanna add a subtitle ... 
-  theme_bw() + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12), 
-    text = element_text(size = 14), panel.grid = element_blank()) + 
-  scale_colour_manual("Dosages kept", values = c("#1f78b4", "#33a02c"), 
-    labels = c("All", "Most interactions")) + 
-  NULL
-
-ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem_Membrane.pdf", width = 6, 
-  height = 4)
-
-ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem.pdf", width = 8, 
-  height = 6)
+# foo <- filter_container(matrix_container, chemfeats = FALSE, 
+#   models = "classif.randomForest") %>%
+#   select(fitted_model, drug_dosages, feat_preselect, perf_measures) %>%
+#   unnest() %>% 
+#   filter(fitted_model == "classif.randomForest") %>% 
+#   mutate(moa_modelled = fct_recode(moa_modelled, "Cell Wall" = "cell_wall", 
+#     "Protein Synthesis" = "protein_synthesis", 
+#     "Membrane Stress" = "membrane_stress", "DNA" = "dna"), 
+#     moa_modelled = as.character(moa_modelled))
+# 
+# ggplot(filter(foo, moa_modelled == "Membrane Stress"), aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
+#   stat_summary(geom = "line", fun.y = median, mapping = aes(group = drug_dosages)) + 
+#   stat_summary(geom = "point", fun.y = median) + 
+#   stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.5, 
+#     fun.ymin = function(x) {fivenum(x)[2]}, 
+#     fun.ymax = function(x) {fivenum(x)[4]}) + 
+#   geom_hline(yintercept = c(0.7, 0.75, 0.8), linetype = "dotted") + 
+#   facet_wrap( ~ moa_modelled) + 
+#   labs(x = "Subset of features kept", y = "Model performance [AUC]", 
+#     title = "Impact of dosage and feature selection\non model performance") + 
+#   theme_bw() + 
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12), 
+#     text = element_text(size = 14), panel.grid = element_blank()) + 
+#   scale_colour_manual("Dosages kept", values = c("#1f78b4", "#33a02c"), 
+#     labels = c("All", "Most interactions")) + 
+#   NULL
+# 
+# ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem_Membrane.pdf", width = 6, 
+#   height = 4)
+# 
+# ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem.pdf", width = 8, 
+#   height = 6)
 ```
-
-
-Conclusion: No apparent correlation between feat_preselect and stabilities of probabilities. 
-Random forests is the most stable model, lasso the least stable one although the latter 
-has a big difference between individual drugs: some of them are as stable as with RF. These trends 
-are also apparent in the ultimate plot. 
-
-Boosted trees is in between. For boosted trees the don't seem to differ between different 
-hyperparameter grids. 
 
 
 ### Stabilities of probabilities: impact of all dosages vs. most_interactions
-
-Just like above, except that we now want to see whether models become more or less stable if all 
-dosages are used or only one dosage with most interactions. 
-
-```{r}
-foo <- filter_container(matrix_container, chemfeats = FALSE) %>%
-  select(prob.moa_stabilities, feat_preselect, chemical_feats, fitted_model, drug_dosages) %>%
-  unnest() %>%
-  filter(moa_modelled_is_truth)
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", yaxis = "prob.moa_sd2", 
-  colourvar = "drug_dosages", groupvar = "drug_dosages", 
-  facet_expr = quote(facet_grid(fitted_model ~ process_broad)), 
-  xlab = "Feature subset", ylab = "Model instability", 
-  title = "Model instabilities: impact of dosage selection", 
-  additional_info = "no chem. feats, MoA modelled = MoA truth")
-
-
-# # focus again only on classif.xgboost
-# foo <- foo[foo$fitted_model == "classif.xgboost", ]
-# 
-# plot_auc_vs_moa(foo, xaxis = "process_broad", yaxis = "prob.moa_sd2", colourvar = "drug_dosages", 
-#                 facet_expr = quote(facet_grid(hyperparam_grid_name ~ feat_preselect)), 
-#                 additional_info = "no chem. feats, MoA modelled = MoA truth")
-```
-
-
-### Stabilities of probabilities: impact of whether MoA modelled = truth
-
-Like above but this time we do not focus on the probabilities where the MoA that was being modelled 
-is the same as the MoA of the drug. So we ask whether drugs are more stably predicted to be their 
-MoA or whether they are more stably predicted to be not their MoA. Check once for all dosages and 
-once for most_interactions. 
-
-```{r}
-foo <- filter_container(matrix_container, chemfeats = FALSE, dosgs = "most_interactions") %>%
-  select(prob.moa_stabilities, feat_preselect, chemical_feats, fitted_model, drug_dosages) %>%
-  unnest() %>%
-  filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", yaxis = "prob.moa_sd2", 
-                colourvar = "moa_modelled_is_truth", 
-                facet_expr = quote(facet_grid(fitted_model ~ process_broad)), 
-                additional_info = "(no chem. feats, most_interactions)")
-
-
-foo <- filter_container(matrix_container, chemfeats = FALSE, dosgs = "all") %>%
-  select(prob.moa_stabilities, feat_preselect, chemical_feats, fitted_model, drug_dosages) %>%
-  unnest() %>%
-  filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
-
-plot_auc_vs_moa(foo, xaxis = "feat_preselect", yaxis = "prob.moa_sd2", 
-                colourvar = "moa_modelled_is_truth", 
-                facet_expr = quote(facet_grid(fitted_model ~ process_broad)), 
-                additional_info = "(no chem. feats, all dosages)")
-```
 
 
 ## Selected ROC/precision-recall curves
@@ -967,37 +448,6 @@ ggsave("./plots/ROC_RF_top15pct_all_nochem.pdf", width = 7.5, height = 4)
 
 plot_perf_from_container(foo, what = "prec-recall")
 ggsave("./plots/Prec-recall_RF_top15pct_all_nochem.pdf", width = 5, height = 4.5)
-```
-
-
-## Selected AUC/partial AUC comparison
-
-There may be reasons though to work without chemical features and fewer dosages 
-(see below). This would impact our performances as follows. I'm taking only 
-top20pct and keepall for simplicity as they are the best feat_preselect cases 
-depending on the MoA. 
-
-```{r}
-tmp <- filter_container(matrix_container, models = c("classif.randomForest", 
-  "classif.glmnet"), dosgs = "all", feats = c("top20pct", "keepall")) %>%
-  select(fitted_model, drug_dosages, feat_preselect, chemical_feats, 
-    perf_measures) %>%
-  unnest()
-
-plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "auc", 
-  colourvar = "chemical_feats", 
-  facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), 
-  additional_info = "")
-```
-
-So one may be able to compensate for the loss of chemical features by using 
-lasso. Here are the partial AUCs:
-
-```{r}
-plot_auc_vs_moa(tmp, xaxis = "moa_modelled", yaxis = "part_auc_01", 
-  colourvar = "chemical_feats", 
-  facet_expr = quote(facet_grid(feat_preselect ~ fitted_model)), 
-  additional_info = "")
 ```
 
 
