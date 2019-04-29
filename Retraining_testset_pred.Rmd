@@ -19,7 +19,7 @@ editor_options:
 
 ```{r setup}
 source("./setup.R")
-mics <- mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
 ```
 
 # Retrain models
@@ -38,9 +38,15 @@ chosen <- filter(mc_ext, fitted_model == "classif.randomForest",
 chosen$perf_measures[[1]] %>%
   group_by(cvrep) %>%
   summarise(mean_mmce = mean(mmce)) %>%
-  ggplot(aes(x = "chosen", y = mean_mmce)) + 
-    geom_boxplot(outlier.shape = NA) + 
-    geom_point(position = position_jitter(width = 0.2, height = 0), shape = 1)
+  ggplot(aes(x = "", y = mean_mmce)) + 
+    geom_boxplot(outlier.shape = NA, width = 0.5) + 
+    geom_point(position = position_jitter(width = 0.2, height = 0), shape = 1) + 
+    labs(title = "Random forests, all dosages, no chem. features", x = "", 
+      y = "Mean MMCE (one dot per nested CV)") + 
+  comparison_theme
+
+ggsave(filename = "./plots/Performance_RF_all.pdf", width = 87, height = 90, 
+  units = "mm")
 
 # our input data set
 dfm <- chosen$drug_feature_matrices[[1]]
@@ -161,6 +167,7 @@ unknown <- map(list(nic, new), ~ filter(.x, process_broad == "unknown")) %>%
 (nic_to_test <- nic %>%
     filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
       !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
+nic_to_test$process_broad %<>% factor(levels = moas)
 
 (new_to_test <- new %>%
     filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
@@ -169,8 +176,9 @@ unknown <- map(list(nic, new), ~ filter(.x, process_broad == "unknown")) %>%
 
 ## Run predictions: original model
 
+Left out drugs from Nichols. 
+
 ```{r}
-# left out drugs from Nichols
 nic_to_test_preds <- predict(trained_model, newdata = nic_to_test)
 nic_to_test_preds$data <- as_tibble(
   cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds))
@@ -178,8 +186,11 @@ nic_to_test_preds$data <- as_tibble(
 nic_to_test_preds
 performance(nic_to_test_preds)
 nic_to_test_preds$data
+```
 
-# actual test set
+Actual test set. 
+
+```{r}
 new_to_test_preds <- predict(trained_model, newdata = new_to_test)
 new_to_test_preds$data <- as_tibble(
   cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds))
@@ -188,9 +199,16 @@ new_to_test_preds
 performance(new_to_test_preds)
 print(new_to_test_preds$data, n = 50)
 
-ggsave(filename = "./plots/pred_heatmap_testset.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds$data), mics = mics, printplot = FALSE), width = 12, height = 6)
+plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_testset.pdf")
 
-# unknown drugs
+plot_mcl_probs_lines(melt_pred_data_mcl(new_to_test_preds$data), save = TRUE, 
+  printplot = FALSE, file = "./plots/Pred_lines_testset.pdf")
+```
+
+Unknown drugs.
+
+```{r}
 unknown_preds <- predict(trained_model, newdata = unknown)
 unknown_preds$data <- as_tibble(
   cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds))
@@ -198,13 +216,19 @@ unknown_preds$data <- as_tibble(
 unknown_preds
 print(unknown_preds$data, n = 50)
 
-ggsave(filename = "./plots/pred_heatmap_unknown.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, printplot = FALSE), width = 12, height = 6)
+plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown.pdf")
+
+plot_mcl_probs_lines(melt_pred_data_mcl(unknown_preds$data), save = TRUE, 
+  printplot = FALSE, file = "./plots/Pred_lines_unknown.pdf")
 ```
+
 
 ## Run predictions: parsimonious model 
 
+Left out drugs from Nichols.
+
 ```{r}
-# left out drugs from Nichols
 nic_to_test_preds_fpt <- predict(trained_model_fpt, newdata = nic_to_test)
 nic_to_test_preds_fpt$data <- as_tibble(
   cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds_fpt))
@@ -212,8 +236,11 @@ nic_to_test_preds_fpt$data <- as_tibble(
 nic_to_test_preds_fpt
 performance(nic_to_test_preds_fpt)
 nic_to_test_preds_fpt$data
+```
 
-# actual test set
+Actual test set. 
+
+```{r}
 new_to_test_preds_fpt <- predict(trained_model_fpt, newdata = new_to_test)
 new_to_test_preds_fpt$data <- as_tibble(
   cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds_fpt))
@@ -222,10 +249,16 @@ new_to_test_preds_fpt
 performance(new_to_test_preds_fpt)
 print(new_to_test_preds_fpt$data, n = 50)
 
-ggsave(filename = "./plots/pred_heatmap_testset_fpt.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds_fpt$data), mics = mics, printplot = FALSE), 
-  width = 12, height = 6)
+plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds_fpt$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_testset_parsimonious.pdf")
 
-# unknown drugs
+plot_mcl_probs_lines(melt_pred_data_mcl(new_to_test_preds_fpt$data), save = TRUE, 
+  printplot = FALSE, file = "./plots/Pred_lines_testset_parsimonious.pdf")
+```
+
+Unknown drugs. 
+
+```{r}
 unknown_preds_fpt <- predict(trained_model_fpt, newdata = unknown)
 unknown_preds_fpt$data <- as_tibble(
   cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds_fpt))
@@ -233,9 +266,50 @@ unknown_preds_fpt$data <- as_tibble(
 unknown_preds_fpt
 print(unknown_preds_fpt$data, n = 50)
 
-ggsave(filename = "./plots/pred_heatmap_unknown_fpt.pdf", plot = plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds_fpt$data), mics = mics), 
-  width = 12, height = 6)
+plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds_fpt$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown_parsimonious.pdf")
+
+plot_mcl_probs_lines(melt_pred_data_mcl(unknown_preds_fpt$data), save = TRUE, 
+  printplot = FALSE, file = "./plots/Pred_lines_unknown_parsimonious.pdf")
 ```
+
+Location in tSNE. 
+
+```{r}
+# drugs from original tSNE map
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+
+# chemogenomic fingerprint
+fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+
+# add the drugs we predicted here, then subset with fingerprint features
+tsne_mat <- bind_rows(m_all, nic_to_test, new_to_test, unknown) %>% 
+  select(drugname_typaslab, conc, process_broad, fingerprint_mcl)
+
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 10, 
+  max_iter = 6000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+
+moa_cols <- c(moa_cols, "unknown" = "#636363")
+p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>%
+  add_markers(text = ~ drug) %>%
+  layout(title = "Fingerprint tSNE map", 
+    scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
+      zaxis = list(title = 'tSNE3')))
+p
+
+saveRDS(object = p, file = "./plots/tSNE_map_complete.rds")
+```
+
+
 
 ## 
 
@@ -255,6 +329,7 @@ ggsave(filename = "./plots/pred_heatmap_unknown_fpt.pdf", plot = plot_mcl_probs_
 # Session info
 
 ```{r session_info}
+save.image(file = "./data/programmatic_output/SESSION_Retraining_testset_pred.RData")
 R.version
 sessionInfo()
 ```

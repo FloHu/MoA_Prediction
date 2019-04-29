@@ -296,37 +296,48 @@ plot_highest_probs <- function(pred_data_obj, which_moa = c("cell_wall", "dna", 
   print(p)
 }
 
-plot_mcl_probs_lines <- function(melted_pred_data, labels, colours, printplot = TRUE) {
+plot_mcl_probs_lines <- function(melted_pred_data, printplot = TRUE, 
+  save = FALSE, file = NULL) {
   # needs a melted multiclass prediction (function melt_pred_data)
   p <- ggplot(melted_pred_data, aes(x = factor(conc), y = prob.med,
     colour = predicted_prob)) +
-    geom_pointrange(aes(ymin = prob.min, ymax = prob.max), alpha = 0.75,
-      size = 2, fatten = 1) +
-    geom_line(aes(group = predicted_prob), size = 1) +
+    geom_linerange(aes(ymin = prob.min, ymax = prob.max), size = 0.5) +
+    geom_line(aes(group = predicted_prob), size = 0.25) + 
+    geom_point(size = 0.5) + 
     facet_wrap( ~ truth + drugname_typaslab, scales = "free_x") +
-    geom_hline(yintercept = c(0.5), linetype = c("dotted")) +
+    geom_hline(yintercept = c(0.25), linetype = c("dotted")) +
     scale_colour_manual("Predicted probability\nfor class",
-      values = unname(colours), labels = labels) +
-    coord_cartesian(ylim = c(0, 1))
+      values = moa_cols2, labels = moa_repl2) +
+    coord_cartesian(ylim = c(0, 1)) + 
+    theme(text = element_text(size = 5), panel.grid = element_blank()) + 
+    labs(x = "Concentration", y = "Probability")
 
   if (printplot) print(p)
-
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    suppressWarnings(
+      ggsave(filename = file, plot = p, width = 180, height = 200, units = "mm")
+    )
+  }
+  
   invisible(p)
 }
 
-plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
-  tmp <- left_join(melted_pred_data, mics)
+plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE, 
+  save = FALSE, file = NULL) {
+  tmp <- suppressMessages(left_join(melted_pred_data, mics))
   tmp <- tmp %>%
-    mutate(drug_conc = paste0(drugname_typaslab, "_", conc),
+    mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (", mic_curated, ")"),
       prob.med.range = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1),
         labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%",
           "60-70%", "70-80%", "80-90%", "90-100%")),
       drug_conc = factor(drug_conc,
-        levels = rev(unique(drug_conc[order(truth, drugname_typaslab, conc)]))))
+        levels = unique(drug_conc[order(truth, drugname_typaslab, conc)])))
 
-  tmp$truth <- fct_recode(tmp$truth, "Drugs with MoA cell wall" = "cell_wall",
-    "Drugs with MoA DNA" = "dna", "Drugs with MoA membrane stress" = "membrane_stress",
-    "Drugs with MoA protein synthesis" = "protein_synthesis")
+  tmp$truth <- fct_recode(tmp$truth, "Annotated MoA: Cell Wall" = "cell_wall",
+    "Annotated MoA: DNA" = "dna", "Annotated MoA: Membrane Stress" = "membrane_stress",
+    "Annotated MoA: Protein Synthesis" = "protein_synthesis")
 
   tmp <- group_by(tmp, drug_conc) %>%
     mutate(is_max = (prob.max) == max(prob.max))
@@ -337,21 +348,30 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE) {
   # cols <- colorRampPalette(cols)(10)
   cols <- RColorBrewer::brewer.pal(min(9, nlevels(tmp$prob.med.range)), "BuPu")
   cols <- colorRampPalette(cols)(min(10, nlevels(tmp$prob.med.range)))
+  
+  # this doesn't work - why? 
+  # levels(tmp$drug_conc) <- rev(levels(tmp$drug_conc))
 
   p <- ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) +
     geom_tile(aes(fill = prob.med.range)) +
-    geom_point(aes(x = geompoint)) +
+    geom_point(aes(x = geompoint), size = 0.3) +
     coord_flip() +
     scale_fill_manual("Probability", values = cols) +
-    # scale_y_discrete(labels = (moa_repl2)) +
-    facet_wrap(. ~ truth, scales = "free") +
-    labs(x = "", y = "") +
-    theme(text = element_text(size = 12),
-      axis.text.x = element_text(size = 12))
-
+    scale_y_discrete("MoA predicted", labels = moa_repl2) +
+    scale_x_discrete("Drug + concentration") + 
+    comparison_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    facet_wrap( ~ truth, scales = "free")
 
   if (printplot) suppressWarnings(print(p))
 
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    suppressWarnings(
+      ggsave(filename = file, plot = p, width = 180, height = 200, units = "mm")
+    )
+  }
+  
   invisible(p)
 }
 
@@ -378,7 +398,8 @@ plot_perf <- function(mc_ext, what, save = FALSE, file = NULL) {
     facet_grid(chemical_feats ~ drug_dosages) +
     labs(y = paste0("Performance (", what, ")")) +
     scale_x_discrete("Classifier type", labels = classifier_repl) +
-    comparison_theme
+    comparison_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
   print(p)
 
   if (save) {
@@ -386,3 +407,52 @@ plot_perf <- function(mc_ext, what, save = FALSE, file = NULL) {
     ggsave(filename = file, plot = p, width = 87, height = 80, units = "mm")
   }
 }
+
+plot_inner_vs_outer <- function(mc_ext, save = FALSE, file = NULL) {
+  # are performances of inner cross-validations similar to performances of 
+  # the test set? 
+  # input: matrix container (mc_ext)
+  # output: a plot comparing mmce and kappa between inner cross-validated 
+  # performance measure and test set performance measure
+  tmp <- mc_ext %>%
+    select(fitted_model, drug_dosages, chemical_feats, perf_measures, 
+      opt_pars) %>%
+    unnest()
+  stopifnot({
+    all(tmp$cvrep == tmp$cvrep1)
+    all(tmp$split == tmp$split1)
+  })
+  
+  p1 <- ggplot(tmp, aes(x = mmce.cv.inner, y = mmce, colour = cvrep)) + 
+    geom_point() + 
+    coord_fixed() + 
+    comparison_theme
+  
+  p2 <- ggplot(tmp, aes(x = "", y = mmce - mmce.cv.inner)) + 
+    geom_boxplot(outlier.shape = NA, width = 0.5) + 
+    ggbeeswarm::geom_beeswarm(cex = 3, aes(colour = cvrep)) + 
+    comparison_theme
+  
+  p3 <- ggplot(tmp, aes(x = kappa.cv.inner, y = mmce, colour = cvrep)) + 
+    geom_point() + 
+    coord_fixed() + 
+    comparison_theme
+  
+  p4 <- ggplot(tmp, aes(x = "", y = kappa - kappa.cv.inner)) + 
+    geom_boxplot(outlier.shape = NA) + 
+    ggbeeswarm::geom_beeswarm(cex = 3, aes(colour = cvrep)) + 
+    comparison_theme
+  
+  # tutorial: 
+  # http://www.sthda.com/english/articles/24-ggpubr-publication-ready-plots/81-ggplot2-easy-way-to-mix-multiple-graphs-on-the-same-page/
+  p <- ggarrange(p1, p2, p3, p4, labels = c("A", "B", "C", "D"), ncol = 2, 
+    nrow = 2)
+  print(p)
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    ggsave(filename = file, plot = p, width = 180, height = 180, units = "mm")
+  }
+}
+
+

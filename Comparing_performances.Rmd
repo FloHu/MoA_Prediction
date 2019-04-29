@@ -146,72 +146,83 @@ select(mc_ext, fitted_model, drug_dosages, chemical_feats, pred_stabs) %>%
   geom_violin() + 
     facet_grid(chemical_feats ~ drug_dosages) + 
   scale_x_discrete("Classifier type", labels = classifier_repl) + 
-  comparison_theme
+  comparison_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(filename = "./plots/Comparison_stabilities.pdf", width = 87, height = 80, 
+  units = "mm")
+```
+
+## Define "winning" model
+
+As the following plots are rather a quality control for the winning/chosen 
+model. 
+
+```{r}
+# mc_ext_w = "winner", i.e. the model we choose
+mc_ext_w <- filter(mc_ext, fitted_model == "classif.randomForest", 
+  drug_dosages == "all", !chemical_feats)
 ```
 
 ## Inner vs. outer performances
 
 ```{r}
-# comparison inner and outer performances
-tmp <- 
-  select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures, 
-  opt_pars) %>%
-  unnest()
-all(tmp$cvrep == tmp$cvrep1)
-all(tmp$split == tmp$split1)
+plot_inner_vs_outer(mc_ext = mc_ext_w, save = TRUE, 
+  file = "./plots/Comparison_inner-outer.pdf")
+```
 
-ggplot(tmp, aes(x = mmce.cv.inner, y = mmce)) + 
-  geom_point() + 
-  coord_fixed() + 
-  facet_grid(chemical_feats ~ drug_dosages)
+## Stability of optimal hyperparameter values
 
-ggplot(tmp, aes(x = mmce - mmce.cv.inner)) + 
-  geom_histogram() + 
-  facet_grid(chemical_feats ~ drug_dosages)
-
+```{r}
 # stability of optimal hyperparameter values: do independently for each 
 # model
 # random forests:
-tmp <- 
-  mc_ext %>%
-  filter(fitted_model == "classif.randomForest") %>%
+tmp <- mc_ext_w %>%
   select(fitted_model, drug_dosages, chemical_feats, opt_pars) %>% 
   unnest() %>%
   mutate(opt_pars_value = map(opt_pars, unlist), opt_pars_name = map(opt_pars, names)) %>%
   unnest()
 
-tmp2 <- filter(tmp, !chemical_feats, drug_dosages == "one")
+tmp$opt_pars_value %<>% factor(levels = sort(c(unique(tmp$opt_pars_value), 1.0)))
 
-ggplot(tmp2, aes(x = factor(opt_pars_value))) + 
+## TO DO: don't know how to show empty factor level with faceted plot when 
+# setting scales = "free" - to show that the fw.perc = 1 value was kept
+ggplot(tmp, aes(x = opt_pars_value)) + 
   geom_bar() + 
-  facet_grid(drug_dosages ~ opt_pars_name, scales = "free_x")
+  facet_wrap( ~ opt_pars_name, scales = "free") + 
+  comparison_theme
+
+ggsave(filename = "./plots/Comparison_hyp-param_stabs.pdf", width = 87, 
+  height = 95, units = "mm")
 
 # prediction heatmap, pseudo ROC curves, confusion matrix
 # general trends of prediction quality depending on hyperparameter chosen
 ```
 
-
-Prediction heatmap, prediction lines, ROC curves, confusion matrix.
+## Prediction heatmap, prediction lines
 
 ```{r}
-tmp <- mc_ext$pred_data[[5]]
-melt_pred_data_mcl(tmp)
-plot_mcl_probs_heatmap(melt_pred_data_mcl(tmp), mics = mics)
+pred_data_w <- mc_ext_w$pred_data[[1]]
+## TO DO: change order of y-axis
+plot_mcl_probs_heatmap(melt_pred_data_mcl(pred_data_w), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_training.pdf")
 
 # profiles to see probabilities better
-plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(tmp), 
-  labels = moas, colours = moa_cols)
+plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(pred_data_w), 
+  save = TRUE, printplot = FALSE, file = "./plots/Pred_lines_training.pdf")
+```
 
-pdf(width = 20, height = 20, file = "./plots/tmp.pdf")
-plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(tmp), 
-  labels = moas, colours = moa_cols)
-dev.off()
+## ROC curve
 
-# ROC curves
+```{r}
 plot_roc_mcl(resampled_multiclass = tmp, positives = moas)
 ```
 
-Calibration plot.
+
+## Confusion matrix
+
+
+## Calibration plot
 
 ```{r}
 plot_prob_calib(resample_result = tmp, title = "muuuh!")
