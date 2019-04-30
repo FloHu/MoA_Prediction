@@ -219,6 +219,9 @@ print(unknown_preds$data, n = 50)
 plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown.pdf")
 
+plot_mcl_probs_heatmap2(pred_data = unknown_preds$data, mics = mics, 
+  printplot = TRUE, save = TRUE, file = "./plots/Pred_heatmap2_unknown.pdf")
+
 plot_mcl_probs_lines(melt_pred_data_mcl(unknown_preds$data), save = TRUE, 
   printplot = FALSE, file = "./plots/Pred_lines_unknown.pdf")
 ```

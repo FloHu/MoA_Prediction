@@ -1,16 +1,6 @@
-prep_roc <- function(resampled_multiclass, positive) {
-  # takes a resampled instance for multi-class prediction + a class that 
-  # has been defined as positive and returns the predictions accordingly in 
-  # the long format
-  # intended to be used for making a ROC-curve
-  #stopifnot(is(resampled_multiclass, "ResampleResult"))
-  #stopifnot(positive %in% resampled_multiclass$pred$data$truth)
-  #stopifnot(length(positive) == 1)
-  
-  # a bit of renaming and data type changing
+prep_roc <- function(pred_data, positive) {
   preproc <- 
-    resampled_multiclass %>%
-    #melt_pred_data(model_type = "multiclass") %>%
+    pred_data %>%
     melt_pred_data_mcl() %>%
     mutate(truth = as.character(truth), 
       predicted_prob = str_replace(string = predicted_prob, 
@@ -56,9 +46,9 @@ get_metrics_mcl <- function(dfr) {
   return(dfr)
 }
 
-get_thresh_vs_perf_mcl <- function(resampled_multiclass, positive, 
+get_thresh_vs_perf_mcl <- function(pred_data, positive, 
   thresholds = seq(from = 0, to = 1, by = 0.01)) {
-  preproc <- prep_roc(resampled_multiclass, positive = positive)
+  preproc <- prep_roc(pred_data, positive = positive)
   thresh_vs_perf <- map_dfr(thresholds, function(.thresh) {
     get_metrics_mcl(get_responses_mcl(preproc, positive, .thresh))
   })
@@ -66,11 +56,11 @@ get_thresh_vs_perf_mcl <- function(resampled_multiclass, positive,
   return(thresh_vs_perf)
 }
 
-plot_roc_mcl <- function(resampled_multiclass, positives) {
+plot_roc_mcl <- function(pred_data, positives) {
   # simulates a number of 1-vs-rest models for all the classes passed in 
-  # positive
+  # positive by adding up all probabilities falling into the "not" category
   threshs <- map_dfr(positives, get_thresh_vs_perf_mcl, 
-    resampled_multiclass = resampled_multiclass)
+    pred_data = pred_data)
   ggplot(threshs, aes(x = fpr, y = tpr, colour = positive)) + 
     geom_path(size = 0.75) + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 

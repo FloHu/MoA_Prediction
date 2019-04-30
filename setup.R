@@ -27,8 +27,7 @@ moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02",
   membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
 
 moa_cols2 <- c(prob.cell_wall = "#1b9e77", prob.dna = "#d95f02", 
-  prob.membrane_stress = "#7570b3", 
-  prob.protein_synthesis = "#e7298a")
+  prob.membrane_stress = "#7570b3", prob.protein_synthesis = "#e7298a")
 
 moas <- names(moa_cols)
 
@@ -39,6 +38,8 @@ moa_repl2 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA",
   prob.membrane_stress = "Membrane Stress", 
   prob.protein_synthesis = "Protein Synthesis")
 
+classifier_repl <- c(classif.randomForest = "Random Forests", 
+  classif.glmnet = "Lasso", classif.xgboost = "Boosted Trees")
 
 # plotting themes
 theme_set(theme_bw())

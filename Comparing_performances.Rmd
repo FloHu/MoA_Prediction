@@ -25,10 +25,6 @@ outdir <- "./data/programmatic_output"
 
 mc <- readRDS("./data/programmatic_output/mc.rds")
 head(mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";"))
-
-moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
-  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
-moas <- names(moa_cols)
 ```
 
 
@@ -36,8 +32,8 @@ moas <- names(moa_cols)
 
 ```{r}
 # old results object
-res_old <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top10pct_FALSE.rds")
-pryr::object_size(res_old)
+# res_old <- readRDS("./run_results_from_server/matrix_container_result/rf_hyp_param_all_top10pct_FALSE.rds")
+# pryr::object_size(res_old)
 
 # new one
 res_new <- readRDS(file.path(resdir, "classif.randomForest_one_FALSE.rds"))
@@ -58,30 +54,32 @@ if (file.exists(mc_ext_path)) {
   mc_ext[, newcols] <- list(rep(list(NA), 4))
 }
 
-for (row in seq_len(nrow(mc_ext))) {
-  gc()
-  
-  targetfile <- 
-    select(mc_ext[row, ], fitted_model, drug_dosages, chemical_feats) %>%
-    reduce(paste, sep = "_") %>% 
-    paste0(".rds")
-  
-  stopifnot(length(targetfile) == 1)
-  
-  if (!(file.exists(file.path(resdir, targetfile)))) {
-    cat(targetfile, ": no matching file found, continuing ...\n")
-    next
+if (!file.exists(mc_ext_path)) {
+  for (row in seq_len(nrow(mc_ext))) {
+    gc()
+    
+    targetfile <- 
+      select(mc_ext[row, ], fitted_model, drug_dosages, chemical_feats) %>%
+      reduce(paste, sep = "_") %>% 
+      paste0(".rds")
+    
+    stopifnot(length(targetfile) == 1)
+    
+    if (!(file.exists(file.path(resdir, targetfile)))) {
+      cat(targetfile, ": no matching file found, continuing ...\n")
+      next
+    }
+    
+    cat("Now processing file ", targetfile, "\n")
+    resobj <- readRDS(file.path(resdir, targetfile))
+    
+    mc_ext[row, newcols] <- 
+      map(list(get_perf_measures_mcl, get_pred_data_mcl, get_opt_path, 
+        get_opt_pars), function(f) list(f(resobj = resobj))) # need to wrap into list()
+    
+    rm(resobj)
+    gc()
   }
-  
-  cat("Now processing file ", targetfile, "\n")
-  resobj <- readRDS(file.path(resdir, targetfile))
-  
-  mc_ext[row, newcols] <- 
-    map(list(get_perf_measures_mcl, get_pred_data_mcl, get_opt_path, 
-      get_opt_pars), function(f) list(f(resobj = resobj))) # need to wrap into list()
-  
-  rm(resobj)
-  gc()
 }
 
 saveRDS(mc_ext, file = mc_ext_path)
@@ -207,19 +205,25 @@ pred_data_w <- mc_ext_w$pred_data[[1]]
 plot_mcl_probs_heatmap(melt_pred_data_mcl(pred_data_w), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_training.pdf")
 
+# NEW!
+## TO DO: change to lollipop chart, see 
+# https://www.r-bloggers.com/geom_lollipop-by-the-chartettes/
+plot_mcl_probs_heatmap2(pred_data = pred_data_w, mics = mics, 
+  printplot = TRUE, save = TRUE, order_by_conf = TRUE, 
+  file = "./plots/Pred_heatmap_training_conf.pdf")
+
 # profiles to see probabilities better
 plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(pred_data_w), 
   save = TRUE, printplot = FALSE, file = "./plots/Pred_lines_training.pdf")
 ```
 
-## ROC curve
+<!--
+TO DO: ROC curve, confusion matrix
+-->
 
 ```{r}
-plot_roc_mcl(resampled_multiclass = tmp, positives = moas)
+# plot_roc_mcl(pred_data = pred_data_w, positives = moas)
 ```
-
-
-## Confusion matrix
 
 
 ## Calibration plot

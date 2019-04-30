@@ -375,6 +375,74 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
   invisible(p)
 }
 
+plot_mcl_probs_heatmap2 <- function(pred_data, 
+  mics, 
+  printplot = TRUE, 
+  save = FALSE, 
+  file = NULL, 
+  order_by_conf = FALSE) {
+  
+  tmp <- suppressMessages(left_join(pred_data, mics))
+  tmp$drug_conc = paste0(tmp$drugname_typaslab, "_", tmp$conc, " (", 
+    tmp$mic_curated, ")")
+  
+  tmp <- modify_if(tmp, is.factor, as.character) %>%
+    group_by(drugname_typaslab, conc, drug_conc) %>%
+    summarise(prob.cell_wall = median(prob.cell_wall), 
+      prob.dna = median(prob.dna), 
+      prob.membrane_stress = median(prob.membrane_stress), 
+      prob.protein_synthesis = median(prob.protein_synthesis), 
+      truth = unique(truth)) %>%
+    gather(prob.cell_wall:prob.protein_synthesis, key = "MoA", value = "prob") %>%
+    arrange(truth, drugname_typaslab, conc) %>% 
+    mutate(MoA = str_replace(string = MoA, pattern = "prob\\.", replacement = "")) %>%
+    ungroup()
+  
+  # now derive a response and a delta-prob (as confidence score)
+  tmp <- group_by(tmp, drugname_typaslab, conc) %>%
+    mutate(prob.delta = max(prob) - max(prob[-which.max(prob)])) %>% 
+    slice(which.max(prob)) %>%
+    rename(response = MoA) %>%
+    ungroup()
+  
+  tmp <- tmp %>%
+    mutate(prob.delta.range = cut(prob.delta, breaks = seq(from = 0, to = 1, by = 0.1), 
+      labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%", 
+        "60-70%", "70-80%", "80-90%", "90-100%")), 
+      drug_conc = factor(drug_conc, 
+        levels = unique(drug_conc[order(truth, drugname_typaslab, conc)])))
+  
+  tmp$truth <- fct_recode(tmp$truth, "Annotated MoA: Cell Wall" = "cell_wall",
+    "Annotated MoA: DNA" = "dna", "Annotated MoA: Membrane Stress" = "membrane_stress",
+    "Annotated MoA: Protein Synthesis" = "protein_synthesis")
+  
+  if (order_by_conf) {
+    tmp$drug_conc <- fct_reorder(tmp$drug_conc, tmp$prob.delta)
+  }
+  
+  p <- ggplot(tmp, aes(x = drug_conc, y = prob.delta)) +
+    geom_bar(aes(fill = response), stat = "identity", width = 0.75) +
+    scale_fill_manual("Response\n(MoA predicted)", values = moa_cols, labels = moa_repl) +
+    scale_y_continuous("Confidence of prediction: delta of probabilities: highest vs. 2nd-highest") +
+    scale_x_discrete("Drug + concentration") + 
+    coord_flip() + 
+    comparison_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+      panel.grid = element_blank()) + 
+    facet_wrap( ~ truth, scales = "free_y")
+  
+  if (printplot) suppressWarnings(print(p))
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    suppressWarnings(
+      ggsave(filename = file, plot = p, width = 180, height = 200, units = "mm")
+    )
+  }
+  
+  invisible(p)
+}
+
 plot_perf <- function(mc_ext, what, save = FALSE, file = NULL) {
   # input: matrix container (mc_ext); what = which performance measure to plot
   # (e.g. mmce, kappa)
