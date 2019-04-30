@@ -22,6 +22,8 @@ source("./setup.R")
 ```
 
 
+## Derive chemogenomic fingerprint
+
 Get feature importances from retrained model. 
 
 ```{r}
@@ -61,10 +63,13 @@ ggplot(mod_imp[1:34, ], aes(x = log2(imp), y = gene)) +
   geom_point()
 
 fingerprint_mcl <- as.character(mod_imp$gene[1:34])
+fingerprint_mcl_imps <- mod_imp$log2imp[1:34]
+names(fingerprint_mcl_imps) <- fingerprint_mcl
+
 saveRDS(fingerprint_mcl, file = "./data/programmatic_output/fingerprint_mcl.rds")
 ```
 
-tSNE map:
+## tSNE map with chemogenomic fingerprint
 
 ```{r}
 m_all <- readRDS("./data/programmatic_output/m_all.rds")
@@ -91,6 +96,90 @@ p
 saveRDS(object = p, file = "./data/programmatic_output/tSNE_fingerprint.rds")
 ```
 
+
+## PCA, hclust, tSNE plots
+
+Aim is to compare PCA, hierarchical clustering, tSNE of complete feature set 
+and the fingerprint feature set on both the training data and the training data 
++ the unknown data. 
+
+
+### Hierarchical clustering
+
+With fingerprint features, on the training set and on Nichols + Lucia + unknown 
+drugs. 
+
+```{r}
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+mode_of_action <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
+mic_info <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+
+plot_heatmap(dfm = m_all, feats = fingerprint_mcl, mics = mic_info, 
+  moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_training.pdf")
+
+
+m_all_alldrugs <- readRDS("./data/programmatic_output/m_all_alldrugs.rds")
+
+plot_heatmap(dfm = m_all_alldrugs, feats = fingerprint_mcl, mics = mic_info, 
+  moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
+```
+
+PCA
+
+```{r}
+
+```
+
+tSNE
+
+```{r}
+
+```
+
+
+### All data: fingerprint features
+
+"All data" = Nichols + Lucia + Unknown drugs. 
+
+Hierarchical clustering
+
+```{r}
+
+```
+
+PCA
+
+```{r}
+
+```
+
+tSNE
+
+```{r}
+
+```
+
+
+### Training data: fingerprint features
+
+Hierarchical clustering
+
+```{r}
+
+```
+
+PCA
+
+```{r}
+
+```
+
+tSNE
+
+```{r}
+
+```
 
 
 # Session info

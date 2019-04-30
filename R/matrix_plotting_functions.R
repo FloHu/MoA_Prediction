@@ -523,4 +523,67 @@ plot_inner_vs_outer <- function(mc_ext, save = FALSE, file = NULL) {
   }
 }
 
+plot_heatmap <- function(dfm, feats, mics, moa, printplot = FALSE, save = FALSE, 
+  file = NULL) {
+  # dfm = drug-feature matrix
+  # feats = features to keep for dfm
+  # mics = info on mics
+  # moa = table about MoAs
+  m <- dfm
+  m <- suppressMessages(
+    left_join(m, moa[, c("drugname_typaslab", "process_subgroup")]) %>%
+    left_join(mics[, c("drugname_typaslab", "mic_curated")])
+  )
+  m <- arrange(m, process_broad, process_subgroup, drugname_typaslab)
+  # row_order <- m$drugname_typaslab
+  
+  dfr <- as.data.frame(m[, c("process_broad")])
+  rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
+    m$mic_curated, ")")
+  
+  m <- select(m, -drugname_typaslab, -conc, -process_broad, -process_subgroup, 
+    -mic_curated) %>%
+    select(feats) %>% # cannot be mixed with previous select statement
+    as.matrix()
+  # m[1:5, 1:5]
+  
+  # Make annotation object
+  # ComplexHeatmap seems to have problems with tibbles! 
+  row_annot <- HeatmapAnnotation(df = dfr, 
+    col = list(process_broad = moa_cols), which = "row", 
+    name = "MoA", annotation_width = 3)
+  row_annot
+  draw(row_annot, 1:20)
+  
+  my_distfun <- function(x, y) {1 - abs(cor(x, y))}
+  min_col <- plasma(2)[1]
+  max_col <- plasma(2)[2]
+  
+  h <- Heatmap(matrix = m, 
+    col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+    name = "S-score", 
+    clustering_distance_rows = my_distfun, 
+    clustering_distance_columns = my_distfun, 
+    column_names_side = "top", 
+    row_names_side = "right", 
+    cluster_rows = TRUE, 
+    row_dend_side = "right", 
+    row_names_gp = gpar(fontsize = 4), 
+    column_names_gp = gpar(fontsize = 5), 
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      grid.text(sprintf("%.2f", m[i, j]), x, y, 
+        gp = gpar(col = "black", fontsize = 2))
+    }) + row_annot
+  
+  if (printplot) print(h)
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    pdf(file = file, width = 7, height = 15)
+    print(h)
+    dev.off()
+  }
+  
+  invisible(h)
+}
 

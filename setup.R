@@ -24,7 +24,8 @@ walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
 # default colours for mode of action
 moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02",
-  membrane_stress = "#7570b3", protein_synthesis = "#e7298a")
+  membrane_stress = "#7570b3", protein_synthesis = "#e7298a", 
+  unknown = "#636363")
 
 moa_cols2 <- c(prob.cell_wall = "#1b9e77", prob.dna = "#d95f02", 
   prob.membrane_stress = "#7570b3", prob.protein_synthesis = "#e7298a")

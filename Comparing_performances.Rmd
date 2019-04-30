@@ -229,7 +229,8 @@ TO DO: ROC curve, confusion matrix
 ## Calibration plot
 
 ```{r}
-plot_prob_calib(resample_result = tmp, title = "muuuh!")
+plot_prob_calib(pred_data = pred_data_w, save = TRUE, 
+  file = "./plots/Probability_calibration.pdf")
 ```
 
 

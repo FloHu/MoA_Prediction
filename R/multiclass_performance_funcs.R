@@ -32,11 +32,9 @@ plot_wide_confmat <- function(wide_confmat, title) {
     scale_fill_brewer()
 }
 
-plot_prob_calib <- function(resample_result, title) {
-  # input: resample result
-#  if (!is(resample_result, "ResampleResult")) stop("`resample_result` is not a ResampleResult object")
-  
-  multicl_pred_melt <- melt_pred_data_mcl(resample_result)
+plot_prob_calib <- function(pred_data, title, printplot = TRUE, save = FALSE, 
+  file = NULL) {
+  multicl_pred_melt <- melt_pred_data_mcl(pred_data)
   prob_calib <- multicl_pred_melt
   prob_calib$prob_bin <- cut(prob_calib$prob.med, breaks = seq(from = 0, to = 1, by = 0.1))
   levels(prob_calib$prob_bin)
@@ -46,9 +44,9 @@ plot_prob_calib <- function(resample_result, title) {
   prob_calib <- 
     group_by(prob_calib, prob_is_for, prob_bin) %>%
     summarise(true_fraction = mean(truth == prob_is_for))
-  prob_calib
+  prob_calib$prob_is_for <- recode(prob_calib$prob_is_for, !!!moa_repl)
   
-  p0 <- ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) + 
+  p <- ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) + 
     geom_point() + 
     geom_line(aes(group = prob_is_for)) + 
     geom_abline(slope = 1/10, linetype = "dotted") + 
@@ -58,6 +56,15 @@ plot_prob_calib <- function(resample_result, title) {
     scale_x_continuous(breaks = seq(from = 0.5, to = 9.5, by = 1), 
       labels = as.character(10 * seq(from = 0, to = 9, by = 1))) + 
     labs(x = "Probability bin midpoint (10% bins)", y = "Observed event percentage", 
-      title = paste0("Probability calibration plot for ", title))
-  p0
+      title = "Probability calibration plot") + 
+    comparison_theme
+  
+  if (printplot) suppressWarnings(print(p))
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    suppressWarnings(
+      ggsave(filename = file, plot = p, width = 87, height = 90, units = "mm")
+    )
+  }
 }

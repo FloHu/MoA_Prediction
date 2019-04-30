@@ -15,23 +15,15 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Setup, library loading
-
-This part is the general setup, whichever model we are using.
+# Setup
 
 ```{r setup}
-# function to check if a package is installed, if so, load it, else install and then load it
-source("./R/ipak.R")
-# set chunk options and load libraries
 source("./setup.R")
-knitr::opts_chunk$set(cache = TRUE)
-moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02", 
-  membrane_stress =  "#7570b3", protein_synthesis = "#e7298a")
 ```
 
 # Miscellaneous analyses
 
-Chunks in this notebook are self-contained (except for the setup chunk). 
+Chunks in this notebook are (should be) self-contained.
 
 ## Chemical similarities
 

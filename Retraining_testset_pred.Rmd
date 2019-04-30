@@ -282,6 +282,9 @@ Location in tSNE.
 # drugs from original tSNE map
 m_all <- readRDS("./data/programmatic_output/m_all.rds")
 
+m_all_alldrugs <- bind_rows(m_all, nic_to_test, new_to_test, unknown)
+saveRDS(m_all_alldrugs, file = "./data/programmatic_output/m_all_alldrugs.rds")
+
 # chemogenomic fingerprint
 fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
 
