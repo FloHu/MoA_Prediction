@@ -587,3 +587,50 @@ plot_heatmap <- function(dfm, feats, mics, moa, printplot = FALSE, save = FALSE,
   invisible(h)
 }
 
+plot_tsne <- function(tsne_mat, seeed = 5, dims = 3, perplexity = 10, max_iter = 6000, 
+  save = FALSE, file = NULL) {
+  tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+  set.seed(seeed)
+  
+  stopifnot(all(colnames(tsne_mat)[1:3] %in% c("drugname_typaslab", "conc", "process_broad")))
+  
+  tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = dims, perplexity = perplexity, 
+    max_iter = max_iter)
+  
+  plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+    drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+  colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+  
+  p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+    colors = moa_cols[levels(tsne_mat$process_broad)], 
+    marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+      width = 1.5))) %>%
+    add_markers(text = ~ drug) %>%
+    layout(title = "Fingerprint tSNE map", 
+      scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
+        zaxis = list(title = 'tSNE3')))
+  print(p)
+  
+  if (save) {
+    if (is.null(file)) stop()
+    saveRDS(object = p, file = file)
+  }
+  
+  plotlist <- list()
+  p1 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+    geom_point(alpha = 0.75) + 
+    scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    comparison_theme
+  plotlist[["p1"]] <- p1
+  p2 <- p1 + aes(y = tSNE3)
+  plotlist[["p2"]] <- p2
+  p3 <- p2 + aes(x = tSNE2)
+  plotlist[["p3"]] <- p3
+  
+  if (save) {
+    pdf(file = paste0("./plots/", basename(file), "_2D.pdf"), width = 3.42, height = 2.8)
+    walk(plotlist, print)
+    dev.off()
+  }
+}
+
