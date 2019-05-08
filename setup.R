@@ -45,7 +45,8 @@ classifier_repl <- c(classif.randomForest = "Random Forests",
 # plotting themes
 theme_set(theme_bw())
 
-comparison_theme <- theme(
+comparison_theme <- theme_bw() + 
+  theme(
   line = element_line(size = 0.1), # in mm
-  text = element_text(size = 7)
+  text = element_text(size = 5) # in pts, acc. to doc - but this doesn't seem to be the case? 
 )

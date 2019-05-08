@@ -12,6 +12,7 @@
 *.rds
 *cache
 data/programmatic_output
+*.ai
 *.pdf
 *.jpg
 *.JPG

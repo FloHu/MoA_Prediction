@@ -84,14 +84,22 @@ m_all_alldrugs <- readRDS("./data/programmatic_output/m_all_alldrugs.rds")
 ```
 
 
-## tSNE map with chemogenomic fingerprint
+## tSNE maps
+
+All features, training set. 
+
+```{r}
+plot_tsne(m_all, save = TRUE, file = "./data/programmatic_output/tSNE_allfeats_training.rds")
+```
+
+With chemogenomic fingerprint, training set. 
 
 ```{r}
 select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>%
   plot_tsne(save = TRUE, file = "./data/programmatic_output/tSNE_fingerprint_training.rds")
 ```
 
-And now on all drugs (training + Nichols + Lucia + unknown)
+Chemogenomic fingerprint, all drugs (training + Nichols + Lucia + unknown).
 
 ```{r}
 select(m_all_alldrugs, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>%
@@ -109,17 +117,37 @@ m_all <- readRDS("./data/programmatic_output/m_all.rds")
 mode_of_action <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
 mic_info <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
 
-plot_heatmap(dfm = m_all, feats = fingerprint_mcl, mics = mic_info, 
+# all features, training set
+if (!file.exists("./plots/Hclust_allfeats_training.pdf")) {
+  plot_heatmap(dfm = m_all, feats = colnames(select(m_all, AAEX:last_col())), 
+    mics = mic_info, split = 4, 
+    moa = mode_of_action, save = TRUE, file = "./plots/Hclust_allfeats_training.pdf")
+}
+
+# fingerprint features, training set
+plot_heatmap(dfm = m_all, feats = fingerprint_mcl, mics = mic_info, split = 4, 
   moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_training.pdf")
 
+# fingerprint features, all drugs
 plot_heatmap(dfm = m_all_alldrugs, feats = fingerprint_mcl, mics = mic_info, 
-  moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
+  split = 4, moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
 ```
 
 ## PCA
 
-```{r}
+Also with fingerprint features on both training set and "all" drugs. 
 
+```{r}
+# all features, training set
+plot_pca(m_all, save = TRUE, file = "./plots/PCA_allfeats_training.pdf")
+
+# fingerprint features, training set
+select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>% 
+  plot_pca(save = TRUE, file = "./plots/PCA_fpt_training.pdf")
+
+# fingerprint features, all drugs
+select(m_all_alldrugs, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>% 
+  plot_pca(save = TRUE, file = "./plots/PCA_fpt_alldrugs.pdf")
 ```
 
 

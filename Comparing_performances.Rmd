@@ -151,7 +151,7 @@ ggsave(filename = "./plots/Comparison_stabilities.pdf", width = 87, height = 80,
   units = "mm")
 ```
 
-## Define "winning" model
+# Define "winning" model
 
 As the following plots are rather a quality control for the winning/chosen 
 model. 
@@ -160,16 +160,60 @@ model.
 # mc_ext_w = "winner", i.e. the model we choose
 mc_ext_w <- filter(mc_ext, fitted_model == "classif.randomForest", 
   drug_dosages == "all", !chemical_feats)
+
+pred_data_w <- mc_ext_w$pred_data[[1]]
+
+resobj_w <- readRDS("./run_results_from_server/mc_2019/classif.randomForest_all_FALSE.rds")
 ```
 
-## Inner vs. outer performances
+## Performance of winning model
+
+Confusion matrix
+
+```{r}
+# this code is similar to get_wide_confmat()
+# sum up all confusion matrices
+conf_mats <- map(resobj_w, function(ncv_rep) {
+  conf_mats <- map(ncv_rep, function(fold) {
+    calculateConfusionMatrix(fold$prediction, )$result
+  })
+  return(reduce(conf_mats, `+`))
+})
+
+cm_tot <- reduce(conf_mats, `+`)
+cm_tot <- data.frame(cm_tot[-nrow(cm_tot), -ncol(cm_tot)], row.names = NULL, 
+  stringsAsFactors = FALSE)
+
+cm_tot$true <- colnames(cm_tot)
+cm_tot <- gather(cm_tot, -one_of("true"), key = "predicted", value = "n_obs")
+
+cm_tot$predicted <- factor(cm_tot$predicted)
+cm_tot$true <- factor(cm_tot$true, levels = rev(levels(cm_tot$predicted)))
+
+cm_tot$byclass_recall <- 
+  cm_tot$n_obs / sapply(split(cm_tot$n_obs, cm_tot$true), sum)[cm_tot$true]
+
+cm_tot$byclass_recall <- 
+  cut(cm_tot$byclass_recall, breaks = seq(from = 0, to = 1, by = 0.1))
+
+## ---------------
+plot_wide_confmat(cm_tot, title = "test")
+```
+
+
+```{r}
+# plot_roc_mcl(pred_data = pred_data_w, positives = moas)
+```
+
+
+## QC: Inner vs. outer performances
 
 ```{r}
 plot_inner_vs_outer(mc_ext = mc_ext_w, save = TRUE, 
   file = "./plots/Comparison_inner-outer.pdf")
 ```
 
-## Stability of optimal hyperparameter values
+## QC: Stability of optimal hyperparameter values
 
 ```{r}
 # stability of optimal hyperparameter values: do independently for each 
@@ -200,7 +244,6 @@ ggsave(filename = "./plots/Comparison_hyp-param_stabs.pdf", width = 87,
 ## Prediction heatmap, prediction lines
 
 ```{r}
-pred_data_w <- mc_ext_w$pred_data[[1]]
 ## TO DO: change order of y-axis
 plot_mcl_probs_heatmap(melt_pred_data_mcl(pred_data_w), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_training.pdf")
@@ -217,16 +260,7 @@ plot_mcl_probs_lines(melted_pred_data = melt_pred_data_mcl(pred_data_w),
   save = TRUE, printplot = FALSE, file = "./plots/Pred_lines_training.pdf")
 ```
 
-<!--
-TO DO: ROC curve, confusion matrix
--->
-
-```{r}
-# plot_roc_mcl(pred_data = pred_data_w, positives = moas)
-```
-
-
-## Calibration plot
+## QC: Calibration plot
 
 ```{r}
 plot_prob_calib(pred_data = pred_data_w, save = TRUE, 

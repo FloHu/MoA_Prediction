@@ -448,7 +448,6 @@ plot_perf <- function(mc_ext, what, save = FALSE, file = NULL) {
   # (e.g. mmce, kappa)
   # output: a plot with the different algorithms on the x-axis, chemical_feats
   # and drug_dosages displayed by facets
-  # what <- enquo(what)
 
   p <-
   select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
@@ -523,7 +522,7 @@ plot_inner_vs_outer <- function(mc_ext, save = FALSE, file = NULL) {
   }
 }
 
-plot_heatmap <- function(dfm, feats, mics, moa, printplot = FALSE, save = FALSE, 
+plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE, save = FALSE, 
   file = NULL) {
   # dfm = drug-feature matrix
   # feats = features to keep for dfm
@@ -552,8 +551,8 @@ plot_heatmap <- function(dfm, feats, mics, moa, printplot = FALSE, save = FALSE,
   row_annot <- HeatmapAnnotation(df = dfr, 
     col = list(process_broad = moa_cols), which = "row", 
     name = "MoA", annotation_width = 3)
-  row_annot
-  draw(row_annot, 1:20)
+  # row_annot
+  # draw(row_annot, 1:20)
   
   my_distfun <- function(x, y) {1 - abs(cor(x, y))}
   min_col <- plasma(2)[1]
@@ -570,6 +569,7 @@ plot_heatmap <- function(dfm, feats, mics, moa, printplot = FALSE, save = FALSE,
     row_dend_side = "right", 
     row_names_gp = gpar(fontsize = 4), 
     column_names_gp = gpar(fontsize = 5), 
+    split = split, 
     cell_fun = function(j, i, x, y, width, height, fill) {
       grid.text(sprintf("%.2f", m[i, j]), x, y, 
         gp = gpar(col = "black", fontsize = 2))
@@ -606,7 +606,7 @@ plot_tsne <- function(tsne_mat, seeed = 5, dims = 3, perplexity = 10, max_iter =
     marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
       width = 1.5))) %>%
     add_markers(text = ~ drug) %>%
-    layout(title = "Fingerprint tSNE map", 
+    layout(title = "tSNE map", 
       scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
         zaxis = list(title = 'tSNE3')))
   print(p)
@@ -633,4 +633,63 @@ plot_tsne <- function(tsne_mat, seeed = 5, dims = 3, perplexity = 10, max_iter =
     dev.off()
   }
 }
+
+plot_pca <- function(mat, save = FALSE, file = NULL) {
+  # input: drug-feature matrix (wide format)
+  
+  # remove "metadata"
+  m <- select(mat, -one_of(c("drugname_typaslab", "conc", "process_broad")))
+  stopifnot(every(m, is.numeric))
+  
+  rownames(m) <- paste0(mat$drugname_typaslab, "_", mat$conc)
+  pr.out <- prcomp(m, scale = TRUE)
+  # for screeplot
+  pve <- pr.out$sdev ^ 2
+  pve <- pve / sum(pve)
+  names(pve) <- paste0("PC", seq_along(pve))
+  pve <- enframe(pve)
+  pve$name <- factor(pve$name, levels = pve$name)
+  # 4 pages of plots: first page: screeplot, other pages: pairwise combinations 
+  # of principal components
+  screepl <- ggplot(pve[1:30, ], aes(x = name, y = value)) + 
+    geom_path(aes(group = 1)) + 
+    geom_point(shape = 1) + 
+    comparison_theme + 
+    theme(panel.grid = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    labs(title = "Scree plot of first 30 PCs", x = "Principal component", 
+      y = "Fraction of variance explained")
+  
+  prcomps <- as.data.frame(pr.out$x)
+  prcomps$drug_conc <- row.names(prcomps)
+  prcomps <- separate(prcomps, col = drug_conc, 
+    into = c("drugname_typaslab", "conc"), sep = "_")
+  prcomps <- left_join(prcomps, unique(mat[, c("drugname_typaslab", "process_broad")]))
+  prcomps <- select(prcomps, drugname_typaslab, conc, process_broad, everything())
+  
+  my_legend <- scale_colour_manual("Target process", labels = moa_repl, 
+    values = moa_cols)
+  
+  # there are some interesting dots in the PC1-PC2 component that I would like to 
+  # label
+  
+  p1 <- ggplot(prcomps, aes(x = PC1, y = PC2)) + 
+    geom_point(aes(colour = process_broad), alpha = 0.75) + 
+    theme(panel.grid = element_blank(), legend.position = "top") + 
+    comparison_theme + 
+    my_legend
+  p2 <- p1 + aes(x = PC1, y = PC3) + theme(legend.position = "None")
+  p3 <- p2 + aes(x = PC2, y = PC3)
+  
+  p <- grid.arrange(screepl, p1, p2, p3, nrow = 2)
+  print(p)
+  
+  if (save) {
+    if (is.null(file)) stop("Must provide a filename")
+    ggsave(filename = file, plot = p, width = 180, height = 160, units = "mm")
+  }
+  
+  invisible(p)
+}
+
+
 

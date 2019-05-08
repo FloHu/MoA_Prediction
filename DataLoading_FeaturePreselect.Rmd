@@ -18,8 +18,6 @@ editor_options:
 # Setup, library loading
 
 ```{r}
-rm(list = ls())
-source("./R/ipak.R")
 source("./setup.R")
 
 # directory for automatically generated data:
@@ -863,6 +861,35 @@ saveRDS(m_one_chem, file.path(outdir, "m_one_chem.rds"))
 
 m_all_chem <- left_join(m_all, chem_info)
 saveRDS(m_all_chem, file.path(outdir, "m_all_chem.rds"))
+```
+
+Just a little plot on the observation counts. 
+
+```{r}
+group_by(m_all, drugname_typaslab) %>%
+  slice(1) %>%
+  ungroup() %>%
+  count(process_broad) %>%
+  ggplot(aes(x = process_broad, y = n)) + 
+    geom_bar(aes(fill = process_broad), stat = "identity", width = 0.65) + 
+    comparison_theme + 
+    labs(x = "", y = "Count", title = "Unique drugs per MoA") + 
+    scale_fill_manual("Mode of action", values = moa_cols, labels = moa_repl) + 
+    scale_x_discrete(labels = moa_repl) + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+      legend.position = "None", panel.grid = element_blank())
+
+ggsave("./plots/Ndrugs_per_MoA.pdf", width = 30, height = 45, units = "mm")
+
+count(m_all, drugname_typaslab, process_broad) %>%
+  ggplot(aes(x = factor(n))) + 
+    geom_bar(aes(fill = process_broad), width = 0.65) + 
+    comparison_theme + 
+    labs(x = "N conc per drug", y = "N drugs", title = "Number of concentrations\nmeasured per drug") + 
+    scale_fill_manual("Mode of action", values = moa_cols, labels = moa_repl) + 
+    theme(panel.grid = element_blank())
+
+ggsave("./plots/Nconc_per_drug.pdf", width = 55, height = 45, units = "mm")
 ```
 
 
