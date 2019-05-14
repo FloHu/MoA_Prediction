@@ -21,15 +21,28 @@ get_wide_confmat <- function(resample_result) {
   return(cm)
 }
 
-plot_wide_confmat <- function(wide_confmat, title) {
-  ggplot(wide_confmat, aes(x = predicted, y = true)) + 
+plot_wide_confmat <- function(wide_confmat, save = FALSE, file = NULL) {
+  coul = brewer.pal(9, "Blues") 
+  # I can add more tones to this palette :
+  coul = colorRampPalette(coul)(10)
+  
+  p <- ggplot(wide_confmat, aes(x = predicted, y = true)) + 
     geom_tile(aes(fill = byclass_recall)) + 
-    geom_text(aes(label = n_obs)) + 
-    labs(x = "Predicted label", y = "True label", title = title) + 
-    theme(axis.text.x = element_text(angle = 45, hjust = 0), 
-      text = element_text(size = 14)) + 
-    scale_x_discrete(position = "top") + 
-    scale_fill_brewer()
+    geom_text(aes(label = n_obs), size = 2) + 
+    labs(x = "Predicted label", y = "True label") + 
+    comparison_theme + 
+    theme(legend.key.size = unit(0.3, "cm"), panel.grid = element_blank()) + 
+    scale_x_discrete(position = "top", labels = moa_repl) + 
+    scale_y_discrete(labels = moa_repl) + 
+    scale_fill_manual("Recall by class", values = coul, drop = FALSE)
+  
+  print(p)
+  
+  if (save) {
+    if (is.null(file)) stop()
+    ggsave(plot = p, file = file, width = 87, height = 70, units = "mm")
+  }
+  invisible(p)
 }
 
 plot_prob_calib <- function(pred_data, title, printplot = TRUE, save = FALSE, 

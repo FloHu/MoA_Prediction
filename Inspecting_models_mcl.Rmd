@@ -51,9 +51,36 @@ could take these "blocks" as cutoff for the fingerprint:
   * block 4: 13 genes
   * block 5: 14 genes
 
+General distribution. 
+
+```{r}
+ggplot(mod_imp, aes(x = log2imp)) + 
+  geom_histogram(bins = 45) + 
+  comparison_theme + 
+  labs(x = "Feature importance (log2)", y = "Count") + 
+  theme(panel.grid = element_blank())
+
+ggsave(filename = "./plots/Feature_importance_hist.pdf", width = 45, 
+  height = 45, units = "mm")
+```
+
+
 ```{r, fig.height = 8}
-ggplot(mod_imp[1:75, ], aes(x = log2(imp), y = gene)) + 
+ggplot(mod_imp[1:75, ], aes(x = log2imp, y = gene)) + 
   geom_point()
+```
+
+
+```{r, include = FALSE}
+# for paper
+ggplot(mod_imp[1:50, ], aes(x = log2imp, y = gene)) + 
+  geom_point(size = 0.75) + 
+  comparison_theme + 
+  theme(panel.grid = element_blank()) + 
+  labs(x = "Feature importance (log2)", y = "Gene")
+
+ggsave(filename = "./plots/Feature_importance_top50.pdf", width = 87, 
+  height = 110, units = "mm")
 ```
 
 Take, say, the first 4 blocks for the fingerprint = 34 genes: 
@@ -67,7 +94,11 @@ fingerprint_mcl_imps <- mod_imp$log2imp[1:34]
 names(fingerprint_mcl_imps) <- fingerprint_mcl
 
 saveRDS(fingerprint_mcl, file = "./data/programmatic_output/fingerprint_mcl.rds")
+write.table(x = fingerprint_mcl, row.names = FALSE, col.names = FALSE, 
+  quote = FALSE, file = "./data/programmatic_output/fingerprint_mcl.csv")
 ```
+
+
 
 
 # tSNE, hclust, PCA

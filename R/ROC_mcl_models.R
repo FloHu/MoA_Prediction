@@ -61,10 +61,17 @@ plot_roc_mcl <- function(pred_data, positives) {
   # positive by adding up all probabilities falling into the "not" category
   threshs <- map_dfr(positives, get_thresh_vs_perf_mcl, 
     pred_data = pred_data)
-  ggplot(threshs, aes(x = fpr, y = tpr, colour = positive)) + 
+  p <- ggplot(threshs, aes(x = fpr, y = tpr, colour = positive)) + 
     geom_path(size = 0.75) + 
+    geom_abline(slope = 1, size = 0.3) + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
     scale_colour_manual("Target process", values = moa_cols, 
-      labels = names(moa_cols)) + 
+      labels = moa_repl) + 
+    comparison_theme + 
+    theme(panel.grid = element_blank(), legend.position = c(0.7, 0.2), 
+      legend.background = element_blank()) + 
     labs(x = "FPR (1-specificity)", y = "TPR (recall)")
+  
+  print(p)
+  invisible(p)
 }

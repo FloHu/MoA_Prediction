@@ -675,6 +675,132 @@ Proper way of comparing them would be to see which ones pass the threshold at a 
 which ones don't (at e.g. 10% fpr). 
 
 
+## Specificity depending on dosage
+
+Are responses to lower drug dosages less specific than to higher dosages? And 
+are reactions to higher dosages qualitatively different? 
+
+If so, then we should be able to observe some things such as: 
+
+1. Overlap between drugs of different mode of action higher at lower dosages than at higher dosages. Check also same MoA. 
+2. Interaction set at higher dosage could be (i) different from low dosage or (ii) a superset of the low dosage. 
+3. If interactions are more specific at higher dosages, then the overlap with the fingerprint should be higher. Correct for number of interactions in general. 
+4. Likewise, specificity could become lower again at higher dosages. 
+
+Instead of looking at the number of interactions, may want to consider strength of s-scores as well? 
+
+```{r}
+m <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")
+nic <- m$nichols_2011
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+moa <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
+
+nic <- left_join(nic, mics) %>%
+  left_join(moa[, c("drugname_typaslab", "process_broad")])
+
+nic_prc <- filter(nic, !(is.na(mic_curated)), !resistant, 
+  process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis")) %>%
+  dplyr::select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, significant, mic_curated, process_broad)
+
+nunique(nic_prc$drugname_typaslab)
+
+# to get an idea where in the MIC range we're usually located
+nic_prc$frc_mic <- nic_prc$conc / nic_prc$mic_curated
+nic_prc$log2_frc_mic <- log2(nic_prc$frc_mic)
+
+mic_dist <- dplyr::select(nic_prc, drugname_typaslab, conc, mic_curated, frc_mic, log2_frc_mic) %>%
+  distinct()
+mic_dist
+# but ...
+nunique(mic_dist$frc_mic)
+
+ggplot(mic_dist, aes(x = "", y = log2_frc_mic)) + 
+  geom_boxplot(outlier.shape = NA, width = 0.5) + 
+  geom_point(shape = 1, position = position_jitter(height = 0, width = 0.2))
+
+# cut the space up such that each region contains same number of observations
+mic_dist$log2_frc_mic_bin <- cut_number(mic_dist$log2_frc_mic, n = 5)
+
+ggplot(mic_dist, aes(x = "", y = log2_frc_mic, colour = log2_frc_mic_bin)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(shape = 1, position = position_jitterdodge()) + 
+  labs(x = "", y = "Fraction of MIC (log2 scale)", 
+    title = "Number of conditions falling into a certain MIC interval")
+
+# next, for each group/bin count number of interactions that overlap between 
+# pairs of drugs
+nic_prc <- left_join(nic_prc, mic_dist)
+
+# for each drug-concentration combination: determine interacting genes, save 
+# result in a list column
+nic_prc2 <- group_by(nic_prc, drugname_typaslab, conc, mic_curated, 
+  process_broad, frc_mic, log2_frc_mic, log2_frc_mic_bin) %>%
+  summarise(interactors = list(gene_synonym[significant])) %>%
+  ungroup()
+
+# plot number of interactions depending on mic_bin
+nic_prc2$n_interactors <- lengths(nic_prc2$interactors)
+
+ggplot(nic_prc2, aes(x = log2_frc_mic_bin, y = n_interactors, colour = log2_frc_mic_bin)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge(), shape = 1) + 
+  labs(title = "Number of interacting genes by condition, grouped by MIC interval")
+
+# now we need some proxy of specificity: the lower the specificity, the more 
+# overlap (or less?) I would expect between drugs of different MoA than within the same MoA
+
+# for each interval: generate all possible pairs of distinct drugs and count 
+# the size of the overlap
+mic_bins <- split(nic_prc2, nic_prc2$log2_frc_mic_bin)
+
+overlap_counter <- function(dfr) {
+  combos <- combn(nrow(dfr), m = 2)
+  dfr <- map2(combos[1, ], combos[2, ], function(row1, row2) {
+    l <- list(row1 = row1, row2 = row2)
+    drugA <- dfr$drugname_typaslab[row1]
+    drugB <- dfr$drugname_typaslab[row2]
+    l$drugA <- drugA
+    l$drugB <- drugB
+    l$bin <- dfr$log2_frc_mic_bin[row1]
+    l$same_moa <- dfr$process_broad[row1] == dfr$process_broad[row2]
+    l$same_drug <- drugA == drugB
+    l$intrctrs_A <- dfr$interactors[row1]
+    l$intrctrs_B <- dfr$interactors[row2]
+    l$overlap <- list(dplyr::intersect(l$intrctrs_A[[1]], l$intrctrs_B[[1]]))
+    return(l)
+  })
+  dfr <- bind_rows(dfr)
+  return(dfr)
+}
+
+res <- map(mic_bins, overlap_counter) %>%
+  bind_rows()
+
+res <- filter(res, !same_drug)
+res$overlap_len <- lengths(res$overlap)
+
+ggplot(res, aes(x = same_moa, y = overlap_len)) + 
+  geom_point(shape = 1, position = position_jitter(width = 0.2)) + 
+  geom_violin() + 
+  geom_boxplot(width = 0.25, outlier.shape = NA) + 
+  facet_wrap( ~ bin)
+
+# need to check shape of distributions
+ggplot(res, aes(x = overlap_len, fill = same_moa)) + 
+  geom_histogram(aes(y = ..density..), position = "identity", alpha = 0.5, bins = 30) + 
+  facet_wrap( ~ bin) + 
+  scale_x_continuous(limits = c(0, 30))
+
+by(data = res, INDICES = res$bin, FUN = function(x) {
+  list(median_same_moa = median(x$overlap_len[x$same_moa]), 
+    median_difft_moa = median(x$overlap_len[!x$same_moa]))
+})
+
+by(data = res, INDICES = res$bin, FUN = function(x) {
+  wilcox.test(x$overlap_len[x$same_moa], x$overlap_len[!x$same_moa])
+})
+```
+
 # Session info
 
 ```{r}
