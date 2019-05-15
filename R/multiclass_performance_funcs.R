@@ -22,7 +22,7 @@ get_wide_confmat <- function(resample_result) {
 }
 
 plot_wide_confmat <- function(wide_confmat, save = FALSE, file = NULL) {
-  coul = brewer.pal(9, "Blues") 
+  coul = RColorBrewer::brewer.pal(9, "Blues") 
   # I can add more tones to this palette :
   coul = colorRampPalette(coul)(10)
   

@@ -80,6 +80,8 @@ if (!file.exists(mc_ext_path)) {
     rm(resobj)
     gc()
   }
+} else {
+  message("Matrix container already present.")
 }
 
 saveRDS(mc_ext, file = mc_ext_path)
@@ -278,268 +280,108 @@ plot_prob_calib(pred_data = pred_data_w, save = TRUE,
 ```
 
 
+# Impact of hyperparameter values
 
+```{r}
+# in opt_pars column
+(opt_path <- mc_ext_w$opt_path[[1]])
+
+# reminder: 8 splits per repeat of nested CV, 10 repeats --> one combination 
+# of hyperparameters was assessed 80 times
+opt_path_s <- 
+  opt_path %>%
+  group_by(ntree, mtry, fw.perc) %>%
+  summarise(mmce_mean = mean(mmce.test.mean), mmce_sd = sd(mmce.test.mean))
+
+ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(ntree), fill = mmce_mean)) + 
+  geom_raster() + 
+  labs(title = "Impact of fw.perc, ntree in random forests") + 
+  comparison_theme
+
+ggsave("./plots/Hyp_param_effects_RF1.pdf", width = 87, height = 80, units = "mm")
+
+
+ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(mtry), fill = mmce_mean)) + 
+  geom_raster() + 
+  labs(title = "Impact of fw.perc, mtry in random forests") + 
+  comparison_theme
+
+ggsave("./plots/Hyp_param_effects_RF2.pdf", width = 87, height = 80, units = "mm")
+
+# optional: stabilities?
+## TO DO: check other models, could be interesting
+```
+
+
+# Impact of different drug concentrations
+
+Using all dosages is better than most_interactions. At the same 
+time, it seems plausible that some dosages will be "wrong" in terms of having a 
+too low drug dosage. Also, it'd be interesting to see if there is a correlation of the 
+number of interactions and prediction probabilities. 
+
+How does number of dosages distribute among the different drugs and MoA?
+
+```{r}
+m <- mc_ext_w$drug_feature_matrices[[1]]
+
+select(m, drugname_typaslab, conc, process_broad) %>%
+  group_by(drugname_typaslab, process_broad) %>%
+  summarise(ndosages = n()) %>% 
+  ggplot(aes(x = process_broad)) + 
+    geom_bar(aes(fill = factor(ndosages)), position = "fill") + 
+    labs(title = "Proportions of drugs with a given number of dosages", 
+      y = "Relative fraction", x = "Mode of action")
+```
+
+Test relationship of number of interactions with prediction probabilities. 
+
+```{r}
+pred_data_w <- mc_ext_w$pred_data[[1]]
+
+# steps: average probabilities over cvrep
+# gather by the probability that was predicted
+# remove probabilities of other MoAs
+# plot conc_rank vs. probability for each MoA
+tmp <- pred_data_w %>% 
+  gather(prob.cell_wall:prob.protein_synthesis, key = "moa_predicted", value = "prob") %>%
+  separate(col = moa_predicted, into = c(NA, "moa_predicted"), sep = "\\.") %>% 
+  filter(truth == moa_predicted) %>%
+  group_by(drugname_typaslab, conc, truth, n_signif, conc_rank, n_conc, 
+    n_signif_rank, conc_mostias, moa_predicted) %>% 
+  summarise(prob = mean(prob))
+
+ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) + 
+  geom_point(position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    shape = 1, size = 0.75) + 
+  # geom_line(aes(group = drugname_typaslab)) + 
+  stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
+    width = 0.5, colour = "black") + 
+  facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+  labs(x = "Concentration rank", 
+    y = "Mean probability for MoA for each drug", 
+    title = "Probabilities vs. number of interactions") + 
+  scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  comparison_theme
+
+ggsave("./plots/Probs_vs_conc.pdf", width = 87, height = 80, units = "mm")
+```
 
 
 
 
 
 <!-------------------------------------------------------------------------> 
-<!-------------------------------------------------------------------------> 
-
-
-Ignore the rest of the notebook for the time being, currently rewriting 
-functions to accommodate multiclass models. 
+ 
 
 ```{r}
 knitr::opts_chunk$set(eval = FALSE)
 ```
 
 
-# Data analysis
-
-## Model performances: comparing AUCs
-
-### AUCs: impact of feat_preselect
-
-### AUCs: all dosages vs. most_interactions
-
-### AUCs: with and without chemical features
-
-But caution: physicochemical features may not be truly predictive - compare file 
-drug_drug_similarities_RDKit.pdf. 
-
-## Model stabilities (of probabilities)
-
-### 'Ultimate plot'
-
-Shows the distribution of probabilities for each drug across repeats of the 
-nested CV. Can plot only one model at a time. Grey rectangles indicate the 
-dosage with the most interactions. 
-
-```{r, ultimate_plots}
-# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-#   models = "classif.randomForest", dosgs = "all")
-# 
-# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_alldosages_nochemfeats.pdf")
-# 
-# 
-# # let's try also for one of the lasso models
-# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-#   models = "classif.glmnet", dosgs = "all")
-# 
-# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_alldosages_nochemfeats.pdf")
-# 
-# 
-# # and now both of them with just the "most_interactions" dosage
-# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-#   models = "classif.randomForest", dosgs = "most_interactions")
-# 
-# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_RF_keepall_mostinteractions_nochemfeats.pdf")
-# 
-# 
-# tmp <- filter_container(matrix_container, feats = "keepall", chemfeats = FALSE, 
-#   models = "classif.glmnet", dosgs = "most_interactions")
-# 
-# ultimate_plot_new(tmp, filename = "./plots/ultimate_plot_LASSO_keepall_mostinteractions_nochemfeats.pdf")
-```
-
-
-### Stabilities of probabilities: impact of feat_preselect
-
-
-```{r, for_poster_again, echo = FALSE}
-# # just for the poster
-# foo <- 
-#    matrix_container %>%
-#    select(drug_dosages, feat_preselect, chemical_feats, fitted_model, prob.moa_stabilities) %>%
-#    unnest() %>%
-#    filter(fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-#      moa_modelled_is_truth, drug_dosages == "all", !chemical_feats)
-# 
-# foo$process_broad <- 
-#    fct_recode(foo$process_broad, 
-#               "Cell Wall" = "cell_wall", 
-#               "Protein Synthesis" = "protein_synthesis", 
-#               "Membrane Stress" = "membrane_stress", 
-#               "DNA" = "dna")
-# 
-# foo$fitted_model <- 
-#    fct_recode(foo$fitted_model, 
-#               "Random forests" = "classif.randomForest", 
-#               "Lasso" = "classif.glmnet")
-# 
-# ggplot(foo, aes(x = feat_preselect, y = prob.moa_sd2, colour = drug_dosages)) + 
-#    stat_summary(geom = "pointrange", group = "drug_dosages", fun.y = "median", fatten = 1, 
-#                 fun.ymin = function(x) {fivenum(x)[2]}, 
-#                 fun.ymax = function(x) {fivenum(x)[4]}) + 
-#    stat_summary(geom = "line", fun.y = median, group = "drug_dosages") + 
-#    facet_grid(fitted_model ~ process_broad) + 
-#    labs(x = "Subset of features kept", y = "Median s.d. of prediction probability", 
-#         title = "Stabilities of MoA prediction probabilities", 
-#         subtitle = "Indicates s.d. of probabilities across nested CV repeats") + 
-#    theme_bw() + 
-#    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), text = element_text(size = 14)) + 
-#    scale_colour_manual("Drug concentrations", values = c("#1b9e77", "#d95f02"), 
-#                        labels = c("All measured", "Conc. with \nmost interactions"))
-# 
-# ggsave("./plots/POSTER_stability_comp.pdf", width = 9, height = 5)
-# 
-# # GB seminar, version 2:
-# 
-# filter(foo, feat_preselect == "top15pct") %>%
-#   ggplot(aes(x = fitted_model, y = prob.moa_sd2)) + 
-#   geom_boxplot(notch = TRUE, outlier.shape = NA, width = 0.5) + 
-#   geom_point(shape = 1, stroke = 1, alpha = 0.75, 
-#     position = position_jitter(width = 0.15)) + 
-#   labs(title = "Prediction variability between\ncross-validation repeats", 
-#     x = "", y = "S.D. of predictions") + 
-#   #scale_colour_manual("MoA", values = moa_cols, labels = names(moa_cols)) + 
-#   theme(text = element_text(size = 14), panel.grid = element_blank())
-# 
-# ggsave("./plots/Stability_comparison_GBseminar.pdf", width = 3.8, height = 5)
-# 
-# # need a scheme for the prediction variabilities
-# tmp <- filter_container(matrix_container, feats = "top15pct", chemfeats = FALSE, 
-#   models = "classif.randomForest", dosgs = "all") %>%
-#   pull(pred_data) %>%
-#   `[[`(1) %>%
-#   filter(drugname_typaslab == "TETRACYCLINE", conc == 1)
-# 
-# 
-# 
-# ggplot(tmp, aes(x = moa_modelled, y = prob.moa, colour = moa_modelled)) + 
-#   geom_point(position = position_jitter(width = 0.15), size = 2, shape = 1, 
-#     stroke = 1.2, alpha = 0.8) + 
-#   labs(title = "Prediction probabilities for\ntetracycline", 
-#     x = "Prediction for class", y = "Probability") + 
-#   scale_x_discrete(labels = moa_repl) + 
-#   scale_colour_manual(values = unname(moa_cols)) + 
-#   theme(text = element_text(size = 14), axis.text.x = element_text(angle = 45, 
-#     hjust = 1), panel.grid = element_blank(), legend.position = "None")
-# 
-# ggsave("./plots/Probabilities_tetracycline.pdf", width = 3.5, height = 5)
-```
-
-
-```{r, more_pretty_plots}
-# foo <- filter_container(matrix_container, chemfeats = FALSE, 
-#   models = "classif.randomForest") %>%
-#   select(fitted_model, drug_dosages, feat_preselect, perf_measures) %>%
-#   unnest() %>% 
-#   filter(fitted_model == "classif.randomForest") %>% 
-#   mutate(moa_modelled = fct_recode(moa_modelled, "Cell Wall" = "cell_wall", 
-#     "Protein Synthesis" = "protein_synthesis", 
-#     "Membrane Stress" = "membrane_stress", "DNA" = "dna"), 
-#     moa_modelled = as.character(moa_modelled))
-# 
-# ggplot(filter(foo, moa_modelled == "Membrane Stress"), aes(x = feat_preselect, y = auc, colour = drug_dosages)) + 
-#   stat_summary(geom = "line", fun.y = median, mapping = aes(group = drug_dosages)) + 
-#   stat_summary(geom = "point", fun.y = median) + 
-#   stat_summary(geom = "errorbar", fun.y = median, width = 0.2, alpha = 0.5, 
-#     fun.ymin = function(x) {fivenum(x)[2]}, 
-#     fun.ymax = function(x) {fivenum(x)[4]}) + 
-#   geom_hline(yintercept = c(0.7, 0.75, 0.8), linetype = "dotted") + 
-#   facet_wrap( ~ moa_modelled) + 
-#   labs(x = "Subset of features kept", y = "Model performance [AUC]", 
-#     title = "Impact of dosage and feature selection\non model performance") + 
-#   theme_bw() + 
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12), 
-#     text = element_text(size = 14), panel.grid = element_blank()) + 
-#   scale_colour_manual("Dosages kept", values = c("#1f78b4", "#33a02c"), 
-#     labels = c("All", "Most interactions")) + 
-#   NULL
-# 
-# ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem_Membrane.pdf", width = 6, 
-#   height = 4)
-# 
-# ggsave("./plots/Perf_RF_all-vs-mostIAs_nochem.pdf", width = 8, 
-#   height = 6)
-```
-
-
-### Stabilities of probabilities: impact of all dosages vs. most_interactions
-
-
-## Selected ROC/precision-recall curves
-
-Random forests and lasso. 
-Moreover, take with chemical features and using all dosages. Finally,
-top20pct/keepall seemed to be decent feature preselections. So what do the ROC 
-curves look like? 
-
-```{r}
-tmp <- filter(matrix_container, 
-              fitted_model %in% c("classif.randomForest", "classif.glmnet"), 
-              feat_preselect %in% c("top20pct", "keepall"), 
-              drug_dosages == "all")
-
-plot_perf_from_container(tmp[!tmp$chemical_feats, ], what = "ROC", 
-  col_var = "feat_preselect", row_var = "fitted_model")
-
-plot_perf_from_container(tmp[tmp$chemical_feats, ], what = "ROC", 
-  col_var = "feat_preselect", row_var = "fitted_model")
-```
-
-Note: for cell_wall/dna/protein_synthesis: even though lasso and random forests 
-are very similar for total AUCs (check top20pct), ROC curve shapes and, 
-consequently, partial AUCs (see also above) show that random forests performs a 
-lot better. Only for membrane_stress, lasso is the clear winner. 
-But note the issue with probabilities, showing ROC curves for each repeat might 
-still be useful. 
-
-To be complete, here the precision-recall curves: 
-
-```{r}
-tmp <- tmp[!tmp$chemical_feats, ]
-
-plot_perf_from_container(tmp, what = "prec-recall", col_var = "feat_preselect", 
-  row_var = "fitted_model")
-```
-
-
-```{r, for_seminar}
-foo <- filter(matrix_container, fitted_model == "classif.randomForest", 
-  feat_preselect == "top15pct", drug_dosages == "all", !chemical_feats)
-
-p <- plot_perf_from_container(foo, what = "ROC")
-(p <- p + geom_vline(xintercept = 0.1, linetype = "dotted"))
-ggsave("./plots/ROC_RF_top15pct_all_nochem.pdf", width = 7.5, height = 4)
-
-plot_perf_from_container(foo, what = "prec-recall")
-ggsave("./plots/Prec-recall_RF_top15pct_all_nochem.pdf", width = 5, height = 4.5)
-```
-
-
 ## Further investigations on drug dosages
 
 ### Distributions of dosages among drugs
-
-It looks like using all dosages is better than most_interactions. At the same 
-time, it seems plausible that some dosages will be "wrong" in terms of having a 
-too low drug dosage. Moreover, some drugs were tested with only 1 dosage, 
-others with 6, which would lead to an overweighting of the latter drugs. 
-Perhaps there is a compromise such as using the 2 dosages with most 
-interactions? Also, it'd be interesting to see if there is a correlation of the 
-number of interactions and prediction probabilities. 
-
-How does number of dosages distribute among the different drugs and MoA?
-
-```{r}
-# take a drug_feature_matrix which has all dosages and all drugs etc. 
-tmp <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
-tmp <- select(tmp, drugname_typaslab, conc, process_broad) %>%
-  group_by(drugname_typaslab, process_broad) %>%
-  summarise(ndosages = n())
-
-ggplot(tmp, aes(x = process_broad, y = ndosages, colour = process_broad)) + 
-   ggbeeswarm::geom_beeswarm(groupOnX = TRUE, size = 2, cex = 1.5) + 
-   theme_bw() + 
-   theme(text = element_text(size = 18), axis.text.x = element_text(size = 18, 
-     angle = 45, hjust = 1))
-
-tapply(tmp$ndosages, tmp$process_broad, mean)
-```
 
 
 ### Correlating the number of significant interactions per drug with prediction probabilities
@@ -557,36 +399,6 @@ interactions even with "most_interactions".
 General question: is there something like a minimum number of significant 
 interactions to get useful predictions? 
 
-```{r}
-the_matrix <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved.rds")
-
-tmp <- filter_container(matrix_container, models = "classif.randomForest", 
-  feats = "top15pct", chemfeats = FALSE, dosgs = "all")
-
-stopifnot(nrow(tmp) == 1)
-
-tmp <- tmp$pred_data_with_n_signif[[1]] %>%
-  filter(moa_modelled_is_truth) %>%
-  mutate(moa_modelled = recode(moa_modelled, !!!moa_repl))
-
-ggplot(tmp, aes(x = conc_rank, y = median_prob.moa, colour = moa_modelled)) + 
-  geom_point(position = position_jitter(width = 0.15, height = 0), alpha = 0.8) + 
-  theme_bw() + 
-  facet_wrap( ~ moa_modelled) + 
-  theme(text = element_text(size = 12)) + 
-  labs(x = "Concentration rank", 
-    y = "Median probability for MoA for each drug", 
-    title = "Probabilities vs. number of interactions") + 
-  scale_colour_manual("Target process", labels = names(moa_cols), 
-    values = moa_cols)
-  
-
-ggsave("./plots/Probs_vs_conc.pdf", width = 6, height = 4.5)
-
-group_by(tmp, moa_modelled) %>%
-  summarise(rho = cor(x = n_signif, y = median_prob.moa, method = "spearman"), 
-    pval = cor.test(x = n_signif, y = median_prob.moa, method = "spearman")$p.value)
-```
 
 But what about _within_ drugs? Do predictions profit from taking concentration 
 with higher number of significant interactions? Exclude drugs with just one 
