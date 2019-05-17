@@ -334,7 +334,7 @@ select(m, drugname_typaslab, conc, process_broad) %>%
       y = "Relative fraction", x = "Mode of action")
 ```
 
-Test relationship of number of interactions with prediction probabilities. 
+Test relationship of concentration with prediction probabilities. 
 
 ```{r}
 pred_data_w <- mc_ext_w$pred_data[[1]]
@@ -343,17 +343,37 @@ pred_data_w <- mc_ext_w$pred_data[[1]]
 # gather by the probability that was predicted
 # remove probabilities of other MoAs
 # plot conc_rank vs. probability for each MoA
+# moa_predicted: means that we're only interested in the probability of the 
+# actual class
 tmp <- pred_data_w %>% 
   gather(prob.cell_wall:prob.protein_synthesis, key = "moa_predicted", value = "prob") %>%
   separate(col = moa_predicted, into = c(NA, "moa_predicted"), sep = "\\.") %>% 
   filter(truth == moa_predicted) %>%
   group_by(drugname_typaslab, conc, truth, n_signif, conc_rank, n_conc, 
     n_signif_rank, conc_mostias, moa_predicted) %>% 
-  summarise(prob = mean(prob))
+  summarise(prob = mean(prob)) %>%
+  ungroup()
+
+# need to indicate for each drug if it is mispredicted; since there are 10 
+# predictions per drug, indicate if it's never/always/sometimes mispredicted
+pred_correct <- pred_data_w %>%
+  select(drugname_typaslab, conc, cvrep, response, truth) %>%
+  group_by(drugname_typaslab, conc) %>%
+  summarise(n_correct_pred = sum(response == truth)) %>% 
+  ungroup()
+
+plot(factor(pred_correct$n_correct_pred), main = "How often is a condition 
+  classified correctly?")
+
+pred_correct$n_correct_g <- cut(pred_correct$n_correct_pred, breaks = 2, 
+  labels = c("<= 5", ">= 6"))
+
+tmp <- left_join(tmp, pred_correct)
 
 ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) + 
-  geom_point(position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
-    shape = 1, size = 0.75) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 1) + 
   # geom_line(aes(group = drugname_typaslab)) + 
   stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
     width = 0.5, colour = "black") + 
@@ -362,12 +382,82 @@ ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) +
     y = "Mean probability for MoA for each drug", 
     title = "Probabilities vs. number of interactions") + 
   scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
   comparison_theme
 
 ggsave("./plots/Probs_vs_conc.pdf", width = 87, height = 80, units = "mm")
+
+# ----------
+# same as above, but with number of interactions on the x-axis
+ggplot(tmp, aes(x = n_signif, y = prob, colour = truth)) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 1) + 
+  geom_line(aes(group = drugname_typaslab), size = 0.25) + 
+  facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+  labs(x = "Concentration rank", 
+    y = "Mean probability for MoA for each drug", 
+    title = "Probabilities vs. number of interactions") + 
+  scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
+  comparison_theme
+
+ggsave("./plots/Probs_vs_conc_interactions.pdf", width = 87, height = 80, units = "mm")
 ```
 
+Instead of concentration ranks, use n_signif on x-axis
 
+```{r}
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+tmp <- left_join(tmp, mics)
+tmp$frc_mic <- tmp$conc / tmp$mic_curated
+tmp$log2_frc_mic <- log2(tmp$frc_mic)
+tmp$log2_frc_mic_bin <- cut_number(tmp$log2_frc_mic, n = 5)
+
+# map log2 values back to actual fractions (this is not a very good solution 
+# btw):
+levels(tmp$log2_frc_mic_bin)
+levels_lut <- c("0.05-0.125", "0.125-0.25", "0.25-0.36", "0.36-0.5", 
+  "0.5-8")
+names(levels_lut) <- levels(tmp$log2_frc_mic_bin)
+
+# how to treat NAs?
+filter(tmp, !is.na(mic_curated)) %>%
+ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 0.75) + 
+  geom_line(aes(group = drugname_typaslab), size = 0.25) + 
+  stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
+    width = 0.5, colour = "black", alpha = 0.4) + 
+  facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+  labs(x = "Concentration rank", 
+    y = "Mean probability for MoA for each drug", 
+    title = "Probabilities vs. number of interactions") + 
+  scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
+  comparison_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_x_discrete(labels = levels_lut)
+
+ggsave("./plots/Probs_vs_MICbin.pdf", width = 87, height = 80, units = "mm")
+
+
+by(tmp, INDICES = tmp$truth, FUN = function(x) {
+  x <- x[!is.na(x$log2_frc_mic_bin), ]
+  cor.test(x = as.numeric(x$log2_frc_mic_bin), y = x$prob, method = "spearman")
+})
+```
+
+<!--
+May want to add:
+- concentration vs. number of interactions
+- Prediction vs. number of interactions
+- Between vs. within drug correlation of profiles
+-->
 
 
 
@@ -379,108 +469,6 @@ knitr::opts_chunk$set(eval = FALSE)
 ```
 
 
-## Further investigations on drug dosages
-
-### Distributions of dosages among drugs
-
-
-### Correlating the number of significant interactions per drug with prediction probabilities
-
-From the ultimate plot it seems like the dosages with the most interactions 
-might also be the ones that are best at predicting a particular MoA. However, 
-the trend is not crystal clear. Moreover, we don't know how many interactions 
-this actually corresponds to. In addition, one may wonder whether some poorly 
-predicted drugs are poorly predicted because they show only very few 
-interactions even with "most_interactions". 
-
-
-#### Investigating number of interactions and class probabilities
-
-General question: is there something like a minimum number of significant 
-interactions to get useful predictions? 
-
-
-But what about _within_ drugs? Do predictions profit from taking concentration 
-with higher number of significant interactions? Exclude drugs with just one 
-dosage. 
-
-First check how n_signif ranks and conc_ranks correlate.
-
-```{r}
-# exclude cases where moa_modelled != truth and drugs with just one concentration
-tmp2 <- tmp[tmp$moa_modelled_is_truth & tmp$n_conc > 1, ]
-
-ggplot(tmp2, aes(x = conc_rank, y = n_signif_rank)) + 
-   geom_count() + 
-   labs(title = "Number of interactions vs. concentration", 
-     subtitle = "Computed using ranks for each drug individually", 
-     x = "Concentration rank", y = "Number of interactions rank")
-
-cor.test(tmp2$conc_rank, tmp2$n_signif_rank, method = "spearman")
-
-# novobiocin, for example:
-filter(tmp2, drugname_typaslab == "NOVOBIOCIN")
-```
-
-Now compare prediction probabilities vs. ranks.
-
-```{r}
-ggplot(tmp2, aes(x = n_signif_rank, y = median_prob.moa)) + 
-   geom_point(shape = 1) + 
-   geom_line(aes(group = drugname_typaslab)) + 
-   facet_grid(moa_modelled ~ n_conc) + 
-   labs(title = "Median probability vs. concentration rank.\nEach line is a drug.")
-
-ggplot(tmp2, aes(x = conc_rank, y = median_prob.moa)) + 
-   geom_point(shape = 1) + 
-   geom_line(aes(group = drugname_typaslab)) + 
-   facet_grid(moa_modelled ~ n_conc) + 
-   labs(title = "Median probability vs. n_signif interaction rank.\nEach line is a drug.")
-```
-
-It looks like it would actually be better to just take the two highest 
-concentrations. This is also what a correlation test says:
-
-```{r}
-cor(x = tmp2$n_signif_rank, y = tmp2$median_prob.moa, method = "spearman")
-cor(x = tmp2$conc_rank, y = tmp2$median_prob.moa, method = "spearman")
-```
-
-How do average probabilities change if we take the two dosages with most 
-interactions/the two highest concentrations vs. the other 
-dosages/concentrations? 
-
-```{r}
-tmp3 <- 
-   tmp2 %>%
-   group_by(moa_modelled, drugname_typaslab) %>%
-   mutate(most2interactions = n_signif_rank %in% 
-       sort(n_signif_rank, decreasing = TRUE)[1:2]) %>% 
-   # split into 2 groups: two highest interactions and all lower dosages
-   filter(n() > 2) %>% # keep only drugs where we can actually compare the effects
-   group_by(drugname_typaslab, moa_modelled, most2interactions) %>% # summarise within those groups
-   summarise(mean.median_prob.moa = mean(median_prob.moa)) %>%
-   ungroup()
-
-ggplot(tmp3, aes(x = most2interactions, y = mean.median_prob.moa, 
-  colour = most2interactions)) + 
-   geom_boxplot() + 
-   geom_point() +
-   geom_line(aes(group = drugname_typaslab), colour = "black") + 
-   facet_wrap( ~ moa_modelled)
-
-tmp3
-kruskal <- lapply(split(tmp3, tmp3$moa_modelled), function(x) {
-  x <- split(x$mean.median_prob.moa, x$most2interactions)
-  })
-lapply(kruskal, kruskal.test)
-```
-
-Another argument against using all dosages is that it leads to a higher degree 
-of correlation of the features between the observations: within dosage 
-correlation is significantly higher than between dosage correlation (see 
-notebook "Misc.Rmd") so our degree of dependency between observations is likely 
-to drop. 
 
 
 ## Further investigations on chemical features
