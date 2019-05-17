@@ -1,5 +1,5 @@
 #!/bin/bash
 
-grep -n "$1" *.Rmd ./R/*.R
+grep -ni "$1" *.Rmd ./R/*.R
 
 

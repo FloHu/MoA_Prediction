@@ -334,7 +334,7 @@ select(m, drugname_typaslab, conc, process_broad) %>%
       y = "Relative fraction", x = "Mode of action")
 ```
 
-Test relationship of number of interactions with prediction probabilities. 
+Test relationship of concentration with prediction probabilities. 
 
 ```{r}
 pred_data_w <- mc_ext_w$pred_data[[1]]
@@ -343,17 +343,37 @@ pred_data_w <- mc_ext_w$pred_data[[1]]
 # gather by the probability that was predicted
 # remove probabilities of other MoAs
 # plot conc_rank vs. probability for each MoA
+# moa_predicted: means that we're only interested in the probability of the 
+# actual class
 tmp <- pred_data_w %>% 
   gather(prob.cell_wall:prob.protein_synthesis, key = "moa_predicted", value = "prob") %>%
   separate(col = moa_predicted, into = c(NA, "moa_predicted"), sep = "\\.") %>% 
   filter(truth == moa_predicted) %>%
   group_by(drugname_typaslab, conc, truth, n_signif, conc_rank, n_conc, 
     n_signif_rank, conc_mostias, moa_predicted) %>% 
-  summarise(prob = mean(prob))
+  summarise(prob = mean(prob)) %>%
+  ungroup()
+
+# need to indicate for each drug if it is mispredicted; since there are 10 
+# predictions per drug, indicate if it's never/always/sometimes mispredicted
+pred_correct <- pred_data_w %>%
+  select(drugname_typaslab, conc, cvrep, response, truth) %>%
+  group_by(drugname_typaslab, conc) %>%
+  summarise(n_correct_pred = sum(response == truth)) %>% 
+  ungroup()
+
+plot(factor(pred_correct$n_correct_pred), main = "How often is a condition 
+  classified correctly?")
+
+pred_correct$n_correct_g <- cut(pred_correct$n_correct_pred, breaks = 2, 
+  labels = c("<= 5", ">= 6"))
+
+tmp <- left_join(tmp, pred_correct)
 
 ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) + 
-  geom_point(position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
-    shape = 1, size = 0.75) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 1) + 
   # geom_line(aes(group = drugname_typaslab)) + 
   stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
     width = 0.5, colour = "black") + 
@@ -362,9 +382,56 @@ ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) +
     y = "Mean probability for MoA for each drug", 
     title = "Probabilities vs. number of interactions") + 
   scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
   comparison_theme
 
 ggsave("./plots/Probs_vs_conc.pdf", width = 87, height = 80, units = "mm")
+```
+
+Instead of concentration ranks, use n_signif on x-axis
+
+```{r}
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+tmp <- left_join(tmp, mics)
+tmp$frc_mic <- tmp$conc / tmp$mic_curated
+tmp$log2_frc_mic <- log2(tmp$frc_mic)
+tmp$log2_frc_mic_bin <- cut_number(tmp$log2_frc_mic, n = 5)
+
+# map log2 values back to actual fractions (this is not a very good solution 
+# btw):
+levels(tmp$log2_frc_mic_bin)
+levels_lut <- c("0.05-0.125", "0.125-0.25", "0.25-0.36", "0.36-0.5", 
+  "0.5-8")
+names(levels_lut) <- levels(tmp$log2_frc_mic_bin)
+
+# how to treat NAs?
+filter(tmp, !is.na(mic_curated)) %>%
+ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 0.75) + 
+  geom_line(aes(group = drugname_typaslab), size = 0.25) + 
+  stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
+    width = 0.5, colour = "black", alpha = 0.4) + 
+  facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+  labs(x = "Concentration rank", 
+    y = "Mean probability for MoA for each drug", 
+    title = "Probabilities vs. number of interactions") + 
+  scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
+  comparison_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_x_discrete(labels = levels_lut)
+
+ggsave("./plots/Probs_vs_MICbin.pdf", width = 87, height = 80, units = "mm")
+
+
+by(tmp, INDICES = tmp$truth, FUN = function(x) {
+  x <- x[!is.na(x$log2_frc_mic_bin), ]
+  cor.test(x = as.numeric(x$log2_frc_mic_bin), y = x$prob, method = "spearman")
+})
 ```
 
 
