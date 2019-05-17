@@ -387,8 +387,54 @@ ggplot(tmp, aes(x = factor(conc_rank), y = prob, colour = truth)) +
   comparison_theme
 
 ggsave("./plots/Probs_vs_conc.pdf", width = 87, height = 80, units = "mm")
+```
 
-# ----------
+Instead of concentration ranks, use n_signif on x-axis
+
+```{r}
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+tmp <- left_join(tmp, mics)
+tmp$frc_mic <- tmp$conc / tmp$mic_curated
+tmp$log2_frc_mic <- log2(tmp$frc_mic)
+tmp$log2_frc_mic_bin <- cut_number(tmp$log2_frc_mic, n = 5)
+
+# map log2 values back to actual fractions (this is not a very good solution 
+# btw):
+levels(tmp$log2_frc_mic_bin)
+levels_lut <- c("0.05-0.125", "0.125-0.25", "0.25-0.36", "0.36-0.5", 
+  "0.5-8")
+names(levels_lut) <- levels(tmp$log2_frc_mic_bin)
+
+# how to treat NAs?
+filter(tmp, !is.na(mic_curated)) %>%
+ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) + 
+  geom_point(aes(shape = n_correct_g), 
+    position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
+    size = 0.75) + 
+  geom_line(aes(group = drugname_typaslab), size = 0.25) + 
+  stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
+    width = 0.5, colour = "black", alpha = 0.4) + 
+  facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+  labs(x = "Concentration rank", 
+    y = "Mean probability for MoA for each drug", 
+    title = "Probabilities vs. number of interactions") + 
+  scale_colour_manual("Target process", labels = moa_repl, values = moa_cols) + 
+  scale_shape_manual("Correctly predicted", labels = c("<= 50% of cases", 
+    "> 50% of cases"), values = c(4, 16)) + 
+  comparison_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_x_discrete(labels = levels_lut)
+
+ggsave("./plots/Probs_vs_MICbin.pdf", width = 87, height = 80, units = "mm")
+
+
+by(tmp, INDICES = tmp$truth, FUN = function(x) {
+  x <- x[!is.na(x$log2_frc_mic_bin), ]
+  cor.test(x = as.numeric(x$log2_frc_mic_bin), y = x$prob, method = "spearman")
+})
+
+# ---------------------------
+
 # same as above, but with number of interactions on the x-axis
 ggplot(tmp, aes(x = n_signif, y = prob, colour = truth)) + 
   geom_point(aes(shape = n_correct_g), 
