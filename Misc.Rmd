@@ -780,16 +780,27 @@ res <- filter(res, !same_drug)
 res$overlap_len <- lengths(res$overlap)
 
 ggplot(res, aes(x = same_moa, y = overlap_len)) + 
-  geom_point(shape = 1, position = position_jitter(width = 0.2)) + 
   geom_violin() + 
-  geom_boxplot(width = 0.25, outlier.shape = NA) + 
+  geom_boxplot(width = 0.3, outlier.shape = NA, colour = "red") + 
+  geom_point(shape = 1, position = position_jitter(width = 0.1), alpha = 0.35) + 
   facet_wrap( ~ bin)
+
+ggsave("./plots/Specificity_check_I.pdf")
+
+ggplot(res[res$same_moa, ], aes(x = bin, y = overlap_len)) + 
+  geom_violin() + 
+  geom_boxplot(width = 0.3, outlier.shape = NA, colour = "red") + 
+  geom_point(shape = 1, position = position_jitter(width = 0.1), alpha = 0.35) + 
+
+ggsave("./plots/Specificity_check_II.pdf")
 
 # need to check shape of distributions
 ggplot(res, aes(x = overlap_len, fill = same_moa)) + 
   geom_histogram(aes(y = ..density..), position = "identity", alpha = 0.5, bins = 30) + 
   facet_wrap( ~ bin) + 
   scale_x_continuous(limits = c(0, 30))
+
+ggsave("./plots/Specificity_check_III.pdf")
 
 by(data = res, INDICES = res$bin, FUN = function(x) {
   list(median_same_moa = median(x$overlap_len[x$same_moa]), 

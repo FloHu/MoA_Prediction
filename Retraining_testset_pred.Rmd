@@ -126,6 +126,20 @@ if (!file.exists(my_file)) {
   trained_model <- readRDS(my_file)
 }
 
+
+# with proximity/local importance
+my_file <- "./data/programmatic_output/trained_model_prox.rds"
+if (!file.exists(my_file)) {
+  ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
+  tuned_lrn_prox <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+    proximity = TRUE)
+  trained_model_prox <- mlr::train(learner = tuned_lrn, task = tsk)
+  saveRDS(object = trained_model_prox, file = my_file)
+} else {
+  trained_model_prox <- readRDS(my_file)
+}
+
+
 # fingerprint model
 my_file <- "./data/programmatic_output/trained_model_fpt.rds"
 if (!file.exists(my_file)) {
@@ -313,6 +327,61 @@ p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA,
 p
 
 saveRDS(object = p, file = "./plots/tSNE_map_complete.rds")
+```
+
+
+Proximity scores. 
+
+```{r}
+# library(ComplexHeatmap)
+# see line 130 ff
+trained_model_prox
+proxmat <- trained_model_prox[["learner.model"]][["next.model"]][["learner.model"]][["proximity"]]
+# how to get the data? - apparently we need the task 
+row.names(proxmat) <- paste(tsk$data_complete$drugname_typaslab, 
+  tsk$data_complete$conc, sep = "_")
+colnames(proxmat) <- row.names(proxmat)
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+# Make annotation object
+# ComplexHeatmap seems to have problems with tibbles! 
+# use as.data.frame() because this function needs a factor
+row_annot <- HeatmapAnnotation(df = as.data.frame(tsk$data_complete[, "process_broad"]), 
+  col = list(process_broad = moa_cols), which = "row",
+  name = "MoA", annotation_width = 3)
+#row_annot
+#draw(row_annot, 1:20)
+
+h <- Heatmap(matrix = proxmat,
+  col = colorRamp2(breaks = c(0, 1), colors = c(min_col, max_col)),
+  # name = "S-score",
+  # clustering_distance_rows = my_distfun,
+  # clustering_distance_columns = my_distfun,
+  column_names_side = "top",
+  row_names_side = "right",
+  #cluster_rows = TRUE,
+  row_dend_side = "right",
+  row_names_gp = gpar(fontsize = 7),
+  column_names_gp = gpar(fontsize = 7),
+  split = 8,
+  column_split = 8, 
+  #cell_fun = function(j, i, x, y, width, height, fill) {
+  #  grid.text(sprintf("%.2f", proxmat[i, j]), x, y,
+  #    gp = gpar(col = "black", fontsize = 2))
+  #}
+  ) + row_annot
+
+pdf(file = "./plots/proxmat_new_split_8_groups.pdf", width = 20, height = 20)
+print(h)
+dev.off()
+```
+
+Local importance scores.
+
+```{r}
+
 ```
 
 

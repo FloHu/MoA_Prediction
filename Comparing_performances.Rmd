@@ -128,6 +128,35 @@ mc_ext$pred_data <- map_if(mc_ext$pred_data, is_tibble, function(.x) {
 plot_perf(mc_ext = mc_ext, what = "mmce_mean", save = TRUE, 
   file = "./plots/Comparison_performance_mmce.pdf")
 
+
+## for poster only:
+select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
+  unnest() %>%
+  group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
+  summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
+  ungroup() %>%
+  mutate(drug_dosages = recode(drug_dosages, 'all' = "Use all dosages", 
+    'one' = "Use dosage closest to MIC"), 
+    chemical_feats = recode(as.character(chemical_feats), 
+      'TRUE' = "With physicochemical features", 'FALSE' = "W/o physicochemical features")) %>%
+  ggplot(aes(x = fitted_model, y = (1 - mmce_mean))) +
+    #geom_boxplot(outlier.shape = NA) +
+    stat_summary(geom = "crossbar", fun.ymin = median, fun.ymax = median, 
+      fun.y = median, width = 0.5) + 
+    geom_point(position = position_jitter(width = 0.25, height = 0),
+      shape = 1, size = 2) +
+    facet_grid(chemical_feats ~ drug_dosages) +
+    labs(y = paste0("Performance (accuracy)")) +
+    scale_x_discrete("Classifier type", labels = classifier_repl) +
+    theme(line = element_line(size = 0.5), text = element_text(size = 14), 
+      axis.text.x = element_text(angle = 45, hjust = 1), 
+      panel.grid = element_blank())
+
+ggsave(filename = "./plots/POSTER_Comparison_performance_acc.pdf", 
+  width = 140, height = 140, units = "mm")
+## 
+
+
 plot_perf(mc_ext = mc_ext, what = "kappa_mean", save = TRUE, 
   file = "./plots/Comparison_performance_kappa.pdf")
 
@@ -475,7 +504,7 @@ ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) +
   geom_point(aes(shape = n_correct_g), 
     position = position_jitter(width = 0.15, height = 0), alpha = 0.75, 
     size = 0.75) + 
-  geom_line(aes(group = drugname_typaslab), size = 0.25) + 
+  #geom_line(aes(group = drugname_typaslab), size = 0.25) + 
   stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
     width = 0.5, colour = "black", alpha = 0.4) + 
   facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
