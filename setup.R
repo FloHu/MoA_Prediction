@@ -50,3 +50,17 @@ comparison_theme <- theme_bw() +
   line = element_line(size = 0.1), # in mm
   text = element_text(size = 5) # in pts, acc. to doc - but this doesn't seem to be the case? 
 )
+
+theme(text = element_text(size = 12))
+
+poster_theme <- theme(
+  line = element_line(size = 0.5), 
+  axis.title = element_text(size = 16, family = "Arial"),
+  axis.text = element_text(size = 14, family = "Arial"), 
+  strip.text = element_text(size = 14, family = "Arial"), 
+  plot.title = element_text(size = 20, family = "Arial"), 
+  plot.subtitle = element_text(size = 16, family = "Arial"), 
+  legend.text = element_text(size = 14, family = "Arial"), 
+  legend.title = element_text(size = 16, family = "Arial"), 
+  panel.grid = element_blank()
+)

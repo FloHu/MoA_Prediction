@@ -99,6 +99,23 @@ write.table(x = fingerprint_mcl, row.names = FALSE, col.names = FALSE,
 ```
 
 
+```{r, include = FALSE, eval = FALSE}
+## FOR POSTER ------------
+my_cutoff <- mod_imp$log2imp[mod_imp$gene == "NADA"]
+
+mutate(mod_imp, above_thresh = log2imp >= my_cutoff) %>% 
+  ggplot(aes(x = log2imp, fill = above_thresh)) + 
+    geom_histogram(bins = 35) + 
+    comparison_theme + 
+    labs(x = "Log2 feature importance", y = "Count") + 
+    scale_fill_manual(values = c("#404040", "#ca0020")) + 
+    poster_theme + 
+    theme(legend.position = "None")
+
+ggsave(filename = "./plots/POSTER_histogram.pdf", width = 120, height = 110, 
+  units = "mm")
+```
+
 
 
 # tSNE, hclust, PCA
@@ -129,6 +146,52 @@ With chemogenomic fingerprint, training set.
 select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>%
   plot_tsne(save = TRUE, file = "./data/programmatic_output/tSNE_fingerprint_training.rds")
 ```
+
+
+```{r, include = FALSE, eval = FALSE}
+## FOR POSTER --------------
+tsne_mat <- m_all
+fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+tsne_mat <- m_all[, c("drugname_typaslab", "conc", "process_broad", fingerprint_mcl)]
+
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+
+stopifnot(all(colnames(tsne_mat)[1:3] %in% c("drugname_typaslab", "conc", "process_broad")))
+
+tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 25, 
+  max_iter = 6000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+
+p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>%
+  add_markers(text = ~ drug) %>%
+  layout(title = "tSNE map", 
+    scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
+      zaxis = list(title = 'tSNE3')))
+
+library(gridExtra)
+p1 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+    geom_point(alpha = 0.75) + 
+    scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    poster_theme + 
+    theme(legend.position = "None")
+
+p2 <- ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) + 
+    geom_point(alpha = 0.75) + 
+    scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    poster_theme
+
+grid.arrange(p1, p2, ncol = 2, widths = c(unit(78, "mm"), unit(122, "mm")), 
+  heights = unit(110, "mm")) %T>% 
+  ggsave(filename = "./plots/POSTER_tSNE.pdf")
+```
+
 
 Chemogenomic fingerprint, all drugs (training + Nichols + Lucia + unknown).
 
