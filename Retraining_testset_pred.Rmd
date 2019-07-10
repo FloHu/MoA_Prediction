@@ -117,17 +117,17 @@ if (!file.exists(my_file)) {
 ```{r}
 # set seed? 
 # original model
+tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x)
+
 my_file <- "./data/programmatic_output/trained_model.rds"
 if (!file.exists(my_file)) {
-  tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x)
   trained_model <- mlr::train(learner = tuned_lrn, task = tsk)
   saveRDS(object = trained_model, file = my_file)
 } else {
   trained_model <- readRDS(my_file)
 }
 
-
-# with proximity/local importance
+# with proximity
 my_file <- "./data/programmatic_output/trained_model_prox.rds"
 if (!file.exists(my_file)) {
   ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
@@ -139,6 +139,17 @@ if (!file.exists(my_file)) {
   trained_model_prox <- readRDS(my_file)
 }
 
+# with local importance
+my_file <- "./data/programmatic_output/trained_model_locimp.rds"
+if (!file.exists(my_file)) {
+  ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
+  tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+    proximity = TRUE, localImp = TRUE)
+  trained_model_loc <- mlr::train(learner = tuned_lrn, task = tsk)
+  saveRDS(object = trained_model_loc, file = my_file)
+} else {
+  trained_model_loc <- readRDS(my_file)
+}
 
 # fingerprint model
 my_file <- "./data/programmatic_output/trained_model_fpt.rds"
@@ -378,10 +389,17 @@ print(h)
 dev.off()
 ```
 
-Local importance scores.
+Local importance scores: we can see that in the range of importance scores 
+defining fingerprint features there is no difference between importance and 
+local importance scores. 
 
 ```{r}
-
+# remember: getFeatureImportance(learner) returns a 1-row data frame
+l <- map(list(trained_model_prox, trained_model_loc), ~ t(getFeatureImportance(.x)$res)) %>% 
+  map(as_tibble, rownames = "gene")
+left_join(l[[1]], l[[2]], by = "gene") %>%
+  ggplot(aes(x = log2(V1.x), y = log2(V1.y))) + 
+  geom_point()
 ```
 
 
