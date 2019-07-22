@@ -19,6 +19,9 @@ ipak(viridis)
 ipak(mmpf)
 ipak(ggpubr)
 
+ipak(extrafont)
+loadfonts()
+
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
@@ -62,5 +65,17 @@ poster_theme <- theme(
   plot.subtitle = element_text(size = 16, family = "Arial"), 
   legend.text = element_text(size = 14, family = "Arial"), 
   legend.title = element_text(size = 16, family = "Arial"), 
+  panel.grid = element_blank()
+)
+
+paper_theme <- theme(
+  line = element_line(size = 0.5), 
+  axis.title = element_text(size = 8, family = "Arial"),
+  axis.text = element_text(size = 7, family = "Arial"), 
+  strip.text = element_text(size = 7, family = "Arial"), 
+  plot.title = element_text(size = 8, family = "Arial"), 
+  plot.subtitle = element_text(size = 7, family = "Arial"), 
+  legend.text = element_text(size = 7, family = "Arial"), 
+  legend.title = element_text(size = 8, family = "Arial"), 
   panel.grid = element_blank()
 )

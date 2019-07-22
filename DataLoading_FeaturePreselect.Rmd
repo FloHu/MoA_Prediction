@@ -894,6 +894,38 @@ ggsave("./plots/Nconc_per_drug.pdf", width = 55, height = 45, units = "mm")
 
 
 ```{r, include = FALSE, eval = FALSE}
+## FOR PAPER
+group_by(m_all, drugname_typaslab) %>%
+  slice(1) %>%
+  ungroup() %>%
+  count(process_broad) %>%
+  ggplot(aes(x = process_broad, y = n)) + 
+    geom_bar(aes(fill = process_broad), stat = "identity", width = 0.65) + 
+    comparison_theme + 
+    labs(x = "", y = "Count", title = "Drugs per MoA") + 
+    scale_fill_manual("Mode of action", values = moa_cols, labels = moa_repl) + 
+    scale_x_discrete(labels = moa_repl) + 
+    paper_theme + 
+    theme(legend.position = "None")
+
+ggsave("./plots/paper/Ndrugs_per_MoA.pdf", width = 50, height = 55, units = "mm")
+
+count(m_all, drugname_typaslab, process_broad) %>%
+  ggplot(aes(x = factor(n))) + 
+    geom_bar(aes(fill = process_broad), width = 0.55) + 
+    comparison_theme + 
+    labs(x = "N concentrations per drug", y = "Number of drugs", 
+      title = "Dosages per drug") + 
+    scale_fill_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    paper_theme + 
+    theme(legend.position = c(0.38, 0.78), legend.background = element_blank(), 
+      legend.text = element_text(size = 7), legend.key.size = unit(0.25, "cm"))
+
+ggsave("./plots/paper/Nconc_per_drug.pdf", width = 50, height = 55, units = "mm")
+```
+
+
+```{r, include = FALSE, eval = FALSE}
 ## FOR POSTER ------------------------------
 group_by(m_all, drugname_typaslab) %>%
   slice(1) %>%
