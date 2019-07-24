@@ -145,7 +145,7 @@ if (!file.exists(my_file)) {
   ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
   tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
     proximity = TRUE, localImp = TRUE)
-  trained_model_loc <- mlr::train(learner = tuned_lrn, task = tsk)
+  trained_model_loc <- mlr::train(learner = tuned_lrn_loc, task = tsk)
   saveRDS(object = trained_model_loc, file = my_file)
 } else {
   trained_model_loc <- readRDS(my_file)
@@ -389,22 +389,133 @@ print(h)
 dev.off()
 ```
 
-Local importance scores: we can see that in the range of importance scores 
-defining fingerprint features there is no difference between importance and 
-local importance scores. 
+Local importance scores.
 
 ```{r}
 # remember: getFeatureImportance(learner) returns a 1-row data frame
-l <- map(list(trained_model_prox, trained_model_loc), ~ t(getFeatureImportance(.x)$res)) %>% 
-  map(as_tibble, rownames = "gene")
-left_join(l[[1]], l[[2]], by = "gene") %>%
-  ggplot(aes(x = log2(V1.x), y = log2(V1.y))) + 
-  geom_point()
+# l <- map(list(trained_model, trained_model_loc), ~ t(getFeatureImportance(.x)$res)) %>% 
+#   map(as_tibble, rownames = "gene")
+# left_join(l[[1]], l[[2]], by = "gene") %>%
+#   ggplot(aes(x = log2(V1.x), y = log2(V1.y))) + 
+#   geom_point()
+
+# this here returns a matrix with all the features in the rows and the 
+# importance for the MoAs in the columns:
+imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][["importance"]]
+imp <- as_tibble(imp, rownames = "gene")
+dim(imp)
+
+# this here returns a p by n matrix, the [i,j] element of which is the 
+# importance of the i-th variable on the j-th case
+loc_imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][["localImportance"]]
+loc_imp <- as_tibble(loc_imp, rownames = "gene")
+names(loc_imp)[2:ncol(loc_imp)] <- paste0(tsk$data_complete$drugname_typaslab, 
+  "_", tsk$data_complete$conc)
+
+filter(loc_imp, gene %in% c("SLT", "MRCB")) %>%
+  select(gene, matches("CARBENICILLIN|A22"))
+
+# let's try to break down feature importance into the respective MoAs
+# this was the original mcl fingerprint:
+fpt
+
+map(moas[1:4], function(.x) {
+  .x <- ensym(.x)
+  arrange(imp, desc(!!.x))[1:10, ]
+})
+
+# perhaps try this: a stacked barplot, each element on the x-axis being one 
+# feature, y-axis the feature importance, colour indicating for which MoA:
+
+top10each <- map_dfr(moas[1:4], function(.x) {
+  .x <- ensym(.x)
+  arrange(imp, desc(!!.x))[1:10, ]}) %>%
+  dplyr::distinct()
+
+dim(top10each)
+# out of the 20 rows in top10each 18 are contained in our original fingerprint
+sum(top10each$gene %in% fpt)
+
+top10each$total_imp <- apply(top10each[, 2:5], 1, sum)
+top10each$gene <- factor(top10each$gene, levels = top10each$gene[order(top10each$total_imp, decreasing = TRUE)])
+
+top10each %>%
+  select(gene:protein_synthesis) %>%
+  gather(cell_wall:protein_synthesis, key = MoA, value = imp) %>%
+  ggplot(aes(x = gene, y = imp)) + 
+    geom_bar(aes(fill = MoA), stat = "identity") + 
+    paper_theme + 
+    labs(x = "Feature", y = "Local importance by MoA") + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    scale_fill_manual(labels = moa_repl, values = moa_cols)
+
+ggsave(filename = "./plots/paper/Imp_by_MoA.pdf", width = 120, height = 100, 
+  units = "mm")
+
+# alternatively: show difference in how many features are needed/how quickly 
+# the feature importance drops:
+arrange(imp, desc(protein_synthesis)) %>%
+  slice(1:20) %>%
+  mutate(gene = factor(gene, levels = gene)) %>%
+  ggplot(aes(x = gene, y = protein_synthesis)) + 
+    geom_bar(stat = "identity")
+
+ggsave(filename = "./plots/top20feats_prot_synth.pdf")
+
+arrange(imp, desc(cell_wall)) %>%
+  slice(1:20) %>%
+  mutate(gene = factor(gene, levels = gene)) %>%
+  ggplot(aes(x = gene, y = cell_wall)) + 
+    geom_bar(stat = "identity")
+
+ggsave(filename = "./plots/top20feats_cell_wall.pdf")
+```
+
+```{r}
+# let's have a look how MRCB and SLT impact different drugs:
+tmp <- 
+  loc_imp %>%
+  filter(gene %in% c("MRCB", "YCFM")) %>%
+  gather(-gene, key = condition, value = loc_imp) %>%
+  spread(key = gene, value = loc_imp) %>%
+  mutate(process_broad = tsk$data_complete$process_broad[
+    match(condition, paste0(tsk$data_complete$drugname_typaslab, "_", tsk$data_complete$conc))
+  ])
+
+tmp$condition_label <- ifelse(abs(tmp$MRCB) > 0.1 | abs(tmp$YCFM) > 0.1, tmp$condition, "")
+
+ggplot(tmp, aes(x = MRCB, y = YCFM, colour = process_broad, label = condition_label)) + 
+  geom_point() + 
+  ggrepel::geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
+  scale_colour_manual(labels = moa_repl, values = moa_cols)
+
+ggsave(filename = "./plots/LocalImp_MRCB_YCFM.pdf")
+
+
+# RECC and RECA
+tmp <- 
+  loc_imp %>%
+  filter(gene %in% c("RECC", "RECA")) %>%
+  gather(-gene, key = condition, value = loc_imp) %>%
+  spread(key = gene, value = loc_imp) %>%
+  mutate(process_broad = tsk$data_complete$process_broad[
+    match(condition, paste0(tsk$data_complete$drugname_typaslab, "_", tsk$data_complete$conc))
+  ])
+
+tmp$condition_label <- ifelse(
+  (tmp$RECC > 0.05 | tmp$RECA > 0.04), tmp$condition, "")
+
+filter(tmp, process_broad == "dna") %>% 
+  ggplot(aes(x = RECC, y = RECA, colour = process_broad, label = condition_label)) + 
+    geom_point() + 
+    ggrepel::geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
+    scale_colour_manual(labels = moa_repl, values = moa_cols)
+
+ggsave(filename = "./plots/LocalImp_RECC_RECA.pdf")
+
 ```
 
 
-
-## 
 
 ```{r}
 ## what if we add classweights to the trained model? 

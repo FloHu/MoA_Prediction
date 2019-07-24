@@ -17,7 +17,7 @@ editor_options:
 
 # Setup, library loading
 
-```{r}
+```{r, message = FALSE}
 source("./setup.R")
 
 # directory for automatically generated data:
@@ -140,7 +140,7 @@ feature_stats %>%
   geom_jitter(shape = 1, height = 0) + 
   annotate("text", x = 1:4, y = 40, label = paste("N = ", c(95, 275, 26, 28))) + 
   labs(title = "Number of NA values per mutant", 
-    y = "Number of 'NA' values per mutant across all conditions")
+    y = "Number of NA values per mutant across all conditions")
 ```
 
 Number of NA values across mutants per condition. 
@@ -151,7 +151,7 @@ drug_stats %>%
   ggplot(aes(x = dataset, y = n_NA_sscores)) + 
   geom_jitter(shape = 1, height = 0) + 
   labs(title = "Number of NA values per condition", 
-    y = "Number of 'NA' values per condition across all mutants")
+    y = "Number of NA values per condition across all mutants")
 ```
 
 There are some outliers in Newsize. They will be excluded. Let's see which 
@@ -226,29 +226,33 @@ Therefore, for Nichols and Newsize:
   map(drug_stats[c("nichols_2011", "newsize")], ~filter(.x, n_signif < 5 | n_NA_sscores > 500)))
 ```
 
-To actually exclude conditions/features, run the following procedure: 
-
+To remove features, run the following procedure: 
   1. Features with many NAs: if a feature fulfills this criterion, remove it everywhere.
   2. Features with no interactions: only remove if they don't interact in all of the data sets. 
   3. Finally: only keep features that are in both nichols and newsize. 
 
-Conditions to exclude: just exclude them in the respective dataset, no special 
+To remove conditions: just exclude them in the respective dataset, no special 
 procedure here. 
 
+Features that don't interact with anything neither in Nichols nor Newsize.
+
 ```{r}
-# Features that don't interact with anything neither in Nichols nor Newsize
 venn(list(nichols = feats_no_IAs$nichols_2011$gene_synonym, 
   newsize = feats_no_IAs$newsize$gene_synonym))
 ```
 
-Write out data nichols and newsize data without any changes and then after 
-removing the features.
+Write out data nichols and newsize data without any changes.
 
 ```{r}
 kept_studies <- all_studies[c("nichols_2011", "newsize")]
 saveRDS(kept_studies, file.path(outdir, "kept_datasets_long_nochanges.rds"))
 saveRDS(conds_to_exclude, file.path(outdir, "removed_conditions_quality_ctrl.rds"))
+```
 
+Remove conditions and features. Note that further down there is another round 
+of condition removal because of low concentrations relative to the MIC. 
+
+```{r}
 # excluding conditions
 kept_studies <- imap(kept_studies, function(data, name) {
   # remove conditions with few interactions/lots of NAs from respective dataset
@@ -265,11 +269,9 @@ kept_studies <- imap(kept_studies, function(data, name) {
   data <- data[!(data$gene_synonym %in% to_remove), ]
   return(data)
 })
-```
 
-And finally, only keep features that are both in nichols and newsize. 
+# Only keep features that are both in nichols and newsize. 
 
-```{r}
 # before:
 venn(list(nichols = unique(kept_studies$nichols_2011$gene_synonym), 
   newsize = unique(kept_studies$newsize$gene_synonym)))
@@ -284,7 +286,7 @@ venn(list(nichols = unique(kept_studies$nichols_2011$gene_synonym),
   newsize = unique(kept_studies$newsize$gene_synonym)))
 ```
 
-Save to disk.
+Save to disk Nichols and newsize data after removing features and conditions.
 
 ```{r}
 saveRDS(kept_studies, file.path(outdir, 
@@ -590,8 +592,12 @@ if (!file.exists(file.path(outdir, "MICs.csv"))) {
 
 # drugs that are not in the MIC table
 map(matrices, ~ setdiff(.x$drugname_typaslab, mics$drugname_typaslab))
+```
 
-# table for asking a few things about dosages
+Table for asking a few things about dosages in the dataset. Express dosages as 
+percentages of MIC, indicate if E. coli is usually resistant to the drug. 
+
+```{r}
 dosg_check <- 
   map(matrices, function(.x) {
     .x <- left_join(select(.x, drugname_typaslab, conc), mics) %>% 
@@ -610,6 +616,9 @@ dosg_check$nichols_2011.sscores <-
 dosg_check$newsize.sscores <- 
   left_join(dosg_check$newsize.sscores, drug_stats$newsize, 
     by = c("drugname_typaslab", "conc"))
+
+# example output
+head(dosg_check$nichols_2011.sscores)
 ```
 
 How often is the concentration (allegedly) higher than the MIC? 
@@ -680,7 +689,7 @@ tmp <- map(tmp, function(.x) {
   return(.x)
 })
 
-saveRDS(tmp, file = file.path(outdir, "matrices_wide_featsndrugs_removed_noNAs_featsmerged.rds"))
+saveRDS(tmp, file = file.path(outdir, "matrices_drug-dose-moa_only.rds"))
 ```
 
 
