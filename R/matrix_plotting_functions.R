@@ -328,7 +328,8 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
   save = FALSE, file = NULL) {
   tmp <- suppressMessages(left_join(melted_pred_data, mics))
   tmp <- tmp %>%
-    mutate(drug_conc = paste0(drugname_typaslab, "_", conc, " (", mic_curated, ")"),
+    mutate(drug_conc = sprintf("%-19s %-5s %-5s", 
+      Hmisc::capitalize(tolower(drugname_typaslab)), conc, mic_curated),
       prob.med.range = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1),
         labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%",
           "60-70%", "70-80%", "80-90%", "90-100%")),
@@ -349,26 +350,31 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
   cols <- RColorBrewer::brewer.pal(min(9, nlevels(tmp$prob.med.range)), "BuPu")
   cols <- colorRampPalette(cols)(min(10, nlevels(tmp$prob.med.range)))
   
-  # this doesn't work - why? 
-  # levels(tmp$drug_conc) <- rev(levels(tmp$drug_conc))
+  tmp <- ungroup(tmp)
+  tmp$drug_conc %<>% droplevels()
+  tmp$drug_conc <- fct_relevel(tmp$drug_conc, rev(levels(tmp$drug_conc)))
 
   p <- ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) +
     geom_tile(aes(fill = prob.med.range)) +
     geom_point(aes(x = geompoint), size = 0.3) +
-    coord_flip() +
+    #coord_flip() +
     scale_fill_manual("Probability", values = cols) +
     scale_y_discrete("MoA predicted", labels = moa_repl2) +
-    scale_x_discrete("Drug + concentration") + 
-    comparison_theme + 
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-    facet_wrap( ~ truth, scales = "free")
-
+    scale_x_discrete("") + 
+    # scale_x_discrete("Drug + concentration", limits = levels(tmp$drug_conc)) + 
+    paper_theme + 
+    theme(axis.text.y = element_text(family = "Courier", size = 6), 
+      legend.position = "bottom") + 
+    coord_flip() + 
+    facet_wrap( ~ truth, drop = TRUE, scales = "free")
+  p
+  
   if (printplot) suppressWarnings(print(p))
 
   if (save) {
     if (is.null(file)) stop("Must provide a filename")
     suppressWarnings(
-      ggsave(filename = file, plot = p, width = 180, height = 200, units = "mm")
+      ggsave(filename = file, plot = p, width = 190, height = 250, units = "mm")
     )
   }
   

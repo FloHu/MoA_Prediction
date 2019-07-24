@@ -325,6 +325,27 @@ ggplot(cm_tot, aes(x = predicted, y = true)) +
 
 ggsave(filename = "./plots/POSTER_ConfusionMatrix.pdf", width = 210, 
   height = 145, units = "mm")
+
+## FOR PAPER
+coul = RColorBrewer::brewer.pal(9, "Blues") 
+# I can add more tones to this palette :
+coul = colorRampPalette(coul)(10)
+# set first colour to white
+coul[1] <- "#FFFFFF"
+
+ggplot(cm_tot, aes(x = predicted, y = true)) + 
+  geom_tile(aes(fill = byclass_recall)) + 
+  geom_text(aes(label = n_obs), size = 7/ggplot2:::.pt, family = "Arial") + # to convert to pts
+  labs(x = "Predicted", y = "Label") + 
+  scale_x_discrete(position = "top", labels = moa_repl) + 
+  scale_y_discrete(labels = moa_repl) + 
+  scale_fill_manual("Recall by class", values = coul, drop = FALSE) + 
+  paper_theme + 
+  theme(legend.key.size = unit(3, "mm"))
+
+ggsave(filename = "./plots/paper/ConfusionMatrix.pdf", width = 93, 
+  height = 50, units = "mm")
+
 ```
 
 
@@ -344,6 +365,46 @@ dev.off()
 plot_inner_vs_outer(mc_ext = mc_ext_w, save = TRUE, 
   file = "./plots/Comparison_inner-outer.pdf")
 ```
+
+
+```{r, include = FALSE, eval = FALSE}
+tmp <- mc_ext_w %>%
+  select(fitted_model, drug_dosages, chemical_feats, perf_measures, 
+    opt_pars) %>%
+  unnest()
+stopifnot({
+  all(tmp$cvrep == tmp$cvrep1)
+  all(tmp$split == tmp$split1)
+})
+
+tmp$cvrep <- factor(tmp$cvrep, levels = paste0("nested_cv_", c(1:10)))
+cvrepl <- structure(paste0("Nested CV ", c(1:10)), names = levels(tmp$cvrep))
+
+ggplot(tmp, aes(x = round(1 - mmce.cv.inner, digits = 2), y = 1 - mmce, colour = cvrep)) + 
+  geom_point(size = 1, shape = 1) + 
+  coord_fixed() + 
+  labs(x = "Mean accuracy inner loop", y = "Accuracy outer loop test set") + 
+  scale_colour_discrete("CV repeat", labels = cvrepl) + 
+  paper_theme + 
+  theme(legend.position = "None")
+
+ggsave(file = "./plots/paper/Perf_corr_inner-outer.pdf", width = 60, 
+  height = 75, unit = "mm")
+
+ggplot(tmp, aes(x = "", y = (1 - mmce) - (1 - mmce.cv.inner))) + 
+  geom_violin(width = 0.35, draw_quantiles = 0.5) + 
+  ggbeeswarm::geom_beeswarm(cex = 3, aes(colour = cvrep), shape = 1, size = 1) + 
+  geom_hline(aes(yintercept = 0), linetype = "dotted") + 
+  labs(x = "", y = "Accuracy outer - accuracy inner", 
+    title = "Accuracy difference outer vs. inner loop") + 
+  scale_colour_discrete("CV repeat", labels = cvrepl) + 
+  paper_theme
+
+ggsave(file = "./plots/paper/Perf_delta_inner-outer.pdf", width = 65, 
+  height = 78, unit = "mm")
+
+```
+
 
 ## QC: Stability of optimal hyperparameter values
 
@@ -373,12 +434,30 @@ ggsave(filename = "./plots/Comparison_hyp-param_stabs.pdf", width = 87,
 # general trends of prediction quality depending on hyperparameter chosen
 ```
 
+
+```{r, include = FALSE, eval = FALSE}
+## FOR PAPER
+ggplot(tmp, aes(x = opt_pars_value)) + 
+  geom_bar() + 
+  labs(x = "Optimal hyperparameter chosen", y = "Count", 
+    title = "Optimal hyperparameters for all CV splits") + 
+  facet_wrap( ~ opt_pars_name, scales = "free") + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/Chosen_hyperparams.pdf", width = 80, 
+  height = 85, units = "mm")
+```
+
+
 ## Prediction heatmap, prediction lines
 
 ```{r}
 ## TO DO: change order of y-axis
 plot_mcl_probs_heatmap(melt_pred_data_mcl(pred_data_w), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_training.pdf")
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(pred_data_w), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/paper/Pred_heatmap_training.pdf")
 
 # NEW!
 ## TO DO: change to lollipop chart, see 
@@ -399,6 +478,38 @@ plot_prob_calib(pred_data = pred_data_w, save = TRUE,
   file = "./plots/Probability_calibration.pdf")
 ```
 
+```{r, include = FALSE, eval = FALSE}
+## FOR PAPER
+multicl_pred_melt <- melt_pred_data_mcl(pred_data_w)
+prob_calib <- multicl_pred_melt
+prob_calib$prob_bin <- cut(prob_calib$prob.med, breaks = seq(from = 0, to = 1, by = 0.1))
+levels(prob_calib$prob_bin)
+prob_calib$prob_is_for <- 
+  str_extract(prob_calib$predicted_prob, pattern = "cell_wall|dna|membrane_stress|protein_synthesis")
+prob_calib$truth <- as.character(prob_calib$truth)
+prob_calib <- 
+  group_by(prob_calib, prob_is_for, prob_bin) %>%
+  summarise(true_fraction = mean(truth == prob_is_for))
+prob_calib$prob_is_for <- recode(prob_calib$prob_is_for, !!!moa_repl)
+
+ggplot(prob_calib, aes(x = as.numeric(prob_bin) - 0.05, y = true_fraction)) + 
+  geom_point() + 
+  geom_line(aes(group = prob_is_for)) + 
+  geom_abline(slope = 1/10, linetype = "dotted") + 
+  facet_wrap( ~ prob_is_for, ncol = 2) + 
+  coord_cartesian(xlim = c(0, 10), ylim = c(0, 1)) + 
+  #theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_x_continuous(breaks = seq(from = 0.5, to = 9.5, by = 1), 
+    labels = as.character(10 * seq(from = 0, to = 9, by = 1))) + 
+  labs(x = "Probability bin midpoint (10% bins)", y = "Observed event percentage", 
+    title = "Probability calibration plot") + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/Probability_calibration.pdf", width = 80, 
+  height = 80, units = "mm")
+```
+
+
 
 # Impact of hyperparameter values
 
@@ -413,24 +524,35 @@ opt_path_s <-
   group_by(ntree, mtry, fw.perc) %>%
   summarise(mmce_mean = mean(mmce.test.mean), mmce_sd = sd(mmce.test.mean))
 
-ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(ntree), fill = mmce_mean)) + 
+opt_path_s$acc <- 1 - opt_path_s$mmce_mean
+
+ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(mtry), 
+  fill = acc)) + 
   geom_raster() + 
-  labs(title = "Impact of fw.perc, ntree in random forests") + 
+  labs(title = "Hyperparameter effects grid", x = "fw.perc", y = "mtry") + 
+  scale_fill_gradient("Accuracy", low = "#edf8e9", high = "#006d2c") + 
+  facet_wrap( ~ ntree) + 
   comparison_theme
 
-ggsave("./plots/Hyp_param_effects_RF1.pdf", width = 87, height = 80, units = "mm")
-
-
-ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(mtry), fill = mmce_mean)) + 
-  geom_raster() + 
-  labs(title = "Impact of fw.perc, mtry in random forests") + 
-  comparison_theme
-
-ggsave("./plots/Hyp_param_effects_RF2.pdf", width = 87, height = 80, units = "mm")
+ggsave("./plots/Hyp_param_effects_RF.pdf", width = 100, height = 70, units = "mm")
 
 # optional: stabilities?
 ## TO DO: check other models, could be interesting
 ```
+
+```{r, include = FALSE, eval = FALSE}
+## FOR PAPER
+ggplot(opt_path_s, aes(x = factor(fw.perc), y = factor(mtry), 
+  fill = acc)) + 
+  geom_raster() + 
+  labs(title = "Hyperparameter effects grid", x = "fw.perc", y = "mtry") + 
+  scale_fill_gradient("Accuracy", low = "#edf8e9", high = "#006d2c") + 
+  facet_wrap( ~ ntree) + 
+  paper_theme
+
+ggsave("./plots/paper/Hyp_param_effects_RF.pdf", width = 140, height = 70, units = "mm")
+```
+
 
 
 # Impact of different drug concentrations
@@ -482,8 +604,17 @@ pred_correct <- pred_data_w %>%
   summarise(n_correct_pred = sum(response == truth)) %>% 
   ungroup()
 
-plot(factor(pred_correct$n_correct_pred), main = "How often is a condition 
-  classified correctly?")
+plot(factor(pred_correct$n_correct_pred), 
+  xlab = "Number of correct predictions out of 10 cross-validation repeats", 
+  ylab = "Number of conditions")
+
+## PAPER ---
+pdf("./plots/paper/Number_correct_preds.pdf", width = 4, height = 4)
+plot(factor(pred_correct$n_correct_pred), 
+  xlab = "Number of correct predictions out of 10 cross-validation repeats", 
+  ylab = "Number of conditions", cex.lab = 0.5, cex.axis = 0.5, cex = 0.5)
+dev.off()
+## ---------
 
 pred_correct$n_correct_g <- cut(pred_correct$n_correct_pred, breaks = 2, 
   labels = c("<= 5", ">= 6"))
@@ -640,6 +771,28 @@ ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
 
 ggsave("./plots/POSTER_Probs_vs_MICbin.pdf", width = 170, height = 155, units = "mm")
+
+
+## PAPER ---------
+filter(tmp, !is.na(mic_curated)) %>%
+  ggplot(aes(x = log2_frc_mic_bin, y = prob, colour = truth)) + 
+    #stat_summary(geom = "errorbar", fun.ymin = "median", fun.ymax = "median", 
+     # width = 0.5, colour = "black") + 
+    geom_point(aes(shape = n_correct_g), size = 1, alpha = 0.7) + 
+    geom_line(aes(group = drugname_typaslab), alpha = 0.6, size = 0.5) + 
+    labs(x = "Drug dosage as fraction of MIC", 
+      y = "Mean probability", 
+      title = "Returned probabilities for MoA label", 
+      subtitle = "Lines connect drugs at different concentrations") + 
+    facet_wrap( ~ truth, ncol = 2, labeller = as_labeller(moa_repl)) + 
+    scale_colour_manual("MoA label", labels = moa_repl, values = moa_cols) + 
+    scale_shape_manual("Correctly predicted", 
+      labels = c("<= 50% of cases", "> 50% of cases"), values = c(4, 1)) + 
+    scale_x_discrete(labels = levels_lut) + 
+    paper_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+
+ggsave("./plots/paper/Probs_vs_MICbin.pdf", width = 140, height = 90, units = "mm")
 ```
 
 

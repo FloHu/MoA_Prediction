@@ -114,6 +114,19 @@ mutate(mod_imp, above_thresh = log2imp >= my_cutoff) %>%
 
 ggsave(filename = "./plots/POSTER_histogram.pdf", width = 120, height = 110, 
   units = "mm")
+
+## FOR PAPER ------
+mutate(mod_imp, above_thresh = log2imp >= my_cutoff) %>% 
+  ggplot(aes(x = log2imp, fill = above_thresh)) + 
+    geom_histogram(bins = 35) + 
+    comparison_theme + 
+    labs(x = "Log2 feature importance", y = "Count") + 
+    scale_fill_manual(values = c("#404040", "#ca0020")) + 
+    paper_theme + 
+    theme(legend.position = "None")
+
+ggsave(filename = "./plots/paper/FeatImp_histogram.pdf", width = 50, height = 50, 
+  units = "mm")
 ```
 
 
@@ -190,6 +203,25 @@ p2 <- ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) +
 grid.arrange(p1, p2, ncol = 2, widths = c(unit(78, "mm"), unit(122, "mm")), 
   heights = unit(110, "mm")) %T>% 
   ggsave(filename = "./plots/POSTER_tSNE.pdf")
+
+
+## FOR PAPER
+ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+  geom_point(alpha = 0.75, shape = 16) + 
+  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+  paper_theme + 
+  theme(legend.position = "None")
+
+ggsave(filename = "./plots/paper/tSNE1.pdf", width = 50, height = 50, 
+  units = "mm")
+
+ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) + 
+  geom_point(alpha = 0.75, shape = 16) + 
+  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/tSNE2.pdf", width = 90, height = 50, 
+  units = "mm")
 ```
 
 
