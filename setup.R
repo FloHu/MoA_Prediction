@@ -25,7 +25,7 @@ loadfonts()
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
 
-# default colours for mode of action
+# default colours for mode of action, lookup tables for renaming
 moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02",
   membrane_stress = "#7570b3", protein_synthesis = "#e7298a", 
   unknown = "#636363")
@@ -34,6 +34,7 @@ moa_cols2 <- c(prob.cell_wall = "#1b9e77", prob.dna = "#d95f02",
   prob.membrane_stress = "#7570b3", prob.protein_synthesis = "#e7298a")
 
 moas <- names(moa_cols)
+main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 
 moa_repl <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane Stress",
   protein_synthesis = "Protein Synthesis", dna = "DNA")

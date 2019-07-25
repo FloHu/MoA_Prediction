@@ -202,7 +202,7 @@ drug_stats %>%
 ```
 
 
-## Removing drugs/features
+## QC: removing drugs/features
 
 Inspecting the data suggests the following:
   * Only work with Nichols and Newsize because Price and Shiver seem to behave 
@@ -462,7 +462,7 @@ cor_thresh <- 0.7
 
 So `r length(high_cor_genes)` are affected. 
 
-Make hierarchical clustering. 
+Do hierarchical clustering. 
 
 ```{r}
 feats_cor_high <- feats_cor[high_cor_genes, high_cor_genes]
@@ -619,6 +619,8 @@ dosg_check$newsize.sscores <-
 
 # example output
 head(dosg_check$nichols_2011.sscores)
+
+saveRDS(object = dosg_check, file = "./data/programmatic_output/dosg_check.rds")
 ```
 
 How often is the concentration (allegedly) higher than the MIC? 
@@ -689,187 +691,156 @@ tmp <- map(tmp, function(.x) {
   return(.x)
 })
 
-saveRDS(tmp, file = file.path(outdir, "matrices_drug-dose-moa_only.rds"))
+saveRDS(tmp, file = file.path(outdir, "matrices_MoA_info.rds"))
 ```
 
 
+# Splitting data into different sets
 
-# Generating a "matrix container" for comparative model assessment
-
-Note: two major changes: commit 716861c brought integration of other data sets 
-and some drugs that had been (wrongly) excluded before (bicyclomycin, 
-cecropin B, dibucaine, procaine). 
-Other major change: commit *after* 0704327 because there dosage selection was 
-improved and some issues with nested CV setup were corrected. 
-
-Each row of the matrix container should have all the information to run 
-repeated instanced blocked stratified nested cross-validation. We will compare: 
-  * Algorithms
-  * Impact of two ways of selecting dosages
-  * Influence of including chemical features (just out of curiosity, we do not plan to use them at all)
-
-Before that we have to remove some drugs that do not fit into this scheme as 
-described in the following section. 
-
-
-## Removing drugs
-
-In principle, keep all drugs. However, the aim of this round of model assessment 
-is to find the best (and most stable) algorithm to broadly classify drugs by 
-mode of action (the four "main modes": cell_wall, dna, membrane_stress, 
-protein_synthesis). Moreover, we want to see if there are some interesting 
-properties correlating with good/poor performance. Finally, we will use only 
-the Nichols data for this assessment and then use the Newsize dataset as test 
-set. 
-
-Therefore, only keep drugs that:
-  * are in the Nichols data set
-  * Have chemical features defined
-  * Have one of the four "main" modes of action: cell_wall, dna, membrane_stress, protein_synthesis
+We will split our chemical genetics data into **five datasets**:
+  * From Nichols: A **training set** for algorithm and setup selection, model tuning. Drugs here have one of the 4 main MoAs and chemical features are present. 
+  * From both Nichols and Newsize: a **control set** containing drugs (actually: conditions) that belong to one of the 4 main MoAs but one of the following was the case: (i) chemical features were missing, (ii) the conditions were not, in fact, drugs (e.g. UV), (iii) drugs from Newsize that were already in the training set (since we can't use them as test set drugs). 
+  * From Nichols: an **other MoA set** containing drugs that were not in the 4 main MoAs.
+  * Newsize only: A **test set**: these are all drugs from Newsize belonging to one of the 4 main MoAs. 
+  * Both Nichols and Newsize: An **unknown MoA set**: these are drugs from both Nichols and Newsize whose MoA is poorly understood in bacteria. 
+  
+Retrieve info on MoA, physicochemical features. 
 
 ```{r}
-# refer to Nichols data from this point on as "the_matrix"
-the_matrix <- kept_studies_wide$nichols_2011.sscores
-the_matrix_signifs <- kept_studies_wide$nichols_2011.qvals
-saveRDS(the_matrix, file.path(outdir, "the_matrix_complete.rds"))
+# function to add MoA information
+add_moa_info <- function(m) {
+  left_join(m, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>% 
+    select(drugname_typaslab, conc, process_broad, everything())
+}
 
-# check that no drugs will be lost:
-setdiff(the_matrix$drugname_typaslab, 
-  drugs_complete$drugname_typaslab[drugs_complete$dataset == "NICHOLS"])
+# reminder: original quality-controlled data = kept_studies_wide
+# we don't need q values from this point on 
+kept_studies_wide_moa <- 
+  map(kept_studies_wide[c("nichols_2011.sscores", "newsize.sscores")], add_moa_info)
 
-main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
-
-# drugs_complete contains all drugs with MoA and chemical feature information 
-drugs_subset <- filter(drugs_complete, dataset == "NICHOLS", !is.na(SlogP), 
-  process_broad %in% main_moas)
-
-drugs_kept_for_container <- 
-  unique(the_matrix$drugname_typaslab[the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
-drugs_kept_for_container
-saveRDS(drugs_kept_for_container, file = file.path(outdir, "drugs_kept_for_container.rds"))
-
-drugs_rmvd_from_container <- 
-  unique(the_matrix$drugname_typaslab[!the_matrix$drugname_typaslab %in% drugs_subset$drugname_typaslab])
-drugs_rmvd_from_container
-saveRDS(drugs_rmvd_from_container, file = file.path(outdir, "drugs_rmvd_from_container.rds"))
-
-# keep only drugs in drug_subset
-the_matrix <- filter(the_matrix, drugname_typaslab %in% drugs_kept_for_container)
-nunique(the_matrix$drugname_typaslab)
-saveRDS(the_matrix, file = file.path(outdir, "the_matrix_for_container.rds"))
-
-the_matrix_signifs <- filter(the_matrix_signifs, drugname_typaslab %in% 
-    drugs_kept_for_container)
-saveRDS(the_matrix_signifs, file = file.path(outdir, "the_matrix_signifs_for_container.rds"))
-
-stopifnot(dim(the_matrix) == dim(the_matrix_signifs))
+# function to add physchem features
+chem_info <- select(drugs_complete, drugname_typaslab, SlogP:data_effective_rotor_count)
+drugs_with_chemfeats <- chem_info$drugname_typaslab[!is.na(chem_info$SlogP)]
+drugs_no_chemfeats <- chem_info$drugname_typaslab[is.na(chem_info$SlogP)]
+stopifnot(nunique(chem_info$drugname_typaslab) == length(drugs_no_chemfeats) + 
+    length(drugs_with_chemfeats))
 ```
 
 
-## Further data preprocessing
+```{r}
+# training set
+training_set <- kept_studies_wide_moa$nichols_2011.sscores %>% 
+  filter(drugname_typaslab %in% drugs_with_chemfeats & 
+      process_broad %in% main_moas)
 
-Put all information for subsequent model fitting into `mc` (= matrix container), 
-which should contain all information to fit a machine learning model. 
+# control set
+control_set <- kept_studies_wide_moa
+control_set$nichols_2011.sscores <- 
+  filter(control_set$nichols_2011.sscores, process_broad %in% main_moas & 
+      drugname_typaslab %in% drugs_no_chemfeats)
+control_set$newsize.sscores <- 
+  filter(control_set$newsize.sscores, process_broad %in% main_moas & 
+      drugname_typaslab %in% training_set$drugname_typaslab)
+control_set <- imap_dfr(control_set, function(.el, .name) {
+  .el$origin <- str_extract(.name, pattern = "nichols|newsize")
+  .el <- select(.el, drugname_typaslab, conc, process_broad, origin, everything())
+})
 
-Comparisons:
-  1. algorithms
-  2. dosage selection: all vs. dosg. closest to MIC
-  3. features: with or without chemical features
+# other MoAs 
+other_moas <- map(kept_studies_wide_moa, ~ filter(.x, ! process_broad %in% moas))
+other_moas <- imap_dfr(other_moas, function(.el, .name) {
+  .el$origin <- str_extract(.name, pattern = "nichols|newsize")
+  .el <- select(.el, drugname_typaslab, conc, process_broad, origin, everything())
+})
 
-For 2.: all dosages: take at most 3 dosages to mitigate imbalances. 
-If there are more than 3 dosages: take those 3 closest to the MIC (log2-scale). 
-If they are NA keep 3 highest dosages. 
+# test set
+test_set <- kept_studies_wide_moa$newsize.sscores %>% 
+  filter(!drugname_typaslab %in% training_set$drugname_typaslab & 
+      process_broad %in% main_moas)
+
+# drugs with unknown MoA
+unknown_moas <- imap_dfr(kept_studies_wide_moa, function(.el, .name) {
+  .el$origin <- str_extract(.name, pattern = "nichols|newsize")
+  .el <- select(.el, drugname_typaslab, conc, process_broad, origin, everything())
+  .el <- filter(.el, process_broad == "unknown")
+})
+
+# for convenience
+split_sets <- list(training_set = training_set, control_set = control_set, 
+  other_moas = other_moas, test_set = test_set, unknown_moas = unknown_moas)
+```
+
+
+## Limiting the number of drug doses
+
+Keep at most 3 doses per drug to mitigate imbalances. 
+If there are more than 3 doses: take those 3 closest to the MIC (log2-scale). 
+If they are NA keep 3 highest doses.  
 
 ```{r}
-dosg_tab <- dosg_check$nichols_2011.sscores %>%
-  semi_join(the_matrix, by = c("drugname_typaslab", "conc"))
-
-dosg_tab$frac_of_mic_log2 <- log2(dosg_tab$frac_of_mic)
+dosg_check <- map(dosg_check, function(.x) {
+  .x$frac_of_mic_log2 <- log2(.x$frac_of_mic)
+  return(.x)})
 
 # two arrange steps so that drugs with an NA mic value are ordered such that 
 # the highest dosage will be selected
 # keep_all_dosg: indicates which drugs to keep for the "all dosages" table
 # keep_one_dosg: indicates which drugs to keep for the table where dosage 
 # closest to MIC is kept
-dosg_tab_top3 <- 
-  group_by(dosg_tab, drugname_typaslab) %>%
-  arrange(desc(conc), .by_group = TRUE) %>%
-  arrange(abs(frac_of_mic_log2), .by_group = TRUE) %>%
-  mutate(
-    keep_all_dosg = ifelse(seq_len(n()) %in% c(1:3), TRUE, FALSE), 
-    keep_one_dosg = ifelse(seq_len(n()) == 1, TRUE, FALSE)) %>%
-  arrange(drugname_typaslab, conc, .by_group = TRUE) %>%
-  select(-one_of("dataset")) %>%
-  ungroup()
+dosg_tabs_top3 <- 
+  map(dosg_check, function(.x) {
+    group_by(.x, drugname_typaslab) %>%
+    arrange(desc(conc), .by_group = TRUE) %>%
+    arrange(abs(frac_of_mic_log2), .by_group = TRUE) %>%
+    mutate(
+      keep_all_dosg = ifelse(seq_len(n()) %in% c(1:3), TRUE, FALSE), 
+      keep_one_dosg = ifelse(seq_len(n()) == 1, TRUE, FALSE)) %>%
+    arrange(drugname_typaslab, conc, .by_group = TRUE) %>%
+    select(-one_of("dataset")) %>%
+    ungroup()
+  })
 
 # this must be TRUE now:
-stopifnot(nunique(dosg_tab_top3$drugname_typaslab) == sum(dosg_tab_top3$keep_one_dosg))
+stopifnot(
+  every(dosg_tabs_top3, function(.x) {
+  nunique(.x$drugname_typaslab) == sum(.x$keep_one_dosg)
+}))
 
 # for later inspection if desired:
-saveRDS(dosg_tab_top3, file = file.path(outdir, "dosg_tab_top3.rds"))
+saveRDS(dosg_tabs_top3, file = file.path(outdir, "dosg_tabs_top3.rds"))
 ```
 
-Can now subset `the_matrix`. Rename to `m` for less typing. 
 
 ```{r}
-tmp <- dosg_tab_top3[dosg_tab_top3$keep_all_dosg, ]
-# "m_all" and "m_signif_all"
-m_all <- filter(the_matrix, paste(drugname_typaslab, conc) %in% 
-    paste(tmp$drugname_typaslab, tmp$conc))
-m_signif_all <- filter(the_matrix_signifs, paste(drugname_typaslab, conc) %in% 
-    paste(tmp$drugname_typaslab, tmp$conc))
+filter_dosg <- function(dataset, dosgtab, tokeep = c("all", "one")) {
+  # "all" is actually 3 doses closest to MIC (or 3 highest ones)
+  # "one" is the same but with one dosage
+  tokeep <- match.arg(tokeep)
+  stopifnot(is(dataset, "data.frame") & is(dosgtab, "data.frame"))
+  
+  if (tokeep == "all") {
+    dosgtab <- dosgtab[dosgtab$keep_all_dosg, ]
+  } else {
+    dosgtab <- dosgtab[dosgtab$keep_one_dosg, ]
+  }
+  
+  dataset <- semi_join(dataset, dosgtab, by = c("drugname_typaslab", "conc"))
+  return(dataset)
+}
 
-stopifnot({
-  dim(m_all) == dim(m_signif_all)
-  nrow(m_all) == sum(tmp$keep_all_dosg)
-})
+m_all <- filter_dosg(training_set, dosgtab = dosg_tabs_top3$nichols_2011.sscores, 
+  tokeep = "all")
 
-# "m_one" and "m_signif_one"
-tmp <- dosg_tab_top3[dosg_tab_top3$keep_one_dosg, ]
-m_one <- filter(the_matrix, paste(drugname_typaslab, conc) %in% 
-    paste(tmp$drugname_typaslab, tmp$conc))
-m_signif_one <- filter(the_matrix_signifs, paste(drugname_typaslab, conc) %in% 
-    paste(tmp$drugname_typaslab, tmp$conc))
-stopifnot({
-  dim(m_one) == dim(m_signif_one)
-  nrow(m_one) == sum(tmp$keep_one_dosg)
-})
-```
+m_one <- filter_dosg(training_set, dosgtab = dosg_tabs_top3$nichols_2011.sscores, 
+  tokeep = "one")
 
-Add MoA information. 
-
-```{r}
-m_one <- 
-  left_join(m_one, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>% 
-  select(drugname_typaslab, conc, process_broad, everything())
-nunique(m_one$drugname_typaslab)
-table(m_one$process_broad)
-saveRDS(m_one, file.path(outdir, "m_one.rds"))
-
-m_all <- 
-  left_join(m_all, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
-  select(drugname_typaslab, conc, process_broad, everything())
-nunique(m_all$drugname_typaslab)
-table(m_all$process_broad)
-saveRDS(m_all, file.path(outdir, "m_all.rds"))
-
-m_signif_all <- 
-  left_join(m_signif_all, mode_of_action[, c("drugname_typaslab", "process_broad")]) %>%
-  select(drugname_typaslab, conc, process_broad, everything())
-nunique(m_signif_all$drugname_typaslab)
-table(m_signif_all$process_broad)
-saveRDS(m_signif_all, file.path(outdir, "m_signif_all.rds"))
-```
-
-Add information on physicochemical properties. 
-
-```{r}
-chem_info <- select(drugs_complete, drugname_typaslab, SlogP:data_effective_rotor_count)
+# now versions with chemical features and then save
 m_one_chem <- left_join(m_one, chem_info)
-saveRDS(m_one_chem, file.path(outdir, "m_one_chem.rds"))
-
 m_all_chem <- left_join(m_all, chem_info)
-saveRDS(m_all_chem, file.path(outdir, "m_all_chem.rds"))
+
+walk(c("m_all", "m_all_chem", "m_one", "m_one_chem"), function(x) {
+  saveRDS(get(x), file.path(outdir, paste0(x, ".rds")))
+})
 ```
 
 Just a little plot on the observation counts. 
@@ -931,10 +902,8 @@ count(m_all, drugname_typaslab, process_broad) %>%
       legend.text = element_text(size = 7), legend.key.size = unit(0.25, "cm"))
 
 ggsave("./plots/paper/Nconc_per_drug.pdf", width = 50, height = 55, units = "mm")
-```
 
 
-```{r, include = FALSE, eval = FALSE}
 ## FOR POSTER ------------------------------
 group_by(m_all, drugname_typaslab) %>%
   slice(1) %>%
@@ -965,6 +934,20 @@ count(m_all, drugname_typaslab, process_broad) %>%
 ggsave("./plots/POSTER_Nconc_per_drug.pdf", width = 80, height = 100, units = "mm")
 ```
 
+
+# Generating a "matrix container" for comparative model assessment
+
+Note: two major changes: commit 716861c brought integration of other data sets 
+and some drugs that had been (wrongly) excluded before (bicyclomycin, 
+cecropin B, dibucaine, procaine). 
+Other major change: commit *after* 0704327 because there dosage selection was 
+improved and some issues with nested CV setup were corrected. 
+
+Each row of the matrix container should have all the information to run 
+repeated instanced blocked stratified nested cross-validation. We will compare: 
+  * Algorithms
+  * Impact of two ways of selecting dosages
+  * Influence of including chemical features (just out of curiosity, we do not plan to use them at all)
 
 
 ## Making the container
