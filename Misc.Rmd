@@ -17,7 +17,7 @@ editor_options:
 
 # Setup
 
-```{r setup}
+```{r setup, message = FALSE}
 source("./setup.R")
 ```
 
@@ -27,33 +27,18 @@ Chunks in this notebook are (should be) self-contained.
 
 ## Chemical similarities
 
-Check if some drugs are chemically very similar so that they may need to be 
-blocked during CV instance creation. Use RDKit chemical fingerprints. 
-
-Use InChI from KNIME workflow used during dbsetup construction, then calculate 
-fingerprints. 
-
 ```{r}
-m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
+m <- readRDS("./data/programmatic_output/m_all.rds")
+all_inchi <- read_tsv("./data/all_inchi.tsv")
 
-(drugs_full <- read_delim("/Volumes/typas/Florian/dbsetup_tables_new/drugs.csv", 
-  delim = ";"))
-
-all_inchi <- 
-   filter(drugs_full, drugname_typaslab %in% m$drugname_typaslab) %>% 
-   select(drugname_typaslab, data_stdinchi)
-
-write_tsv(all_inchi, col_names = T, path = "./data/all_inchi.tsv")
-```
-
-Read fingerprints. 
-
-```{r}
+# read fingerprints
 (drugs_RDkit_fingerprint = read_csv2(file = "./data/RDkit_fingerprint.csv"))
 (drugs_RDkit_fingerprint = left_join(all_inchi, drugs_RDkit_fingerprint, 
   by = "data_stdinchi"))
-colnames(drugs_RDkit_fingerprint) = c("drugnames_typaslab", "data_stdinchi", 
+colnames(drugs_RDkit_fingerprint) = c("drugname_typaslab", "data_stdinchi", 
   "RDkit_fingerprint")
+drugs_RDkit_fingerprint <- semi_join(drugs_RDkit_fingerprint, m, 
+  by = "drugname_typaslab")
 # could also get morgan and MACCS fingerprints, see ./data
 ```
 
@@ -62,9 +47,9 @@ Plot dendrogram of similarities.
 ```{r}
 (cluster_matrix <- as_tibble(select(drugs_RDkit_fingerprint, -data_stdinchi)))
 cluster_matrix <- cluster_matrix[complete.cases(cluster_matrix), ]
-row.names(cluster_matrix) <- cluster_matrix$drugnames_typaslab
-cluster_matrix$drugnames_typaslab <- NULL
-(process_lut <- structure(m$process_broad, names = m$drugname_typaslab))
+row.names(cluster_matrix) <- cluster_matrix$drugname_typaslab
+cluster_matrix$drugname_typaslab <- NULL
+process_lut <- structure(m$process_broad, names = m$drugname_typaslab)
 
 cluster_matrix <- as.matrix(cluster_matrix)
 cluster_matrix_splitbits <- t(apply(cluster_matrix, 1, function(x) {
@@ -99,7 +84,7 @@ dev.off()
 ## PCA: first 4 PCs of most interactions, top 10% variance, no chemical features
 
 ```{r}
-m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
+m <- readRDS("./data/programmatic_output/m_all.rds")
 m_matrix <- as.matrix(m[, c(4:ncol(m))])
 rownames(m_matrix) <- paste0(m$drugname_typaslab, "_", m$conc)
 
@@ -157,8 +142,8 @@ ggsave(p, file = "./plots/PCA_plots.pdf", width = 9, height = 6)
 PCA with fingerprint
 
 ```{r}
-(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
-m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
+my_fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+m <- readRDS("./data/programmatic_output/m_all.rds")
 
 m_matrix <- as.matrix(m[, c(4:ncol(m))])
 m_matrix <- m_matrix[, my_fingerprint_mcl]
@@ -217,89 +202,9 @@ ggsave(p, file = "./plots/PCA_plots_fingerprint.pdf", width = 9, height = 6)
 ```
 
 
-tSNE with same matrix:
+## An example of an s-score distribution
 
 ```{r}
-set.seed(5)
-tsne_input <- m_matrix
-m$drug_conc <- paste0(m$drugname_typaslab, "_", m$conc)
-
-tsne <- Rtsne::Rtsne(X = tsne_input, dims = 3, perplexity = 10, max_iter = 2000)
-tsne_data <- data.frame(tsne$Y)
-colnames(tsne_data)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
-tsne_data$drug_conc <- m$drug_conc
-tsne_data <- left_join(tsne_data, m[, c("drug_conc", "process_broad")])
-
-ggplot(tsne_data, aes(x = tSNE1, y = tSNE2, colour = process_broad)) + 
-  geom_point(alpha = 0.75) + 
-  scale_colour_manual("MoA", values = moa_cols) + 
-  theme(legend.position = "None")
-
-ggsave(filename = "./plots/tSNE_allfeats.pdf", width = 3.5, height = 3.5)
-```
-
-tSNE for fingerprint:
-
-```{r}
-(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
-
-set.seed(5)
-tsne_input <- m_matrix
-tsne_input <- tsne_input[, my_fingerprint_mcl]
-
-m$drug_conc <- paste0(m$drugname_typaslab, "_", m$conc)
-
-tsne <- Rtsne::Rtsne(X = tsne_input, dims = 3, perplexity = 10, max_iter = 2000)
-tsne_data <- data.frame(tsne$Y)
-colnames(tsne_data)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
-tsne_data$drug_conc <- m$drug_conc
-tsne_data <- left_join(tsne_data, m[, c("drug_conc", "process_broad")])
-
-ggplot(tsne_data, aes(x = tSNE1, y = tSNE2, colour = process_broad)) + 
-  geom_point(alpha = 0.75) + 
-  scale_colour_manual("MoA", values = moa_cols) + 
-  theme(legend.position = "None")
-
-ggsave(filename = "./plots/tSNE_fingerprint.pdf", width = 3.5, height = 3.5)
-
-```
-
-
-
-## Plots for presentations/posters
-
-### ROC curve
-
-
-```{r plot_flasthalk, eval = FALSE, echo = FALSE}
-tmp <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
-tmp <- tmp$thresh_vs_perf[[1]]
-tmp <- tmp %>%
-   group_by(threshold, moa_modelled) %>%
-   summarise(fpr_mean = mean(fpr), tpr_mean = mean(tpr)) %>%
-   ungroup()
-
-ggplot(tmp, aes(x = fpr_mean, y = tpr_mean)) + 
-   geom_line(aes(colour = moa_modelled), size = 1.5) + 
-   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
-         panel.background = element_rect(fill = "white", colour = "black"), 
-         text = element_text(size = 14), 
-         legend.position = c(0.95, 0.05), legend.justification = c("right", "bottom")) + 
-   scale_colour_manual("Mode of action", 
-                       labels = c("Cell wall", "DNA", "Membrane stress", "Protein synthesis"), 
-                       values = c("#e66101", "#fdb863", "#b2abd2", "#5e3c99")) + 
-   labs(title = "ROC curve for random forests", 
-        x = "False positive rate", 
-        y = "True positive rate") + 
-   geom_abline(intercept = 0, slope = 1, linetype = "dotted")
-ggsave("./plots/ROC_curve_flashtalk.pdf", width = 5, height = 5)
-```
-
-
-### S-score distribution
-
-```{r, posterplots_Madrid_I}
-# the_matrix_melted_moainfo <- readRDS("./data/programmatic_output/the_matrix_melted_moainfo.rds")
 tmp <- readRDS("./data/programmatic_output/kept_datasets_long_featsndrugs_removed.rds")
 tmp <- tmp$nichols_2011
 moa <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
@@ -322,357 +227,8 @@ ggplot(tmp, aes(x = sscore)) +
      legend.justification = c("left", "bottom"), legend.background = 
        element_blank())
 
-ggsave(filename = "./plots/GB_seminar/Sscores_recA.pdf", width = 5.5, height = 4.5)
-
+ggsave(filename = "./plots/Sscores_recA.pdf", width = 5.5, height = 4.5)
 ```
-
-
-### General statistics
-
-```{r, echo = FALSE, eval = FALSE}
-#matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
-
-#drug_feat_mat <- matrix_container_ext$drug_feature_matrices[[1]]
-(drug_feat_mat <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds"))
-unique(drug_feat_mat$process_broad)
-
-tmp <- drug_feat_mat[, c("drugname_typaslab", "process_broad", "conc")]
-tmp <- group_by(tmp, drugname_typaslab) %>%
-   mutate(conc_rank = rank(conc)) %>%
-   ungroup()
-
-tmp$process_broad <- 
-   fct_recode(tmp$process_broad, 
-              "Cell Wall" = "cell_wall", 
-              "Protein Synthesis" = "protein_synthesis", 
-              "Membrane Stress" = "membrane_stress", 
-              "DNA" = "dna")
-
-moa_cols2 <- moa_cols
-names(moa_cols2) <- c("cell_wall" = "Cell Wall", "dna" = "DNA", 
-  "membrane_stress" = "Membrane Stress", "protein_synthesis" = "Protein Synthesis")[names(moa_cols2)]
-
-# plot both the number of drugs per mode of action and the number of dosages per drug per MoA
-
-# tmp$process_broad <- fct_relevel(tmp$process_broad, "Other", after = Inf)
-
-(tmp2 <- 
-   group_by(tmp, drugname_typaslab) %>%
-   slice(1) %>%
-   ungroup() %>%
-   count(process_broad))
-
-ggplot(tmp2, aes(x = process_broad, y = n)) + 
-   geom_bar(aes(fill = process_broad), stat = "identity") + 
-   scale_fill_discrete("Cellular target") + 
-   theme_bw() + 
-   theme(text = element_text(size = 18), legend.position = "none", 
-     axis.text.x = element_text(angle = 45, hjust = 1)) + 
-   labs(x = "", y = "Count", title = "Ndrugs per MoA") + 
-   scale_fill_manual(values = moa_cols2)
-
-ggsave("./plots/Drugs_per_moa.pdf", width = 3.5, height = 5)
-
-# more detailed view
-(tmp3 <- count(tmp, drugname_typaslab, process_broad))
-
-ggplot(tmp3, aes(x = n)) + 
-   geom_bar(aes(fill = process_broad)) + 
-   labs(x = "Number of concentrations measured", y = "Number of drugs", 
-        title = "Number of concentrations\nmeasured per drug") + 
-   scale_fill_discrete("Cellular target") + 
-   scale_x_continuous(breaks = c(1, 2, 3, 4, 5, 6)) + 
-   theme_bw() + 
-   theme(text = element_text(size = 18)) + 
-   scale_fill_manual("Cellular target", values = moa_cols2)
-
-ggsave("./plots/Conc_per_drug.pdf", width = 6.5, height = 4.8)
-```
-
-
-
-## Nichols data: heatmaps and custom "sub heatmaps"
-
-Heatmap with all genes and all conditions, from matrix_container:
-
-```{r}
-m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds")
-# add information about number of occurrences:
-m$n_dosg <- rep(rle(m$drugname_typaslab)$lengths, 
-  rle(m$drugname_typaslab)$lengths)
-
-dfr <- as.data.frame(m[, c("process_broad")])
-
-rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
-  m$n_dosg, ")")
-m <- select(m, -drugname_typaslab, -conc, -process_broad, -n_dosg) %>%
-  as.matrix()
-m[1:5, 1:5]
-
-# ComplexHeatmap seems to have problems with tibbles! 
-row_annot <- HeatmapAnnotation(df = dfr, 
-  col = list(process_broad = moa_cols), which = "row", 
-  name = "MoA", annotation_width = 3)
-row_annot
-draw(row_annot, 1:10)
-
-my_distfun <- function(x, y) {1 - abs(cor(x, y))}
-min_col <- plasma(2)[1]
-max_col <- plasma(2)[2]
-
-h <- Heatmap(matrix = m, 
-  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
-  name = "S-score", 
-  clustering_distance_rows = my_distfun, 
-  clustering_distance_columns = my_distfun, 
-  column_names_side = "top", 
-  row_names_side = "right", 
-  row_dend_side = "right", 
-  row_names_gp = gpar(fontsize = 4), 
-  column_names_gp = gpar(fontsize = 3), 
-  split = 4) + row_annot
-
-png("./plots/Heatmap_thematrix_all_corrdist.png", width = 1920, 
-  height = 960)
-h
-dev.off()
-
-pdf("./plots/Heatmap_thematrix_all_corrdist.pdf", width = 130, 
-  height = 30)
-h
-dev.off()
-```
-
-With fingerprint features:
-
-```{r}
-(load("./data/programmatic_output/my_fingerprint_mcl.RData"))
-
-h <- Heatmap(matrix = m[, my_fingerprint_mcl], 
-  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
-  name = "S-score", 
-  clustering_distance_rows = "euclidean", 
-  clustering_distance_columns = "euclidean", 
-  column_names_side = "top", 
-  row_names_side = "right", 
-  row_dend_side = "right", 
-  row_names_gp = gpar(fontsize = 4), 
-  column_names_gp = gpar(fontsize = 3), 
-  split = 4) + row_annot
-h
-
-pdf("./plots/Heatmap_fingerprint_euclidean.pdf", width = 10, 
-  height = 20)
-h
-dev.off()
-```
-
-
-Write a function to generate "subheatmaps", depending on the conditions and genes provided.
-
-First run a few tests for choosing color palettes etc. Important websites: the vignette for the 
-ComplexHeatmap package (can do everything) and also for the [viridis package](https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html).
-
-```{r}
-# write a function that:
-# takes a drug_feature matrix
-# takes a vector of conditions and a vector genes (features) to keep 
-# and then creates a heatmaps
-
-(my_test <- myhead(m))
-# change two values to check for outliers
-my_test["A22_0.5 (4)", "AAEX"] <- -5
-my_test["ACRIFLAVINE_2 (2)", "ABGA"] <- -7
-
-my_cols <- cividis(n = 10)
-
-Heatmap(my_test, 
-  col = colorRamp2(seq(from = -4, to = 4, length.out = 10), my_cols), 
-  cell_fun = function(j, i, x, y, width, height, fill) {
-    grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(fontsize = 10))
-  }, 
-  row_names_side = "left", 
-  column_names_side = "top")
-
-# use viridis color palette for good perceptual properties
-# but how many breaks do we need? let's say we want to see 90% of the data:
-hist(m)
-quantile(m, probs = c(0.005, 0.01, 0.05, 0.1, 0.5, 0.9, 0.95, 0.99, 0.995))
-# looks like 90% of the data are between -2.2 and 1.96:
-hist(m, xlim = c(-3.5, 3.5), breaks = 300)
-
-# quantiles if one takes 99% of the data
-lapply(list(mean, sd), function(x) {
-  x(m[m[, 1] > -4.3 & m[, 1] < 3, c(T, rep(F, ncol(m) - 1))])
-  })
-# might indicate that data were quantile normalised - because if data is 
-# normally distributed, IQR = 1.35 * sd
-# but I'm not sure, and this data set is not complete anyway ...
-
-# cut the interval from -3.5 to 3.5 into 0.1-spaced intervals, using 70 colors
-my_cols <- cividis(n = 70)
-my_test[] <- seq(from = -4, to = 2, length.out = length(my_test))
-
-# to show only specific rows 
-my_test <- m
-my_test <- my_test[grepl(row.names(my_test), pattern = "A22|CEFACLOR|CYCLOSERINED|PEROXIDE"), 
-                   colnames(my_test) %in% c("RECG", "DDLB", "RYFC", "RECA", "MRCB", "SLT", "PYRE", "PYRD")]
-```
-
-
-Careful! If one wants to cluster based on Pearson correlation and not taking the sign into 
-consideration: don't use the default "pearson" argument, rather define our own distance function:
-
-```{r}
-# not what we want
-Heatmap(my_test, col = colorRamp2(seq(from = -3.5, to = 3.5, length.out = 70), my_cols), 
-        row_names_side = "left", 
-        column_names_side = "top", 
-        gap = unit(5, "mm"), 
-        clustering_distance_rows = "pearson", 
-        clustering_distance_columns = "pearson", 
-        cell_fun = function(j, i, x, y, width, height, fill) {
-           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
-           }
-        )
-
-# what we want:
-my_distfun <- function(x, y) {1 - abs(cor(x, y))}
-
-Heatmap(my_test, col = colorRamp2(seq(from = -3.5, to = 3.5, length.out = 70), my_cols), 
-        row_names_side = "left", 
-        column_names_side = "top", 
-        gap = unit(5, "mm"), 
-        clustering_distance_rows = my_distfun, 
-        clustering_distance_columns = my_distfun, 
-        cell_fun = function(j, i, x, y, width, height, fill) {
-           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
-           }
-        )
-
-# how about actually labelling the strong negative/positive q values rather 
-# than the "noise" in between? 
-Heatmap(my_test, col = colorRamp2(c(-3, -2.999, 0, 2.999, 3), c("#7b3294", "#cccccc", "#cccccc", "#cccccc", "#008837")), 
-        row_names_side = "left", 
-        column_names_side = "top", 
-        gap = unit(5, "mm"), 
-        clustering_distance_rows = my_distfun, 
-        clustering_distance_columns = my_distfun, 
-        cell_fun = function(j, i, x, y, width, height, fill) {
-           grid.text(sprintf("%.2f", my_test[i, j]), x, y, gp = gpar(col = "black", fontsize = 10))
-           }
-        )
-```
-
-Let's plot a few subheatmaps:
-
-```{r}
-pdf("./plots/NEW_heatmap_test_SDS_allgenes.pdf")
-my_subheatmap(m, drugs = c("CHLORAMPHENICOL", "TETRACYCLINE", "ERYTHROMYCIN", 
-  "DOXYCYCLINE", "SPIRAMYCIN", "SPECTINOMYCIN", "AMIKACIN", "PUROMYCIN"), 
-  genes = c("ACRA", "ACRB", "TOLC", "DDLB", "MRCB", "SLT"))
-dev.off()
-```
-
-
-## PCA of chemical features
-
-```{r, eval = FALSE, echo = FALSE}
-# Preparing data
-dt_matrix <- filter(matrix_container, drug_dosages == "most_interactions", chemical_feats == TRUE)$drug_feature_matrices[[1]]
-
-dt_chem_mostInteraction <- cbind(dt_matrix[ , !grepl(x = colnames(dt_matrix), pattern = "^[A-Z]{3,4}")], TPSA = dt_matrix$TPSA)
-#Or only the one used for protein synhesis prediction
-#   dt_chem_mostInteraction <- dt_matrix %>% select(ExactMW, SlogP, TPSA)
-#Make optional
-#   dt_chem_mostInteraction = dt_chem_mostInteraction %>% filter(process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))
-
-dt_chem_mostInteraction = dt_chem_mostInteraction %>% select(-process_broad, -conc)
-rownames(dt_chem_mostInteraction) <- dt_chem_mostInteraction$drugname_typaslab
-dt_chem_mostInteraction <- dt_chem_mostInteraction[, -1]
-
-# PCA
-pca_data <- prcomp(dt_chem_mostInteraction, scale = TRUE)
-
-# Importance of PC in sdev, the two firsts make 45 %
-barplot(pca_data$sdev / sum(pca_data$sdev))
-
-plotData <- as.data.frame(pca_data$x)
-
-#plotData = cbind(plotData, process_broad = dt_matrix[ dt_matrix$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"), "process_broad"])
-plotData = cbind(plotData, process_broad = dt_matrix$process_broad)
-plotData$process_broad <- as.character(plotData$process_broad)
-plotData$process_broad[!(plotData$process_broad %in% c("cell_wall", "dna", "membrane_stress", "protein_synthesis"))] <- "other"
-
-p1 <- ggplot(plotData, aes(x = PC1, y = PC2)) + 
-    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
-    theme_bw() + scale_fill_manual(values=rainbow(5)) + 
-    ggtitle("PCA Chemical Feat, PC 1 and 2")
-
-p2 <- ggplot(plotData, aes(x = PC3, y = PC2)) + 
-    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
-    theme_bw() + scale_fill_manual(values=rainbow(5)) + 
-    ggtitle("PCA Chemical Feat, PC 2 and 3 ")
-
-p3 <- ggplot(plotData, aes(x = PC3, y = PC4)) + 
-    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
-    theme_bw() + scale_fill_manual(values=rainbow(5)) + 
-    ggtitle("PCA Chemical Feat, PC 3 and 4 ")
-
-p4 <- ggplot(plotData, aes(x = PC5, y = PC4)) + 
-    geom_point(aes(fill = process_broad), shape = 21, size = 4, colour = "black") + 
-    theme_bw() + scale_fill_manual(values=rainbow(5)) + 
-    ggtitle("PCA Chemical Feat, PC 4 and 5 ")
-
-grid.arrange(p1, p2, p4, p3, nrow = 2)
-```
-
-
-## Correlation between chemical classes of drugs
-
-Check file `data/drugs_chem_classes.txt`. Put special focus on chemical features. 
-
-
-## Which drugs profit from chemical features? 
-
-This concerns all dosages, lasso vs. random forests, focus only on top25pct.
-
-```{r}
-tmp <- filter_container(matrix_container_ext, dosgs = "all", feats = "top25pct", 
-  models = "classif.randomForest")
-
-plot_perf_from_container(tmp, what = "ROC", col_var = "chemical_feats")
-```
-
-The difference is really striking for random forests, so let's stick to this one atm. 
-
-```{r}
-(tmp_unnest <- 
-  select(tmp, chemical_feats, pred_data_with_n_signif) %>%
-  unnest() %>%
-  filter(moa_modelled == "protein_synthesis"))
-
-# sort the drugs by biggest difference in probability
-probdiffs <- 
-  group_by(tmp_unnest, drugname_typaslab, conc) %>%
-  select(drugname_typaslab, chemical_feats, conc, median_prob.moa, 
-    moa_modelled_is_truth) %>%
-  mutate(diff = median_prob.moa[chemical_feats] - median_prob.moa[!chemical_feats]) %>%
-  arrange(diff)
-
-hist(probdiffs$diff, breaks = 50)
-probdiffs_big <- probdiffs[abs(probdiffs$diff) > 0.2, ]
-
-library(htmlTable)
-cat(htmlTable(probdiffs_big), file = "./data/programmatic_output/probdiffs.html")
-```
-
-The 7 drugs with the highest difference are gentamicin, amikacin, streptomycin, clarythromycin, 
-tunicamycin, taurocholate and tobramycin. Out of those, 4 are aminoglycosides. Note that they also 
-have high number of aliphatic rings and saturated rings. 
-
-Proper way of comparing them would be to see which ones pass the threshold at a certain cutoff and 
-which ones don't (at e.g. 10% fpr). 
 
 
 ## Specificity depending on dosage
@@ -747,7 +303,8 @@ ggplot(nic_prc2, aes(x = log2_frc_mic_bin, y = n_interactors, colour = log2_frc_
   labs(title = "Number of interacting genes by condition, grouped by MIC interval")
 
 # now we need some proxy of specificity: the lower the specificity, the more 
-# overlap (or less?) I would expect between drugs of different MoA than within the same MoA
+# overlap (or less?) I would expect between drugs of different MoA than within 
+# the same MoA
 
 # for each interval: generate all possible pairs of distinct drugs and count 
 # the size of the overlap

@@ -1,4 +1,4 @@
-knitr::opts_chunk$set(cache = F)
+knitr::opts_chunk$set(cache = FALSE, collapse = TRUE)
 Sys.setlocale("LC_ALL", "en_IE.UTF-8")
 source("./R/ipak.R")
 
