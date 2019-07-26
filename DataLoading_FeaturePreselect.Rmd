@@ -937,17 +937,15 @@ ggsave("./plots/POSTER_Nconc_per_drug.pdf", width = 80, height = 100, units = "m
 
 # Generating a "matrix container" for comparative model assessment
 
-Note: two major changes: commit 716861c brought integration of other data sets 
-and some drugs that had been (wrongly) excluded before (bicyclomycin, 
-cecropin B, dibucaine, procaine). 
-Other major change: commit *after* 0704327 because there dosage selection was 
-improved and some issues with nested CV setup were corrected. 
-
 Each row of the matrix container should have all the information to run 
 repeated instanced blocked stratified nested cross-validation. We will compare: 
   * Algorithms
   * Impact of two ways of selecting dosages
   * Influence of including chemical features (just out of curiosity, we do not plan to use them at all)
+
+Notes on commits: 
+  * Commit 716861c brought integration of other data sets and some drugs that had been (wrongly) excluded before (bicyclomycin, cecropin B, dibucaine, procaine). 
+  * After 0704327 dosage selection was improved (changed to reflect biology) and some issues with nested CV setup were corrected. 
 
 
 ## Making the container
