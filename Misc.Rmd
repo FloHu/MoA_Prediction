@@ -81,6 +81,50 @@ dev.off()
 ```
 
 
+## Further investigations on chemical features
+
+First thing to note is that there is a considerable correlation between the 
+chemical featues we use for the drugs in our data set. High correlation between 
+features is problematic for a number of reasons: first, they indicate redundant 
+information. Second, it can lead to model instability (cf. pages 12, 46 in 
+Kuhn & Johnson, 2013). 
+
+To show how strongly the chemical features are correlated:
+
+```{r, eval = FALSE}
+tmp <- readRDS("./data/programmatic_output/m_one_chem.rds")
+tmp_m <- select(tmp, SlogP:data_effective_rotor_count)
+tmp_m <- as.matrix(tmp_m)
+row.names(tmp_m) <- tmp$drugname_typaslab
+tmp_m_cor <- cor(tmp_m)
+corrplot::corrplot(tmp_m_cor, method = "color", order = "hclust", tl.cex = 0.7)
+```
+
+As can also be seen in the plot "drug_drug_similarities_RDKit.pdf" (notebook 
+Misc) some of our chemical features are biased towards distinguishing 
+protein_synthesis from the other features. However, number of amide bonds 
+favours cell wall, number of aromatic rings might favour DNA. 
+
+```{r, eval = FALSE}
+select(tmp, drugname_typaslab, process_broad, (ncol(tmp) - 12):ncol(tmp)) %>%
+   filter(process_broad %in% c("cell_wall", "dna", "protein_synthesis", "membrane_stress")) %>%
+   gather(-drugname_typaslab, -process_broad, key = "chemical_feature", value = "value") %>%
+   ggplot(aes(x = process_broad, y = value, colour = process_broad)) + 
+      ggbeeswarm::geom_beeswarm(groupOnX = TRUE, cex = 2, shape = 1) + 
+      facet_wrap( ~ chemical_feature, ncol = 5, scales = "free_y") + 
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+      labs(title = "Distribution of chemical features across MoAs")
+```
+
+Check which drugs have high number of aliphatic rings and of saturated rings. 
+This seems to bias the models using chemical features towards protein synthesis. 
+
+```{r, eval = FALSE}
+tmp$drugname_typaslab[tmp$NumAliphaticRings > 2.5]
+tmp$drugname_typaslab[tmp$NumSaturatedRings > 2.5]
+```
+
+
 ## PCA: first 4 PCs of most interactions, top 10% variance, no chemical features
 
 ```{r}

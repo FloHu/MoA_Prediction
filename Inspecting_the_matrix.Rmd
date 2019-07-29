@@ -17,17 +17,11 @@ editor_options:
 
 # Setup, library loading
 
-This part is the general setup, whichever model we are using.
-
-```{r setup}
-rm(list = ls())
-# function to check if a package is installed, if so, load it, else install and 
-# then load it
-source("./R/ipak.R")
-# set chunk options and load libraries
+```{r setup, message = FALSE}
 source("./setup.R")
-knitr::opts_chunk$set(cache = FALSE)
 outdir <- "./data/programmatic_output"
+
+library(e1071)
 ```
 
 
@@ -52,14 +46,6 @@ drugs_complete <- readRDS(file.path(indir, "drugs_complete.rds"))
 Let's check skewness of predictors first.
 
 ```{r}
-# (the_matrix_signifs <- 
-#    select(the_matrix, gene_synonym, drugname_typaslab, conc, significant) %>%
-#    spread(key = gene_synonym, value = significant))
-# 
-# (the_matrix <- 
-#    select(the_matrix, gene_synonym, drugname_typaslab, conc, sscore) %>%
-#    spread(key = gene_synonym, value = sscore))
-
 skewness_vals <- sapply(m_all[, 4:ncol(m_all)], e1071::skewness, 
   na.rm = TRUE)
 (skewness_vals <- tibble(gene_synonym = names(skewness_vals), 
@@ -87,8 +73,8 @@ their skewness values again being outliers in the skewness distribution of all
 predictors.
 
 ```{r}
-# skewness values are mostly negative, which makes sense, considering the nature of our data
-# but there are 141 outliers
+# skewness values are mostly negative, which makes sense, considering the 
+# nature of our data but there are 141 outliers
 filter(skewness_vals, is_outlier) %>%
    arrange(skewness)
 
@@ -102,7 +88,7 @@ most_neg <- with(skewness_vals, gene_synonym[which.min(skewness)])
 hist(m_all[[most_neg]], breaks = 100, main = paste0("Histogram of s-scores 
   for ", most_neg))
 
-pdf(paste0("./plots/NEW_", most_neg, "_sscore_dist.pdf"))
+pdf(paste0("./plots/Sscore_dist_", most_neg, ".pdf"))
 hist(m_all[[most_neg]], breaks = 100, main = paste0("Histogram of s-scores 
   for ", most_neg))
 dev.off()
@@ -199,8 +185,8 @@ all_by_all <-
      by = c("drugname_typaslab" = "drugname_typaslab", "conc" = "conc", 
        "process_broad" = "process_broad"))
 
-# plot_pairplots takes the data frame above and plots all by all combinations of the genes of 
-# interest
+# plot_pairplots takes the data frame above and plots all by all combinations 
+# of the genes of interest
 
 plot_pairplots(c("MRCB", "CYSB"))
 plot_pairplots(c("MRCB", "CYSB", "CARB_and_11_more"))
@@ -220,14 +206,7 @@ dplyr::select(m_signif_all, drugname_typaslab, conc, ACRA_and_2_more) %>%
 ```
 
 
-#### NA values
-
-Obsolete as of commit 5e37620a.
-
-
-
 ```{r, session_info}
 R.version
 sessionInfo()
 ```
-

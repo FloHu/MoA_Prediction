@@ -1,5 +1,5 @@
 ---
-title: "Predicting drug mode of action: loading data and preselecting features"
+title: "Predicting drug mode of action: data preprocessing"
 author: "Florian Huber, Leonard Dubois"
 date: "`r Sys.Date()`"
 output:
@@ -841,6 +841,14 @@ m_all_chem <- left_join(m_all, chem_info)
 walk(c("m_all", "m_all_chem", "m_one", "m_one_chem"), function(x) {
   saveRDS(get(x), file.path(outdir, paste0(x, ".rds")))
 })
+
+# matrix to indicate which drug-dose-condition combinations are significant:
+m_signif_all <- kept_studies_wide$nichols_2011.qvals %>% 
+  left_join(mode_of_action[, c("drugname_typaslab", "process_broad")]) %>% 
+  select(colnames(m_all)) %>% 
+  semi_join(m_all, by = c("drugname_typaslab", "conc"))
+
+saveRDS(m_signif_all, file.path(outdir, "m_signif_all.rds"))
 ```
 
 Just a little plot on the observation counts. 
