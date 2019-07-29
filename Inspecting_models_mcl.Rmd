@@ -17,12 +17,12 @@ editor_options:
 
 # Setup
 
-```{r setup}
+```{r setup, message = FALSE}
 source("./setup.R")
 ```
 
 
-## Derive chemogenomic fingerprint
+# Deriving a chemogenomic fingerprint
 
 Get feature importances from retrained model. 
 
@@ -64,12 +64,10 @@ ggsave(filename = "./plots/Feature_importance_hist.pdf", width = 45,
   height = 45, units = "mm")
 ```
 
-
 ```{r, fig.height = 8}
 ggplot(mod_imp[1:75, ], aes(x = log2imp, y = gene)) + 
   geom_point()
 ```
-
 
 ```{r, include = FALSE}
 # for paper
@@ -130,7 +128,6 @@ ggsave(filename = "./plots/paper/FeatImp_histogram.pdf", width = 50, height = 50
 ```
 
 
-
 # tSNE, hclust, PCA
 
 Aim is to compare PCA, hierarchical clustering, tSNE of complete feature set 
@@ -162,6 +159,8 @@ select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>%
 
 
 ```{r, include = FALSE, eval = FALSE}
+library(gridExtra)
+
 ## FOR POSTER --------------
 tsne_mat <- m_all
 fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
@@ -188,7 +187,6 @@ p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA,
     scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
       zaxis = list(title = 'tSNE3')))
 
-library(gridExtra)
 p1 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
     geom_point(alpha = 0.75) + 
     scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
@@ -259,6 +257,7 @@ plot_heatmap(dfm = m_all_alldrugs, feats = fingerprint_mcl, mics = mic_info,
   split = 4, moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
 ```
 
+
 ## PCA
 
 Also with fingerprint features on both training set and "all" drugs. 
@@ -275,7 +274,6 @@ select(m_all, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>%
 select(m_all_alldrugs, drugname_typaslab, conc, process_broad, fingerprint_mcl) %>% 
   plot_pca(save = TRUE, file = "./plots/PCA_fpt_alldrugs.pdf")
 ```
-
 
 
 # Session info
