@@ -572,7 +572,7 @@ plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE,
     column_names_side = "top", 
     row_names_side = "right", 
     cluster_rows = TRUE, 
-    row_dend_side = "right", 
+    row_dend_side = "left", 
     row_names_gp = gpar(fontsize = 4), 
     column_names_gp = gpar(fontsize = 5), 
     split = split, 
@@ -580,6 +580,7 @@ plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE,
       grid.text(sprintf("%.2f", m[i, j]), x, y, 
         gp = gpar(col = "black", fontsize = 2))
     }) + row_annot
+  h <- h + rowAnnotation(rn = anno_text(rownames(m), gp = gpar(fontsize = 4)))
   
   if (printplot) print(h)
   

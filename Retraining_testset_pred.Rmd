@@ -1,5 +1,5 @@
 ---
-title: ""
+title: "Production models, predictions, feature importances"
 author: "Florian Huber"
 date: "`r Sys.Date()`"
 output:
@@ -17,15 +17,19 @@ editor_options:
 
 # Setup
 
-```{r setup}
+```{r setup, message = FALSE}
 source("./setup.R")
 mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
 ```
 
-# Retrain models
+# A "production model" of MoA prediction
 
-Retrain model on whole Nichols data according with following setup: random 
-forest, all dosages, no chemical features. 
+## Recap of previous findings
+
+Nested cross-validation tells us the generalisation error estimate of the model 
+tuning procedure in the inner loop. Using this generalisation error we found out 
+that random forests, all drug dosages, no chemical features is the best set-up 
+for an MoA classifier: 
 
 ```{r}
 # get the data set
@@ -34,10 +38,17 @@ mc_ext <- readRDS("./data/programmatic_output/mc_ext.rds")
 chosen <- filter(mc_ext, fitted_model == "classif.randomForest", 
   drug_dosages == "all", !chemical_feats)
 
-# overall performance: 70% accuracy 
-chosen$perf_measures[[1]] %>%
+perfs <- 
+  chosen$perf_measures[[1]] %>%
   group_by(cvrep) %>%
-  summarise(mean_mmce = mean(mmce)) %>%
+  summarise(mean_mmce = mean(mmce))
+```
+
+This classifier had an average accuracy of `r 1 - mean(perfs$mean_mmce)`. 
+
+```{r}
+# overall performance: 70% accuracy 
+perfs %>%
   ggplot(aes(x = "", y = mean_mmce)) + 
     geom_boxplot(outlier.shape = NA, width = 0.5) + 
     geom_point(position = position_jitter(width = 0.2, height = 0), shape = 1) + 
@@ -48,16 +59,20 @@ chosen$perf_measures[[1]] %>%
 ggsave(filename = "./plots/Performance_RF_all.pdf", width = 87, height = 90, 
   units = "mm")
 
-# our input data set
+# our input data set (dfm = drug-feature matrix = same as m_all)
 dfm <- chosen$drug_feature_matrices[[1]]
 
 # cvinstance we will use for tuning:
 rin <- chosen$resamp_instance[[1]][[1]]
 ```
 
-## Whole dataset: tuning
+## Retraining on the whole training dataset: complete model
 
-Tune with routine of inner loop. Source the functions from fit_one_row.R first. 
+To actually deploy our model we need to first tune the parameters, then train 
+on the whole dataset (= routine of inner loop). Functions needed are in 
+`fit_one_row.R`. 
+
+### Tune parameters
 
 ```{r}
 lrn <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
@@ -85,391 +100,264 @@ if (!file.exists(my_file)) {
 }
 ```
 
-## Parsimonious model: tuning
-
-Tune also fingerprint-based learner. Only tune number of trees
-
-```{r}
-lrn_fpt <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
-
-fpt <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
-dfm_fpt <- dfm[, c("drugname_typaslab", "conc", "process_broad", fpt)]
-
-tsk_fpt <- make_my_task(dfm = dfm_fpt, blockvar = "drugname_typaslab")
-
-rf_grid_fpt <- makeParamSet(
-  makeDiscreteParam("ntree", values = c(200, 500, 1000))
-)
-
-my_file <- "./data/programmatic_output/tuned_params_chosen_fpt.rds"
-if (!file.exists(my_file)) {
-  tuned_params_fpt <- tuneParams(learner = lrn_fpt, task = tsk_fpt, 
-    resampling = rin, measures = chosen$tuning_measure[[1]], 
-    par.set = rf_grid_fpt, control = makeTuneControlGrid())
-  saveRDS(object = tuned_params_fpt, file = my_file)
-} else {
-  tuned_params_fpt <- readRDS(my_file)
-}
-```
-
-## Training tuned learners
+### Retrain with tuned parameters
 
 ```{r}
 # set seed? 
 # original model
 tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x)
 
-my_file <- "./data/programmatic_output/trained_model.rds"
-if (!file.exists(my_file)) {
-  trained_model <- mlr::train(learner = tuned_lrn, task = tsk)
-  saveRDS(object = trained_model, file = my_file)
-} else {
-  trained_model <- readRDS(my_file)
-}
-
-# with proximity
-my_file <- "./data/programmatic_output/trained_model_prox.rds"
-if (!file.exists(my_file)) {
-  ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
-  tuned_lrn_prox <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
-    proximity = TRUE)
-  trained_model_prox <- mlr::train(learner = tuned_lrn, task = tsk)
-  saveRDS(object = trained_model_prox, file = my_file)
-} else {
-  trained_model_prox <- readRDS(my_file)
-}
-
-# with local importance
-my_file <- "./data/programmatic_output/trained_model_locimp.rds"
-if (!file.exists(my_file)) {
-  ## NOTE the additional arguments, check also getParamSet(tuned_lrn)
-  tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+# models with proximity matrices, local importances
+tuned_lrn_prox <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+  proximity = TRUE)
+tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
     proximity = TRUE, localImp = TRUE)
-  trained_model_loc <- mlr::train(learner = tuned_lrn_loc, task = tsk)
-  saveRDS(object = trained_model_loc, file = my_file)
-} else {
-  trained_model_loc <- readRDS(my_file)
+
+train_or_load <- function(tuned_learner, task, modelfile) {
+  if (!file.exists(modelfile)) {
+    message("Modelfile does not exist, training classifier.")
+    trained_model <- mlr::train(learner = tuned_learner, task = task)
+    saveRDS(object = trained_model, file = modelfile)
+    return(trained_model)
+  } else {
+    message("Modelfile already present, loading from file.")
+    return(readRDS(modelfile))
+  }
 }
 
-# fingerprint model
-my_file <- "./data/programmatic_output/trained_model_fpt.rds"
-if (!file.exists(my_file)) {
-  tuned_lrn_fpt <- setHyperPars(lrn_fpt, par.vals = tuned_params_fpt$x)
-  trained_model_fpt <- mlr::train(learner = tuned_lrn_fpt, task = tsk_fpt)
-  saveRDS(object = trained_model_fpt, file = my_file)
-} else {
-  trained_model_fpt <- readRDS(my_file)
+trained_model <- train_or_load(tuned_learner = tuned_lrn, task = tsk, 
+  modelfile = "./data/programmatic_output/trained_model.rds")
+
+trained_model_prox <- train_or_load(tuned_learner = tuned_lrn_prox, task = tsk, 
+  modelfile = "./data/programmatic_output/trained_model_prox.rds")
+
+trained_model_loc <- train_or_load(tuned_learner = tuned_lrn_loc, task = tsk, 
+  modelfile = "./data/programmatic_output/trained_model_locimp.rds")
+```
+
+### Predictions of the complete model
+
+For each of control set, test set, and unknown MoA set run predictions, report 
+performance (if applicable), and generate a prediction heatmap. See 
+DataLoading notebook for set definitions.
+
+```{r}
+split_sets <- readRDS("./data/programmatic_output/split_sets.rds")
+
+predict_my_set <- function(trained_model, newdata) {
+  predictions <- predict(trained_model, newdata = as.data.frame(newdata))
+  predictions$data <- as_tibble(
+    cbind(newdata[, c("drugname_typaslab", "conc")], 
+      as.data.frame(predictions))
+  )
+  return(predictions)
 }
 ```
 
-
-# Predictions with retrained models
-
-## Define drug sets
-
-Predict: (i) test set drugs (Lucia) not present in trained model, (ii) "test" 
-set drugs (Lucia) overlapping with trained model, (iii) unknown drugs or drugs 
-excluded due to other reasons. 
+#### Control set
 
 ```{r}
-all_data <- readRDS("./data/programmatic_output/kept_datasets_wide_featsndrugs_removed_noNAs_featsmerged.rds")
+control_preds <- predict_my_set(trained_model = trained_model, 
+  newdata = split_sets$control_set)
+performance(control_preds)
 
-# TO DO: didn't do "top3" selection here - fix (and in the other notebook it was done too early)
-# TO DO: should've perhaps put MoA information already in the dfms
-moa <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
-all_data <- all_data[c("nichols_2011.sscores", "newsize.sscores")]
-all_data <- map(all_data, function(.x) {
-  left_join(.x, moa[, c("drugname_typaslab", "process_broad")]) %>%
-    select(drugname_typaslab, conc, process_broad, everything())
-  })
+print(control_preds$data, n = 500)
 
-(nic <- all_data$nichols_2011.sscores)
-(new <- all_data$newsize.sscores)
-
-unknown <- map(list(nic, new), ~ filter(.x, process_broad == "unknown")) %>%
-  bind_rows()
-
-(nic_to_test <- nic %>%
-    filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
-      !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
-nic_to_test$process_broad %<>% factor(levels = moas)
-
-(new_to_test <- new %>%
-    filter(!(drugname_typaslab %in% unknown$drugname_typaslab | drugname_typaslab %in% dfm$drugname_typaslab), 
-      !(process_broad %in% c("pmf", "ox_stress", "protein_qc"))))
+plot_mcl_probs_heatmap(melt_pred_data_mcl(control_preds$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_controlset.pdf")
 ```
 
-## Run predictions: original model
-
-Left out drugs from Nichols. 
+#### Test set
 
 ```{r}
-nic_to_test_preds <- predict(trained_model, newdata = nic_to_test)
-nic_to_test_preds$data <- as_tibble(
-  cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds))
-  )
-nic_to_test_preds
-performance(nic_to_test_preds)
-nic_to_test_preds$data
-```
+test_preds <- predict_my_set(trained_model = trained_model, 
+  newdata = split_sets$test_set)
 
-Actual test set. 
+performance(test_preds)
 
-```{r}
-new_to_test_preds <- predict(trained_model, newdata = new_to_test)
-new_to_test_preds$data <- as_tibble(
-  cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds))
-  )
-new_to_test_preds
-performance(new_to_test_preds)
-print(new_to_test_preds$data, n = 50)
+print(test_preds$data, n = 500)
 
-plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds$data), mics = mics, 
+plot_mcl_probs_heatmap(melt_pred_data_mcl(test_preds$data), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_testset.pdf")
 
-plot_mcl_probs_lines(melt_pred_data_mcl(new_to_test_preds$data), save = TRUE, 
-  printplot = FALSE, file = "./plots/Pred_lines_testset.pdf")
+# usage note:
+# plot_mcl_probs_lines(melt_pred_data_mcl(test_preds$data), save = TRUE, 
+#   printplot = FALSE, file = "./plots/Pred_lines_testset.pdf")
 ```
 
-Unknown drugs.
+#### Unknown MoA set
 
 ```{r}
-unknown_preds <- predict(trained_model, newdata = unknown)
-unknown_preds$data <- as_tibble(
-  cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds))
-  )
-unknown_preds
-print(unknown_preds$data, n = 50)
+unknown_preds <- predict_my_set(trained_model = trained_model, 
+  newdata = split_sets$unknown_moas)
+
+print(unknown_preds$data, n = 500)
 
 plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown.pdf")
-
-plot_mcl_probs_heatmap2(pred_data = unknown_preds$data, mics = mics, 
-  printplot = TRUE, save = TRUE, file = "./plots/Pred_heatmap2_unknown.pdf")
-
-plot_mcl_probs_lines(melt_pred_data_mcl(unknown_preds$data), save = TRUE, 
-  printplot = FALSE, file = "./plots/Pred_lines_unknown.pdf")
 ```
 
 
-## Run predictions: parsimonious model 
+### Complete model: feature importance scores
 
-Left out drugs from Nichols.
+#### Global feature importance
 
 ```{r}
-nic_to_test_preds_fpt <- predict(trained_model_fpt, newdata = nic_to_test)
-nic_to_test_preds_fpt$data <- as_tibble(
-  cbind(nic_to_test[, c(1, 2)], as.data.frame(nic_to_test_preds_fpt))
-  )
-nic_to_test_preds_fpt
-performance(nic_to_test_preds_fpt)
-nic_to_test_preds_fpt$data
+# getFeatureImportance(mod)$res is a 1-row data frame with each column being 
+# a gene
+mod_imp <- 
+  gather(getFeatureImportance(trained_model)$res, key = "gene", value = "imp", 
+    everything()) %>%
+  filter(imp != 0) %>%
+  arrange(desc(imp)) %>% 
+  mutate(gene = fct_reorder(gene, imp, .desc = TRUE), log2imp = log2(imp)) %>%
+  as_tibble()
+
+mod_imp
 ```
 
-Actual test set. 
+General distribution.
 
 ```{r}
-new_to_test_preds_fpt <- predict(trained_model_fpt, newdata = new_to_test)
-new_to_test_preds_fpt$data <- as_tibble(
-  cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds_fpt))
-  )
-new_to_test_preds_fpt
-performance(new_to_test_preds_fpt)
-print(new_to_test_preds_fpt$data, n = 50)
+ggplot(mod_imp, aes(x = log2imp)) + 
+  geom_histogram(bins = 45) + 
+  comparison_theme + 
+  labs(x = "Feature importance (log2)", y = "Count") + 
+  theme(panel.grid = element_blank())
 
-plot_mcl_probs_heatmap(melt_pred_data_mcl(new_to_test_preds_fpt$data), mics = mics, 
-  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_testset_parsimonious.pdf")
-
-plot_mcl_probs_lines(melt_pred_data_mcl(new_to_test_preds_fpt$data), save = TRUE, 
-  printplot = FALSE, file = "./plots/Pred_lines_testset_parsimonious.pdf")
+ggsave(filename = "./plots/Feature_importance_hist.pdf", width = 45, 
+  height = 45, units = "mm")
 ```
 
-Unknown drugs. 
-
 ```{r}
-unknown_preds_fpt <- predict(trained_model_fpt, newdata = unknown)
-unknown_preds_fpt$data <- as_tibble(
-  cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds_fpt))
-  )
-unknown_preds_fpt
-print(unknown_preds_fpt$data, n = 50)
+fadd <- mod_imp$log2imp[mod_imp$gene == "FADD"]
+ulab <- mod_imp$log2imp[mod_imp$gene == "ULAB"]
+cutoff <- fadd - abs(fadd - ulab) / 2
 
-plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds_fpt$data), mics = mics, 
-  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown_parsimonious.pdf")
+ggplot(mod_imp[1:60, ], aes(x = gene, y = log2imp)) + 
+  geom_point(size = 0.75) + 
+  geom_hline(yintercept = cutoff, linetype = "dotted") + 
+  labs(x = "Gene", y = "Feature importance (log2)") + 
+  paper_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
 
-plot_mcl_probs_lines(melt_pred_data_mcl(unknown_preds_fpt$data), save = TRUE, 
-  printplot = FALSE, file = "./plots/Pred_lines_unknown_parsimonious.pdf")
-```
+ggsave(filename = "./plots/paper/Feature_importance_top60.pdf", width = 135, 
+  height = 85, units = "mm")
 
-Location in tSNE. 
+fpt <- as.character(mod_imp$gene[mod_imp$log2imp > cutoff])
 
-```{r}
-# drugs from original tSNE map
-m_all <- readRDS("./data/programmatic_output/m_all.rds")
-
-m_all_alldrugs <- bind_rows(m_all, nic_to_test, new_to_test, unknown)
-saveRDS(m_all_alldrugs, file = "./data/programmatic_output/m_all_alldrugs.rds")
-
-# chemogenomic fingerprint
-fingerprint_mcl <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
-
-# add the drugs we predicted here, then subset with fingerprint features
-tsne_mat <- bind_rows(m_all, nic_to_test, new_to_test, unknown) %>% 
-  select(drugname_typaslab, conc, process_broad, fingerprint_mcl)
-
-tsne_mat$process_broad <- factor(tsne_mat$process_broad)
-set.seed(5)
-tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 10, 
-  max_iter = 6000)
-
-plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
-  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
-colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
-
-moa_cols <- c(moa_cols, "unknown" = "#636363")
-p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
-  colors = moa_cols[levels(tsne_mat$process_broad)], 
-  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
-    width = 1.5))) %>%
-  add_markers(text = ~ drug) %>%
-  layout(title = "Fingerprint tSNE map", 
-    scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
-      zaxis = list(title = 'tSNE3')))
-p
-
-saveRDS(object = p, file = "./plots/tSNE_map_complete.rds")
+saveRDS(fpt, file = "./data/programmatic_output/fingerprint_mcl.rds")
+write.table(x = fpt, row.names = FALSE, col.names = FALSE, 
+  quote = FALSE, file = "./data/programmatic_output/fingerprint_mcl.csv")
 ```
 
 
-Proximity scores. 
+```{r, include = FALSE, eval = FALSE}
+## FOR POSTER ------------
+mutate(mod_imp, above_thresh = log2imp >= cutoff) %>% 
+  ggplot(aes(x = log2imp, fill = above_thresh)) + 
+    geom_histogram(bins = 35) + 
+    comparison_theme + 
+    labs(x = "Log2 feature importance", y = "Count") + 
+    scale_fill_manual(values = c("#404040", "#ca0020")) + 
+    poster_theme + 
+    theme(legend.position = "None")
 
-```{r}
-# library(ComplexHeatmap)
-# see line 130 ff
-trained_model_prox
-proxmat <- trained_model_prox[["learner.model"]][["next.model"]][["learner.model"]][["proximity"]]
-# how to get the data? - apparently we need the task 
-row.names(proxmat) <- paste(tsk$data_complete$drugname_typaslab, 
-  tsk$data_complete$conc, sep = "_")
-colnames(proxmat) <- row.names(proxmat)
+ggsave(filename = "./plots/POSTER_histogram.pdf", width = 120, height = 110, 
+  units = "mm")
 
-min_col <- plasma(2)[1]
-max_col <- plasma(2)[2]
+## FOR PAPER ------
+mutate(mod_imp, above_thresh = log2imp >= cutoff) %>% 
+  ggplot(aes(x = log2imp, fill = above_thresh)) + 
+    geom_histogram(bins = 35) + 
+    comparison_theme + 
+    labs(x = "Log2 feature importance", y = "Count") + 
+    scale_fill_manual(values = c("#404040", "#ca0020")) + 
+    paper_theme + 
+    theme(legend.position = "None")
 
-# Make annotation object
-# ComplexHeatmap seems to have problems with tibbles! 
-# use as.data.frame() because this function needs a factor
-row_annot <- HeatmapAnnotation(df = as.data.frame(tsk$data_complete[, "process_broad"]), 
-  col = list(process_broad = moa_cols), which = "row",
-  name = "MoA", annotation_width = 3)
-#row_annot
-#draw(row_annot, 1:20)
-
-h <- Heatmap(matrix = proxmat,
-  col = colorRamp2(breaks = c(0, 1), colors = c(min_col, max_col)),
-  # name = "S-score",
-  # clustering_distance_rows = my_distfun,
-  # clustering_distance_columns = my_distfun,
-  column_names_side = "top",
-  row_names_side = "right",
-  #cluster_rows = TRUE,
-  row_dend_side = "right",
-  row_names_gp = gpar(fontsize = 7),
-  column_names_gp = gpar(fontsize = 7),
-  split = 8,
-  column_split = 8, 
-  #cell_fun = function(j, i, x, y, width, height, fill) {
-  #  grid.text(sprintf("%.2f", proxmat[i, j]), x, y,
-  #    gp = gpar(col = "black", fontsize = 2))
-  #}
-  ) + row_annot
-
-pdf(file = "./plots/proxmat_new_split_8_groups.pdf", width = 20, height = 20)
-print(h)
-dev.off()
+ggsave(filename = "./plots/paper/FeatImp_histogram.pdf", width = 50, height = 50, 
+  units = "mm")
 ```
 
-Local importance scores.
+#### Local feature importances
+
+Feature importances broken down by class. 
 
 ```{r}
-# remember: getFeatureImportance(learner) returns a 1-row data frame
-# l <- map(list(trained_model, trained_model_loc), ~ t(getFeatureImportance(.x)$res)) %>% 
-#   map(as_tibble, rownames = "gene")
-# left_join(l[[1]], l[[2]], by = "gene") %>%
-#   ggplot(aes(x = log2(V1.x), y = log2(V1.y))) + 
-#   geom_point()
-
 # this here returns a matrix with all the features in the rows and the 
 # importance for the MoAs in the columns:
 imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][["importance"]]
 imp <- as_tibble(imp, rownames = "gene")
-dim(imp)
+imp
 
-# this here returns a p by n matrix, the [i,j] element of which is the 
-# importance of the i-th variable on the j-th case
-loc_imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][["localImportance"]]
-loc_imp <- as_tibble(loc_imp, rownames = "gene")
-names(loc_imp)[2:ncol(loc_imp)] <- paste0(tsk$data_complete$drugname_typaslab, 
-  "_", tsk$data_complete$conc)
-
-filter(loc_imp, gene %in% c("SLT", "MRCB")) %>%
-  select(gene, matches("CARBENICILLIN|A22"))
-
-# let's try to break down feature importance into the respective MoAs
-# this was the original mcl fingerprint:
-fpt
-
-map(moas[1:4], function(.x) {
+# get the 10 most important features for each MoA, then keep only unique ones
+topXeach <- map_dfr(main_moas, function(.x) {
   .x <- ensym(.x)
-  arrange(imp, desc(!!.x))[1:10, ]
-})
-
-# perhaps try this: a stacked barplot, each element on the x-axis being one 
-# feature, y-axis the feature importance, colour indicating for which MoA:
-
-top10each <- map_dfr(moas[1:4], function(.x) {
-  .x <- ensym(.x)
-  arrange(imp, desc(!!.x))[1:10, ]}) %>%
+  arrange(imp, desc(!!.x))[1:15, ]}) %>%
   dplyr::distinct()
 
-dim(top10each)
-# out of the 20 rows in top10each 18 are contained in our original fingerprint
-sum(top10each$gene %in% fpt)
+topXeach
+sum(topXeach$gene %in% fpt)
 
-top10each$total_imp <- apply(top10each[, 2:5], 1, sum)
-top10each$gene <- factor(top10each$gene, levels = top10each$gene[order(top10each$total_imp, decreasing = TRUE)])
+topXeach$total_imp <- apply(topXeach[, 2:5], 1, sum)
+topXeach$gene <- factor(topXeach$gene, 
+  levels = topXeach$gene[order(topXeach$total_imp, decreasing = TRUE)])
 
-top10each %>%
+topXeach %>%
   select(gene:protein_synthesis) %>%
   gather(cell_wall:protein_synthesis, key = MoA, value = imp) %>%
   ggplot(aes(x = gene, y = imp)) + 
     geom_bar(aes(fill = MoA), stat = "identity") + 
     paper_theme + 
     labs(x = "Feature", y = "Local importance by MoA") + 
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6)) + 
     scale_fill_manual(labels = moa_repl, values = moa_cols)
 
-ggsave(filename = "./plots/paper/Imp_by_MoA.pdf", width = 120, height = 100, 
+ggsave(filename = "./plots/paper/Imp_by_MoA.pdf", width = 110, height = 70, 
   units = "mm")
+```
 
+Perhaps better to keep the features separated, makes it easier to see how some 
+MoAs need only few features, others more features. 
+
+```{r}
 # alternatively: show difference in how many features are needed/how quickly 
 # the feature importance drops:
-arrange(imp, desc(protein_synthesis)) %>%
-  slice(1:20) %>%
-  mutate(gene = factor(gene, levels = gene)) %>%
-  ggplot(aes(x = gene, y = protein_synthesis)) + 
-    geom_bar(stat = "identity")
+tmp <- map_dfr(main_moas, function(.x) {
+  .x <- ensym(.x)
+  arrange(imp, desc(!!.x))[1:10, ] %>% 
+    select(gene, !!.x) %>% 
+    gather(!!.x, key = "MoA", value = "imp")
+})
 
-ggsave(filename = "./plots/top20feats_prot_synth.pdf")
+tmp$gene <- fct_inorder(tmp$gene)
 
-arrange(imp, desc(cell_wall)) %>%
-  slice(1:20) %>%
-  mutate(gene = factor(gene, levels = gene)) %>%
-  ggplot(aes(x = gene, y = cell_wall)) + 
-    geom_bar(stat = "identity")
+ggplot(tmp, aes(x = gene, y = imp)) + 
+  geom_bar(stat = "identity") + 
+  facet_wrap( ~ MoA, ncol = 2, scales = "free") + 
+  paper_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(filename = "./plots/top20feats_cell_wall.pdf")
+ggsave(filename = "./plots/top10each.pdf")
 ```
+
+Case by case. 
+
+```{r}
+# this here returns a p by n matrix, the [i,j] element of which is the 
+# importance of the i-th variable on the j-th case
+loc_imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][["localImportance"]]
+loc_imp <- as_tibble(loc_imp, rownames = "gene")
+
+names(loc_imp)[2:ncol(loc_imp)] <- paste0(tsk$data_complete$drugname_typaslab, 
+  "_", tsk$data_complete$conc)
+
+filter(loc_imp, gene %in% c("SLT", "MRCB")) %>%
+  select(gene, matches("CARBENICILLIN|A22"))
+```
+
+One can check which features were important for classifying which observation.
 
 ```{r}
 # let's have a look how MRCB and SLT impact different drugs:
@@ -512,28 +400,283 @@ filter(tmp, process_broad == "dna") %>%
     scale_colour_manual(labels = moa_repl, values = moa_cols)
 
 ggsave(filename = "./plots/LocalImp_RECC_RECA.pdf")
-
 ```
 
 
+### Complete model: proximity matrix
+
+Proximity scores. 
 
 ```{r}
-## what if we add classweights to the trained model? 
-#props <- table(dfm$process_broad) / sum(table(dfm$process_broad))
-#(weights <- round(1 / (props/min(props)), digits = 2))
+proxmat <- trained_model_prox[["learner.model"]][["next.model"]][["learner.model"]][["proximity"]]
+# how to get the data? - apparently we need the task 
+row.names(proxmat) <- paste(tsk$data_complete$drugname_typaslab, 
+  tsk$data_complete$conc, sep = "_")
+colnames(proxmat) <- row.names(proxmat)
 
-#tsk_dat <- as_tibble(getTaskData(tsk))
-#tsk_dat$process_broad <- as.character(tsk_dat$process_broad)
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
 
-#trained_model_wts <- mlr::train(learner = tuned_lrn, task = tsk)
+# Make annotation object
+# ComplexHeatmap seems to have problems with tibbles! 
+# use as.data.frame() because this function needs a factor
+row_annot <- HeatmapAnnotation(df = as.data.frame(tsk$data_complete[, "process_broad"]), 
+  col = list(process_broad = moa_cols), which = "row",
+  name = "MoA", annotation_width = 3)
+
+h <- Heatmap(matrix = proxmat,
+  col = colorRamp2(breaks = c(0, 1), colors = c(min_col, max_col)),
+  column_names_side = "top",
+  row_names_side = "right",
+  row_dend_side = "right",
+  row_names_gp = gpar(fontsize = 7),
+  column_names_gp = gpar(fontsize = 7),
+  ) + row_annot
+
+pdf(file = "./plots/proxmat.pdf", width = 20, height = 20)
+print(h)
+dev.off()
+
+
+h <- Heatmap(matrix = proxmat,
+  col = colorRamp2(breaks = c(0, 1), colors = c(min_col, max_col)),
+  column_names_side = "top",
+  row_names_side = "right",
+  row_dend_side = "right",
+  row_names_gp = gpar(fontsize = 7),
+  column_names_gp = gpar(fontsize = 7),
+  split = 5,
+  column_split = 5, 
+  ) + row_annot
+
+pdf(file = "./plots/proxmat_split.pdf", width = 20, height = 20)
+print(h)
+dev.off()
 ```
 
 
+## Retraining on the whole training dataset: parsimonious model
+
+### Tune parameters
+
+Only tune number of trees. 
+
+```{r}
+lrn_fpt <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
+
+dfm_fpt <- dfm[, c("drugname_typaslab", "conc", "process_broad", fpt)]
+
+tsk_fpt <- make_my_task(dfm = dfm_fpt, blockvar = "drugname_typaslab")
+
+rf_grid_fpt <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(200, 500, 1000))
+)
+
+my_file <- "./data/programmatic_output/tuned_params_chosen_fpt.rds"
+if (!file.exists(my_file)) {
+  tuned_params_fpt <- tuneParams(learner = lrn_fpt, task = tsk_fpt, 
+    resampling = rin, measures = chosen$tuning_measure[[1]], 
+    par.set = rf_grid_fpt, control = makeTuneControlGrid())
+  saveRDS(object = tuned_params_fpt, file = my_file)
+} else {
+  tuned_params_fpt <- readRDS(my_file)
+}
+```
+
+Train model. 
+
+```{r}
+tuned_lrn_fpt <- setHyperPars(lrn_fpt, par.vals = tuned_params_fpt$x)
+
+trained_model_fpt <- train_or_load(tuned_learner = tuned_lrn_fpt, task = tsk_fpt, 
+  modelfile = "./data/programmatic_output/trained_model_fpt.rds")
+```
+
+### Predictions of the parsimonious model
+
+#### Control set
+
+```{r}
+control_preds_pars <- predict_my_set(trained_model = trained_model_fpt, 
+  newdata = split_sets$control_set)
+
+performance(control_preds_pars)
+# complete model:
+performance(control_preds)
+
+print(control_preds_pars$data, n = 500)
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(control_preds_pars$data), mics = mics, 
+  printplot = FALSE, save = TRUE, 
+  file = "./plots/Pred_heatmap_controlset_parsimonious.pdf")
+```
+
+#### Test set
+
+```{r}
+test_preds_pars <- predict_my_set(trained_model = trained_model_fpt, 
+  newdata = split_sets$test_set)
+
+performance(test_preds_pars)
+# complete model:
+performance(test_preds)
+
+print(test_preds_pars$data, n = 500)
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(test_preds_pars$data), mics = mics, 
+  printplot = FALSE, save = TRUE, 
+  file = "./plots/Pred_heatmap_testset_parsimonious.pdf")
+```
+
+#### Unknown MoA set
+
+```{r}
+unknown_preds <- predict_my_set(trained_model = trained_model_fpt, 
+  newdata = split_sets$unknown_moas)
+
+print(unknown_preds$data, n = 500)
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
+  printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown_parsimonious.pdf")
+```
+
+
+# Clustering, dimensionality reduction
+
+## tSNE
+
+All features, training set.
+
+```{r}
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+plot_tsne(m_all, save = TRUE, file = "./data/programmatic_output/tSNE_allfeats_training.rds")
+```
+
+Chemogenomic fingerprint, training set. 
+
+```{r}
+select(m_all, drugname_typaslab, conc, process_broad, fpt) %>%
+  plot_tsne(save = TRUE, file = "./data/programmatic_output/tSNE_fingerprint_training.rds")
+```
+
+Chemogenomic fingerprint, all drugs (training set, test set, unknown drugs).  
+
+```{r}
+split_sets <- readRDS("./data/programmatic_output/split_sets.rds")
+m_all_alldrugs <- bind_rows(split_sets$training_set, split_sets$test_set, 
+  split_sets$unknown_moas)
+
+select(m_all_alldrugs, drugname_typaslab, conc, process_broad, fpt) %>%
+  plot_tsne(save = TRUE, file = "./data/programmatic_output/tSNE_fingerprint_alldrugs.rds")
+```
+
+
+```{r, include = FALSE, eval = FALSE}
+## FOR POSTER --------------
+tsne_mat <- m_all[, c("drugname_typaslab", "conc", "process_broad", fpt)]
+
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+
+stopifnot(all(colnames(tsne_mat)[1:3] %in% c("drugname_typaslab", "conc", "process_broad")))
+
+tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 25, 
+  max_iter = 6000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+
+p <- plot_ly(plotData, x = ~tSNE1, y = ~tSNE2, z = ~tSNE3, color = ~MoA, 
+  colors = moa_cols[levels(tsne_mat$process_broad)], 
+  marker = list(size = 8, line = list(color = 'rgba(0, 0, 0, 1)', 
+    width = 1.5))) %>%
+  add_markers(text = ~ drug) %>%
+  layout(title = "tSNE map", 
+    scene = list(xaxis = list(title = 'tSNE1'), yaxis = list(title = 'tSNE2'), 
+      zaxis = list(title = 'tSNE3')))
+
+p1 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+    geom_point(alpha = 0.75) + 
+    scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    poster_theme + 
+    theme(legend.position = "None")
+
+p2 <- ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) + 
+    geom_point(alpha = 0.75) + 
+    scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+    poster_theme
+
+grid.arrange(p1, p2, ncol = 2, widths = c(unit(78, "mm"), unit(122, "mm")), 
+  heights = unit(110, "mm")) %T>% 
+  ggsave(filename = "./plots/POSTER_tSNE.pdf")
+
+
+## FOR PAPER
+ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+  geom_point(alpha = 0.75, shape = 16) + 
+  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+  paper_theme + 
+  theme(legend.position = "None")
+
+ggsave(filename = "./plots/paper/tSNE1.pdf", width = 50, height = 50, 
+  units = "mm")
+
+ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) + 
+  geom_point(alpha = 0.75, shape = 16) + 
+  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/tSNE2.pdf", width = 90, height = 50, 
+  units = "mm")
+```
+
+## PCA
+
+Also with fingerprint features on both training set and "all" drugs. 
+
+```{r}
+# all features, training set
+plot_pca(m_all, save = TRUE, file = "./plots/PCA_allfeats_training.pdf")
+
+# fingerprint features, training set
+select(m_all, drugname_typaslab, conc, process_broad, fpt) %>% 
+  plot_pca(save = TRUE, file = "./plots/PCA_fpt_training.pdf")
+
+# fingerprint features, all drugs
+select(m_all_alldrugs, drugname_typaslab, conc, process_broad, fpt) %>% 
+  plot_pca(save = TRUE, file = "./plots/PCA_fpt_alldrugs.pdf")
+```
+
+## Hierarchical clustering
+
+With fingerprint features, on the training set and on Nichols + Lucia + unknown 
+drugs. 
+
+```{r}
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+mode_of_action <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
+mic_info <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+
+# all features, training set
+if (!file.exists("./plots/Hclust_allfeats_training.pdf")) {
+  plot_heatmap(dfm = m_all, feats = colnames(select(m_all, AAEX:last_col())), 
+    mics = mic_info, split = 4, 
+    moa = mode_of_action, save = TRUE, file = "./plots/Hclust_allfeats_training.pdf")
+}
+
+# fingerprint features, training set
+plot_heatmap(dfm = m_all, feats = fpt, mics = mic_info, split = 4, 
+  moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_training.pdf")
+
+# fingerprint features, all drugs
+plot_heatmap(dfm = m_all_alldrugs, feats = fpt, mics = mic_info, 
+  split = 4, moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
+```
 
 # Session info
 
 ```{r session_info}
-save.image(file = "./data/programmatic_output/SESSION_Retraining_testset_pred.RData")
 R.version
 sessionInfo()
 ```

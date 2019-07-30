@@ -768,6 +768,8 @@ unknown_moas <- imap_dfr(kept_studies_wide_moa, function(.el, .name) {
 # for convenience
 split_sets <- list(training_set = training_set, control_set = control_set, 
   other_moas = other_moas, test_set = test_set, unknown_moas = unknown_moas)
+
+saveRDS(object = split_sets, file = "./data/programmatic_output/split_sets.rds")
 ```
 
 
