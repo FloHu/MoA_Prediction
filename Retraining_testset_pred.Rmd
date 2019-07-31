@@ -374,7 +374,7 @@ tmp$condition_label <- ifelse(abs(tmp$MRCB) > 0.1 | abs(tmp$YCFM) > 0.1, tmp$con
 
 ggplot(tmp, aes(x = MRCB, y = YCFM, colour = process_broad, label = condition_label)) + 
   geom_point() + 
-  ggrepel::geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
+  geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
   scale_colour_manual(labels = moa_repl, values = moa_cols)
 
 ggsave(filename = "./plots/LocalImp_MRCB_YCFM.pdf")
@@ -396,7 +396,7 @@ tmp$condition_label <- ifelse(
 filter(tmp, process_broad == "dna") %>% 
   ggplot(aes(x = RECC, y = RECA, colour = process_broad, label = condition_label)) + 
     geom_point() + 
-    ggrepel::geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
+    geom_text_repel(size = 3, vjust = 0, nudge_y = 0.001) + 
     scale_colour_manual(labels = moa_repl, values = moa_cols)
 
 ggsave(filename = "./plots/LocalImp_RECC_RECA.pdf")

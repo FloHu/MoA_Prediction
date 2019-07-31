@@ -18,6 +18,7 @@ ipak(googledrive)
 ipak(viridis)
 ipak(mmpf)
 ipak(ggpubr)
+ipak(ggrepel)
 
 ipak(extrafont)
 loadfonts()

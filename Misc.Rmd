@@ -413,6 +413,51 @@ by(data = res, INDICES = res$bin, FUN = function(x) {
 })
 ```
 
+
+## Correlation chemogenomic profiles for shared conditions Nichols/Newsize
+
+```{r}
+split_sets <- readRDS("./data/programmatic_output/split_sets.rds")
+
+newsize <- split_sets$control_set
+nichols <- split_sets$training_set
+
+newsize <- newsize %>% 
+  filter(origin == "newsize") %>% 
+  filter(paste(drugname_typaslab, conc) %in% paste(nichols$drugname_typaslab, nichols$conc)) %>% 
+  select(-one_of("origin"))
+
+nichols <- nichols %>% 
+  filter(paste(drugname_typaslab, conc) %in% paste(newsize$drugname_typaslab, newsize$conc))
+
+newsize <- gather(newsize, AAEX:last_col(), key = "gene", value = "sscore")
+nichols <- gather(nichols, AAEX:last_col(), key = "gene", value = "sscore")
+
+joined <- full_join(newsize, nichols, by = c("drugname_typaslab", "conc", 
+  "gene", "process_broad"), suffix = c(".new", ".nic"))
+
+joined <- group_by(joined, drugname_typaslab, conc, process_broad) %>% 
+  nest()
+
+joined$cor <- map_dbl(joined$data, ~ cor(.x$sscore.new, .x$sscore.nic, method = "spearman"))
+joined$label <- paste0(joined$drugname_typaslab, " (", joined$conc, ")")
+joined$label <- fct_reorder(joined$label, joined$cor, .desc = FALSE)
+
+ggplot(joined, aes(x = "", label = label, y = cor)) + 
+  geom_point(shape = 1) + 
+  geom_text_repel(size = 1.5, nudge_x = rep(c(0.25, -0.25), length.out = nrow(joined)), 
+    segment.size = 0.2, force = 0.5) + 
+  labs(x = "", y = "Spearman correlation", 
+    title = "Correlation of chemogenomic profiles") + 
+  paper_theme + 
+  theme(axis.text.x = element_blank())
+
+ggsave("./plots/paper/Corr_shared_conds.pdf", width = 75, height = 90, 
+  units = "mm")
+```
+
+
+
 # Session info
 
 ```{r}

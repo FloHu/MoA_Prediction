@@ -321,7 +321,7 @@ group_by(cors, drugname_typaslab, conc) %>%
   summarise(spearman = cor(sscore.nic, sscore.new, method = "spearman", 
     use = "complete.obs")) %>%
   ggplot(aes(x = "", y = spearman)) + 
-  ggrepel::geom_text_repel(aes(label = paste0(drugname_typaslab, "_", conc)), 
+  geom_text_repel(aes(label = paste0(drugname_typaslab, "_", conc)), 
     size = 3) +
   labs(title = "Spearman correlation of conditions shown across all genes", 
     x = "", y = "Spearman's rho")

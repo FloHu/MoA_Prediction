@@ -339,9 +339,11 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
   tmp$truth <- fct_recode(tmp$truth, "Annotated MoA: Cell Wall" = "cell_wall",
     "Annotated MoA: DNA" = "dna", "Annotated MoA: Membrane Stress" = "membrane_stress",
     "Annotated MoA: Protein Synthesis" = "protein_synthesis")
-
+  
+  # indicate if the median probability (across CV repeats) is the highest among 
+  # the 4 MoAs
   tmp <- group_by(tmp, drug_conc) %>%
-    mutate(is_max = (prob.max) == max(prob.max))
+    mutate(is_max = (prob.med) == max(prob.med))
   tmp$geompoint <- ifelse(tmp$is_max, tmp$drug_conc, NA)
   tmp$geompoint <- levels(tmp$drug_conc)[tmp$geompoint]
 

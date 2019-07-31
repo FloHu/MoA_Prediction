@@ -17,9 +17,18 @@ prep_roc <- function(pred_data, positive) {
       return(col)
     })
   
-  # keep only the probabilities for the positive class, the one for the 
-  # negative is implicit
-  preproc <- preproc[preproc$prob_for == positive, ]
+  # Approach: "difference to next highest probability": Class positive is the 
+  # positive class and has been assigned a probability by the model. One can 
+  # look at the highest probability of the other classes and take the highest 
+  # one. The higher the distance to that probability the more confident we are 
+  # that the current condition does indeed belong to the positive class. This 
+  # distance can also be negative. 
+  preproc <- group_by(preproc, drugname_typaslab, conc) %>% 
+    mutate(next_prob = max(prob.med[prob_for != positive])) %>% 
+    filter(prob_for == positive) %>% 
+    ungroup()
+  
+  preproc$prob_delta <- preproc$prob.med - preproc$next_prob
   
   return(preproc)
 }
@@ -29,7 +38,7 @@ get_responses_mcl <- function(dfr, positive, thresh) {
   dfr$positive <- positive
   dfr$thresh <- thresh
   negative <- paste0("not_", positive)
-  dfr$response <- ifelse(dfr$prob.med >= thresh, positive, negative)
+  dfr$response <- ifelse(dfr$prob_delta >= thresh, positive, negative)
   dfr$tp <- (dfr$response == dfr$truth) & (dfr$truth == positive)
   dfr$fn <- (dfr$response != dfr$truth) & (dfr$truth == positive)
   dfr$fp <- (dfr$response != dfr$truth) & (dfr$truth != positive)
@@ -47,7 +56,7 @@ get_metrics_mcl <- function(dfr) {
 }
 
 get_thresh_vs_perf_mcl <- function(pred_data, positive, 
-  thresholds = seq(from = 0, to = 1, by = 0.01)) {
+  thresholds = seq(from = -1, to = 1, by = 0.01)) {
   preproc <- prep_roc(pred_data, positive = positive)
   thresh_vs_perf <- map_dfr(thresholds, function(.thresh) {
     get_metrics_mcl(get_responses_mcl(preproc, positive, .thresh))
