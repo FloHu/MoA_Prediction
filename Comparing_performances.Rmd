@@ -76,9 +76,12 @@ if (!file.exists(mc_ext_path)) {
 } else {
   message("Matrix container already present.")
 }
+```
 
+```{r}
 saveRDS(mc_ext, file = mc_ext_path)
 ```
+
 
 ## Parsing results objects
 
@@ -263,7 +266,7 @@ Confusion matrix
 # sum up all confusion matrices
 conf_mats <- map(resobj_w, function(ncv_rep) {
   conf_mats <- map(ncv_rep, function(fold) {
-    calculateConfusionMatrix(fold$prediction, )$result
+    calculateConfusionMatrix(fold$prediction)$result
   })
   return(reduce(conf_mats, `+`))
 })

@@ -241,3 +241,9 @@ melt_pred_data_mcl <- function(pred_data) {
   return(melted)
 }
 
+# convenience for fast reading of .rds files from "./data/programmatic_output"
+rd <- function(datafile, dir = "./data/programmatic_output") {
+  datafile <- paste0(rlang::expr_text(rlang::enexpr(datafile)), ".rds")
+  return(readRDS(file.path(dir, datafile)))
+}
+
