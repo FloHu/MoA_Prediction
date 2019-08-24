@@ -44,6 +44,10 @@ moa_repl2 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA",
   prob.membrane_stress = "Membrane Stress", 
   prob.protein_synthesis = "Protein Synthesis")
 
+moa_repl3 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA", 
+  prob.membrane_stress = "Membrane\nStress", 
+  prob.protein_synthesis = "Protein\nSynthesis")
+
 classifier_repl <- c(classif.randomForest = "Random Forests", 
   classif.glmnet = "Lasso", classif.xgboost = "Boosted Trees")
 

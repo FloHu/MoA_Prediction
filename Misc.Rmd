@@ -457,6 +457,65 @@ ggsave("./plots/paper/Corr_shared_conds.pdf", width = 75, height = 90,
 ```
 
 
+## GO enrichment analysis
+
+The chemogenomic fingerprint was mapped to Eco Gene IDs and UniProt IDs in file 
+`./data/programmatic_output/fpt_ecocyc_ids.txt`. This was then used as an input 
+to Pantherdb. The output of the analysis + all settings are in the file 
+`GO_analysis_2019-08-08.txt`. 
+
+```{r}
+tab <- read_delim("./GO_analysis_2019-08-08.txt", delim = "\t", skip = 6)
+colnames(tab)
+
+colnames(tab) <- c("GO_biol_proc", "N_in_ref", "N_in_input", "N_in_input_expected", 
+  "over_or_under", "fold_enrich", "raw_pval")
+
+tab$GO_biol_proc <- str_replace(string = tab$GO_biol_proc, pattern = " \\(GO:\\d*\\)", 
+  replacement = "")
+
+# filter according to a few criteria
+# remove if:
+# there are fewer than 5 genes in the reference
+# there's just a single gene with a particular GO term in our set 
+# stuff that is too broad: if there are more than 100 in the reference it's 
+# usually something generic (e.g. "metabolic process")
+
+# tabfilt <- filter(tab, N_in_input > 1 & N_in_ref > 1)
+
+# keep only the most specific GO term according to the hierarchy
+# these are the most specific ones:
+hierarch_filt <- c("cell division", "response to ionizing radiation", 
+  "peptidoglycan biosynthetic process", "SOS response", 
+  "N-acetylneuraminate catabolic process", "D-alanine biosynthetic process", 
+  "regulation of DNA recombination", "lipoprotein localization to outer membrane", 
+  "double-strand break repair via homologous recombination", 
+  "N-acetylglucosamine catabolic process", "lipoprotein metabolic process", 
+  "maturation of SSU-rRNA", "phosphatidic acid biosynthetic process", 
+  "clearance of foreign intracellular DNA", "localization within membrane", 
+  "regulation of protein targeting to membrane", "glutamyl-tRNA aminoacylation", 
+  "geranyl diphosphate biosynthetic process", "farnesyl diphosphate biosynthetic process", 
+  "UV protection")
+hierarch_filt <- paste0(hierarch_filt, collapse = "|")
+
+tabfilt <- tab[grepl(x = tab$GO_biol_proc, pattern = hierarch_filt), ]
+tabfilt <- filter(tabfilt, N_in_ref > 1 & N_in_input > 1)
+
+# ggplot(tabfilt, aes(x = GO_biol_proc, y = N_in_input)) + 
+#   geom_bar(stat = "identity") + 
+#   coord_flip()
+
+ggplot(tabfilt, aes(x = GO_biol_proc, y = -log10(raw_pval))) + 
+  geom_bar(stat = "identity", width = 0.75) + 
+  labs(y = "-Log10(p-value)", x = "") + 
+  coord_flip() + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/GO_analysis.pdf", width = 80, height = 50, 
+  units = "mm")
+```
+
+
 
 # Session info
 

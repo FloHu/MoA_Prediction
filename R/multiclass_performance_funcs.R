@@ -47,12 +47,10 @@ plot_wide_confmat <- function(wide_confmat, save = FALSE, file = NULL) {
 
 plot_prob_calib <- function(pred_data, title, printplot = TRUE, save = FALSE, 
   file = NULL) {
-  multicl_pred_melt <- melt_pred_data_mcl(pred_data)
-  prob_calib <- multicl_pred_melt
+  prob_calib <- melt_pred_data_mcl(pred_data)
   prob_calib$prob_bin <- cut(prob_calib$prob.med, breaks = seq(from = 0, to = 1, by = 0.1))
-  levels(prob_calib$prob_bin)
-  prob_calib$prob_is_for <- 
-    str_extract(prob_calib$predicted_prob, pattern = "cell_wall|dna|membrane_stress|protein_synthesis")
+  prob_calib$prob_is_for <- str_extract(prob_calib$predicted_prob, 
+    pattern = "cell_wall|dna|membrane_stress|protein_synthesis")
   prob_calib$truth <- as.character(prob_calib$truth)
   prob_calib <- 
     group_by(prob_calib, prob_is_for, prob_bin) %>%

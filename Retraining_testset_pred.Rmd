@@ -42,6 +42,8 @@ perfs <-
   chosen$perf_measures[[1]] %>%
   group_by(cvrep) %>%
   summarise(mean_mmce = mean(mmce))
+
+cv_perf_cplt <- mean(perfs$mean_mmce)
 ```
 
 This classifier had an average accuracy of `r 1 - mean(perfs$mean_mmce)`. 
@@ -173,7 +175,7 @@ plot_mcl_probs_heatmap(melt_pred_data_mcl(control_preds$data), mics = mics,
 test_preds <- predict_my_set(trained_model = trained_model, 
   newdata = split_sets$test_set)
 
-performance(test_preds)
+(tst_perf_cplt <- performance(test_preds))
 
 print(test_preds$data, n = 500)
 
@@ -195,6 +197,69 @@ print(unknown_preds$data, n = 500)
 
 plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown.pdf")
+```
+
+
+```{r, eval = FALSE, include = FALSE}
+## FOR PAPER
+melted_pred_data <- melt_pred_data_mcl(unknown_preds$data)
+
+tmp <- suppressMessages(left_join(melted_pred_data, mics))
+tmp <- tmp %>%
+  mutate(drug_conc = sprintf("%-19s %-5s %-5s", 
+    Hmisc::capitalize(tolower(drugname_typaslab)), conc, mic_curated),
+    prob.med.range = cut(prob.med, breaks = seq(from = 0, to = 1, by = 0.1),
+      labels = c("0-10%", "10-20%", "20-30%", "30-40%", "40-50%", "50-60%",
+        "60-70%", "70-80%", "80-90%", "90-100%")),
+    drug_conc = factor(drug_conc,
+      levels = unique(drug_conc[order(truth, drugname_typaslab, conc)])))
+
+tmp$truth <- fct_recode(tmp$truth, "Annotated MoA: Cell Wall" = "cell_wall",
+  "Annotated MoA: DNA" = "dna", "Annotated MoA: Membrane Stress" = "membrane_stress",
+  "Annotated MoA: Protein Synthesis" = "protein_synthesis")
+
+# indicate if the median probability (across CV repeats) is the highest among 
+# the 4 MoAs
+tmp <- group_by(tmp, drug_conc) %>%
+  mutate(is_max = (prob.med) == max(prob.med))
+tmp$geompoint <- ifelse(tmp$is_max, tmp$drug_conc, NA)
+tmp$geompoint <- levels(tmp$drug_conc)[tmp$geompoint]
+
+# cols <- RColorBrewer::brewer.pal(9, "BuPu")
+# cols <- colorRampPalette(cols)(10)
+cols <- RColorBrewer::brewer.pal(min(9, nlevels(tmp$prob.med.range)), "BuPu")
+cols <- colorRampPalette(cols)(min(10, nlevels(tmp$prob.med.range)))
+
+tmp <- ungroup(tmp)
+tmp$drug_conc %<>% droplevels()
+tmp$drug_conc <- fct_relevel(tmp$drug_conc, rev(levels(tmp$drug_conc)))
+
+ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) +
+  geom_tile(aes(fill = prob.med.range)) +
+  geom_point(aes(x = geompoint), size = 0.3) +
+  scale_fill_manual("Probability", values = cols) +
+  scale_y_discrete("MoA predicted", labels = moa_repl3) +
+  scale_x_discrete("") +
+  paper_theme +
+  theme(axis.text.y = element_text(family = "Courier", size = 6)) +
+  coord_flip()
+
+ggsave("./plots/paper/Pred_heatmap_unknown.pdf", width = 120, height = 180, 
+  units = "mm")
+
+filter(tmp, drugname_typaslab %in% c("THIOLUTIN", "PENTAMIDINE")) %>% 
+  ggplot(aes(x = predicted_prob, y = prob.med, colour = drugname_typaslab)) +
+    geom_point() +
+    geom_line(aes(group = drug_conc), size = 0.3) + 
+    labs(y = "Prediction probability") + 
+    scale_x_discrete("MoA", labels = moa_repl3) + 
+    scale_colour_manual("", labels = c("Pentamidine", "Thiolutin"), 
+      values = c("#377eb8", "#ff7f00")) +
+    paper_theme + 
+    theme(legend.position = c(0.75, 0.85), legend.background = element_blank())
+
+ggsave("./plots/paper/Pred_lines_Fig5.pdf", width = 57, height = 50, 
+  units = "mm")
 ```
 
 
@@ -251,6 +316,21 @@ write.table(x = fpt, row.names = FALSE, col.names = FALSE,
   quote = FALSE, file = "./data/programmatic_output/fingerprint_mcl.csv")
 ```
 
+Fingerprint features: GO term analysis.
+
+```{r}
+# generated previously, changed PAL_and_4_more --> PAL; 
+# LPCA_and_3_more --> LPCA
+fpt_ids <- read.table("./data/programmatic_output/fpt_ecocyc.tsv", 
+  header = TRUE, stringsAsFactors = FALSE) %>% 
+  as_tibble()
+
+x <- fpt_ids$object_id
+write.table(x, file = "./data/programmatic_output/fpt_ecocyc_ids.txt", 
+  row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+
 
 ```{r, include = FALSE, eval = FALSE}
 ## FOR POSTER ------------
@@ -291,26 +371,19 @@ imp <- trained_model_loc[["learner.model"]][["next.model"]][["learner.model"]][[
 imp <- as_tibble(imp, rownames = "gene")
 imp
 
-# get the 10 most important features for each MoA, then keep only unique ones
-topXeach <- map_dfr(main_moas, function(.x) {
-  .x <- ensym(.x)
-  arrange(imp, desc(!!.x))[1:15, ]}) %>%
-  dplyr::distinct()
+# break feature importance down into MoA
+fpt_by_MoA <- filter(imp, gene %in% fpt)
+fpt_by_MoA$total_imp <- apply(fpt_by_MoA[, 2:5], 1, sum)
+fpt_by_MoA$gene <- factor(fpt_by_MoA$gene, 
+  levels = fpt_by_MoA$gene[order(fpt_by_MoA$total_imp, decreasing = TRUE)])
 
-topXeach
-sum(topXeach$gene %in% fpt)
-
-topXeach$total_imp <- apply(topXeach[, 2:5], 1, sum)
-topXeach$gene <- factor(topXeach$gene, 
-  levels = topXeach$gene[order(topXeach$total_imp, decreasing = TRUE)])
-
-topXeach %>%
+fpt_by_MoA %>%
   select(gene:protein_synthesis) %>%
   gather(cell_wall:protein_synthesis, key = MoA, value = imp) %>%
   ggplot(aes(x = gene, y = imp)) + 
     geom_bar(aes(fill = MoA), stat = "identity") + 
     paper_theme + 
-    labs(x = "Feature", y = "Local importance by MoA") + 
+    labs(x = "Feature", y = "Feature importance by MoA") + 
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6)) + 
     scale_fill_manual(labels = moa_repl, values = moa_cols)
 
@@ -517,7 +590,7 @@ plot_mcl_probs_heatmap(melt_pred_data_mcl(control_preds_pars$data), mics = mics,
 test_preds_pars <- predict_my_set(trained_model = trained_model_fpt, 
   newdata = split_sets$test_set)
 
-performance(test_preds_pars)
+(tst_perf_pars <- performance(test_preds_pars))
 # complete model:
 performance(test_preds)
 
@@ -539,6 +612,54 @@ print(unknown_preds$data, n = 500)
 plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics, 
   printplot = FALSE, save = TRUE, file = "./plots/Pred_heatmap_unknown_parsimonious.pdf")
 ```
+
+
+```{r, eval = FALSE, include = FALSE}
+## FOR PAPER
+fig_4a <- tibble(
+  which = c("Complete\nCV", "Complete\ntest", "Parsimonious\ntest"), 
+  Accuracy = c(1 - cv_perf_cplt, 1 - tst_perf_cplt, 1 - tst_perf_pars)
+)
+
+ggplot(fig_4a, aes(x = which, y = Accuracy)) + 
+  geom_bar(stat = "identity", width = 0.6, fill = "black") + 
+  labs(x = "") + 
+  paper_theme
+
+ggsave(filename = "./plots/paper/Fig4_barplot.pdf", width = 45, height = 45, 
+  units = "mm")
+
+# correlation of prediction probabilities
+test_preds
+test_preds_pars
+
+test_preds_m <- 
+  select(test_preds$data, drugname_typaslab, conc, 
+    prob.cell_wall:prob.protein_synthesis) %>% 
+  gather(prob.cell_wall:prob.protein_synthesis, 
+  key = "MoA", value = "prob")
+
+test_preds_pars_m <- 
+  select(test_preds_pars$data, drugname_typaslab, conc, 
+    prob.cell_wall:prob.protein_synthesis) %>% 
+  gather(prob.cell_wall:prob.protein_synthesis, 
+  key = "MoA", value = "prob")
+
+compare_preds <- full_join(test_preds_m, test_preds_pars_m, 
+  by = c("drugname_typaslab", "conc", "MoA"), 
+  suffix = c(".cplt", ".pars"))
+
+ggplot(compare_preds, aes(x = prob.cplt, y = prob.pars)) + 
+  geom_point(shape = 1, size = 0.75, alpha = 0.75) + 
+  labs(x = "Probabilities complete", y = "Probabilities parsimonious") + 
+  paper_theme
+
+cor(compare_preds$prob.cplt, compare_preds$prob.pars, method = "pearson") ^ 2
+
+ggsave("./plots/paper/Prob_corr_cplt_pars.pdf", width = 45, height = 45, 
+  units = "mm")
+```
+
 
 
 # Clustering, dimensionality reduction
@@ -612,22 +733,64 @@ grid.arrange(p1, p2, ncol = 2, widths = c(unit(78, "mm"), unit(122, "mm")),
   ggsave(filename = "./plots/POSTER_tSNE.pdf")
 
 
-## FOR PAPER
-ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
+## FOR PAPER: Figure 3
+fig3 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA)) + 
   geom_point(alpha = 0.75, shape = 16) + 
   scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
   paper_theme + 
   theme(legend.position = "None")
 
-ggsave(filename = "./plots/paper/tSNE1.pdf", width = 50, height = 50, 
+ggsave(plot = fig3, filename = "./plots/paper/tSNE1.pdf", width = 50, height = 50, 
   units = "mm")
 
-ggplot(plotData, aes(x = tSNE1, y = tSNE3, colour = MoA)) + 
-  geom_point(alpha = 0.75, shape = 16) + 
-  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
-  paper_theme
+fig3 + aes(x = tSNE1, y = tSNE3)
 
-ggsave(filename = "./plots/paper/tSNE2.pdf", width = 90, height = 50, 
+ggsave(filename = "./plots/paper/tSNE2.pdf", width = 50, height = 50, 
+  units = "mm")
+
+fig3 + aes(x = tSNE2, y = tSNE3)
+
+ggsave(filename = "./plots/paper/tSNE3.pdf", width = 50, height = 50, 
+  units = "mm")
+
+## FOR PAPER: Figure 5
+split_sets <- readRDS("./data/programmatic_output/split_sets.rds")
+m_train_unkn <- bind_rows(split_sets$training_set, split_sets$unknown_moas)
+
+tsne_mat <- m_train_unkn[, c("drugname_typaslab", "conc", "process_broad", fpt)]
+tsne_mat$process_broad <- factor(tsne_mat$process_broad)
+set.seed(5)
+
+stopifnot(all(colnames(tsne_mat)[1:3] %in% c("drugname_typaslab", "conc", "process_broad")))
+
+tsne_res <- Rtsne::Rtsne(X = tsne_mat[, -c(1:3)], dims = 3, perplexity = 25, 
+  max_iter = 6000)
+
+plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad, 
+  drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
+colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
+
+plotData$label <- ifelse(grepl(plotData$drug, pattern = "PENTAMIDINE|THIOLUTIN"), 
+  as.character(plotData$drug), "")
+
+fig5 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA, label = label)) + 
+  geom_point(alpha = 0.75, size = 0.75, shape = 16) + 
+  geom_text(size = 2, hjust = 0, vjust = 0, colour = "black") + 
+  scale_colour_manual("MoA", values = moa_cols, labels = moa_repl) + 
+  paper_theme + 
+  theme(legend.position = "None")
+
+ggsave(plot = fig5, filename = "./plots/paper/Fig5_tSNE1.pdf", width = 50, height = 50, 
+  units = "mm")
+
+fig5 + aes(x = tSNE1, y = tSNE3)
+
+ggsave(filename = "./plots/paper/Fig5_tSNE2.pdf", width = 50, height = 50, 
+  units = "mm")
+
+fig5 + aes(x = tSNE2, y = tSNE3)
+
+ggsave(filename = "./plots/paper/Fig5_tSNE3.pdf", width = 50, height = 50, 
   units = "mm")
 ```
 
@@ -673,6 +836,66 @@ plot_heatmap(dfm = m_all, feats = fpt, mics = mic_info, split = 4,
 plot_heatmap(dfm = m_all_alldrugs, feats = fpt, mics = mic_info, 
   split = 4, moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
 ```
+
+
+```{r, include = FALSE, eval = FALSE}
+## FOR PAPER (code adapted from plot_heatmap)
+
+m <- m_all
+feats <- colnames(select(m_all, AAEX:last_col()))
+m <- suppressMessages(
+  left_join(m, mode_of_action[, c("drugname_typaslab", "process_subgroup")]) %>%
+  left_join(mics[, c("drugname_typaslab", "mic_curated")])
+)
+m <- arrange(m, process_broad, process_subgroup, drugname_typaslab)
+
+dfr <- as.data.frame(m[, c("process_broad")])
+rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
+  m$mic_curated, ")")
+
+m <- select(m, -drugname_typaslab, -conc, -process_broad, -process_subgroup, 
+  -mic_curated) %>%
+  select(feats) %>% 
+  as.matrix()
+
+# Make annotation object
+# ComplexHeatmap seems to have problems with tibbles! 
+row_annot <- HeatmapAnnotation(df = dfr, 
+  col = list(process_broad = moa_cols), which = "row", 
+  name = "MoA", annotation_width = 3)
+# row_annot
+# draw(row_annot, 1:20)
+
+my_distfun <- function(x, y) {1 - abs(cor(x, y))}
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = m, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  clustering_distance_rows = my_distfun, 
+  clustering_distance_columns = my_distfun, 
+  column_names_side = "top", 
+  row_names_side = "right", 
+  cluster_rows = TRUE, 
+  row_dend_side = "right", 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 5), 
+  split = 4, 
+#  cell_fun = function(j, i, x, y, width, height, fill) {
+#    grid.text(sprintf("%.2f", m[i, j]), x, y, 
+#      gp = gpar(col = "black", fontsize = 2))
+#  }
+) + row_annot
+h <- h + rowAnnotation(rn = anno_text(rownames(m), gp = gpar(fontsize = 4)))
+
+png(file = "./plots/paper/Figure_S1A_hclust.png")
+print(h)
+dev.off()
+
+
+```
+
 
 # Session info
 

@@ -78,10 +78,6 @@ if (!file.exists(mc_ext_path)) {
 }
 ```
 
-```{r}
-saveRDS(mc_ext, file = mc_ext_path)
-```
-
 
 ## Parsing results objects
 
@@ -112,6 +108,10 @@ saveRDS(ia_stats, file = "./data/programmatic_output/ia_stats.rds")
 mc_ext$pred_data <- map_if(mc_ext$pred_data, is_tibble, function(.x) {
   left_join(.x, select(ia_stats, -one_of("process_broad")))
 })
+```
+
+```{r}
+saveRDS(mc_ext, file = mc_ext_path)
 ```
 
 # Comparison of models

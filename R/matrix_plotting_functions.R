@@ -596,7 +596,7 @@ plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE,
   invisible(h)
 }
 
-plot_tsne <- function(tsne_mat, seeed = 5, dims = 3, perplexity = 10, max_iter = 6000, 
+plot_tsne <- function(tsne_mat, seeed = 5, dims = 3, perplexity = 25, max_iter = 6000, 
   save = FALSE, file = NULL) {
   tsne_mat$process_broad <- factor(tsne_mat$process_broad)
   set.seed(seeed)
