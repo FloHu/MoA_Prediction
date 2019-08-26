@@ -325,7 +325,7 @@ plot_mcl_probs_lines <- function(melted_pred_data, printplot = TRUE,
 }
 
 plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE, 
-  save = FALSE, file = NULL) {
+  save = FALSE, file = NULL, plot_width = 190, plot_height = 250) {
   tmp <- suppressMessages(left_join(melted_pred_data, mics))
   tmp <- tmp %>%
     mutate(drug_conc = sprintf("%-19s %-5s %-5s", 
@@ -336,9 +336,9 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
       drug_conc = factor(drug_conc,
         levels = unique(drug_conc[order(truth, drugname_typaslab, conc)])))
 
-  tmp$truth <- fct_recode(tmp$truth, "Annotated MoA: Cell Wall" = "cell_wall",
-    "Annotated MoA: DNA" = "dna", "Annotated MoA: Membrane Stress" = "membrane_stress",
-    "Annotated MoA: Protein Synthesis" = "protein_synthesis")
+  tmp$truth <- fct_recode(tmp$truth, "Annotation: Cell Wall" = "cell_wall",
+    "Annotation: DNA" = "dna", "Annotation: Membrane Stress" = "membrane_stress",
+    "Annotation: Protein Synthesis" = "protein_synthesis")
   
   # indicate if the median probability (across CV repeats) is the highest among 
   # the 4 MoAs
@@ -361,7 +361,7 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
     geom_point(aes(x = geompoint), size = 0.3) +
     #coord_flip() +
     scale_fill_manual("Probability", values = cols) +
-    scale_y_discrete("MoA predicted", labels = moa_repl2) +
+    scale_y_discrete("MoA predicted", labels = moa_repl3) +
     scale_x_discrete("") + 
     # scale_x_discrete("Drug + concentration", limits = levels(tmp$drug_conc)) + 
     paper_theme + 
@@ -376,7 +376,8 @@ plot_mcl_probs_heatmap <- function(melted_pred_data, mics, printplot = TRUE,
   if (save) {
     if (is.null(file)) stop("Must provide a filename")
     suppressWarnings(
-      ggsave(filename = file, plot = p, width = 190, height = 250, units = "mm")
+      ggsave(filename = file, plot = p, width = plot_width, height = plot_height, 
+        units = "mm")
     )
   }
   
@@ -530,53 +531,87 @@ plot_inner_vs_outer <- function(mc_ext, save = FALSE, file = NULL) {
   }
 }
 
-plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE, save = FALSE, 
+plot_heatmap <- function(
+  dfm, # input data frame - drug-feature matrix
+  drugs = unique(dfm$drugname_typaslab), # drugs to keep
+  feats, # features to keep
+  mics, # info on mics
+  moa, # table about MoAs
+  cluster_rows = TRUE, 
+  clustering_distance_rows = "custom_corr", 
+  cluster_columns = TRUE, 
+  clustering_distance_columns = "custom_corr", 
+  row_dend_side = "left", 
+  show_column_dend = TRUE, 
+  show_heatmap_legend = TRUE, 
+  split = NULL, 
+  printplot = FALSE, 
+  show_legend = TRUE, 
+  plot_width = 7, # in inches
+  plot_height = 15, # in inches
+  use_global_fpt_order = FALSE, 
+  save = FALSE, 
   file = NULL) {
-  # dfm = drug-feature matrix
-  # feats = features to keep for dfm
-  # mics = info on mics
-  # moa = table about MoAs
+  # clustering_distance_rows: either "custom_corr", then it will be the function 
+  # as seen below, or a string supported by ComplexHeatmap::Heatmap()
+
   m <- dfm
   m <- suppressMessages(
     left_join(m, moa[, c("drugname_typaslab", "process_subgroup")]) %>%
     left_join(mics[, c("drugname_typaslab", "mic_curated")])
   )
-  m <- arrange(m, process_broad, process_subgroup, drugname_typaslab)
-  # row_order <- m$drugname_typaslab
+  m <- arrange(m, process_broad, drugname_typaslab)
   
+  m <- filter(m, drugname_typaslab %in% drugs) 
+  my_rownames <- paste0(m$drugname_typaslab, "_", m$conc, " (", m$mic_curated, ")")
+
   dfr <- as.data.frame(m[, c("process_broad")])
-  rownames(m) <- paste0(m$drugname_typaslab, "_", m$conc, " (", 
-    m$mic_curated, ")")
-  
+    
   m <- select(m, -drugname_typaslab, -conc, -process_broad, -process_subgroup, 
-    -mic_curated) %>%
-    select(feats) %>% # cannot be mixed with previous select statement
-    as.matrix()
-  # m[1:5, 1:5]
+      -mic_curated) %>%
+    select(feats) # cannot be mixed with previous select statement
   
+  if (use_global_fpt_order) m <- select(m, global_fpt_order)
+  
+  m <- as.matrix(m)
+  rownames(m) <- my_rownames
+
   # Make annotation object
   # ComplexHeatmap seems to have problems with tibbles! 
   row_annot <- HeatmapAnnotation(df = dfr, 
     col = list(process_broad = moa_cols), which = "row", 
-    name = "MoA", annotation_width = 3)
-  # row_annot
-  # draw(row_annot, 1:20)
+    show_legend = show_legend, 
+    name = "MoA", show_annotation_name = FALSE, annotation_width = 3)
   
-  my_distfun <- function(x, y) {1 - abs(cor(x, y))}
+  my_row_distfun <- if (clustering_distance_rows == "custom_corr") {
+    function(x, y) {1 - abs(cor(x, y, method = "spearman"))}
+  } else {
+    clustering_distance_rows
+  }
+  
+  my_col_distfun <- if (clustering_distance_columns == "custom_corr") {
+    function(x, y) {1 - abs(cor(x, y, method = "spearman"))}
+  } else {
+    clustering_distance_columns
+  }
+  
   min_col <- plasma(2)[1]
   max_col <- plasma(2)[2]
   
   h <- Heatmap(matrix = m, 
-    col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+    col = colorRamp2(breaks = c(-5, 4), colors = c(min_col, max_col)), 
     name = "S-score", 
-    clustering_distance_rows = my_distfun, 
-    clustering_distance_columns = my_distfun, 
+    cluster_rows = cluster_rows, 
+    clustering_distance_rows = my_row_distfun, 
+    cluster_columns = cluster_columns, 
+    clustering_distance_columns = my_col_distfun, 
     column_names_side = "top", 
     row_names_side = "right", 
-    cluster_rows = TRUE, 
-    row_dend_side = "left", 
+    row_dend_side = row_dend_side, 
     row_names_gp = gpar(fontsize = 4), 
     column_names_gp = gpar(fontsize = 5), 
+    show_column_dend = show_column_dend, 
+    show_heatmap_legend = show_heatmap_legend, 
     split = split, 
     cell_fun = function(j, i, x, y, width, height, fill) {
       grid.text(sprintf("%.2f", m[i, j]), x, y, 
@@ -588,11 +623,10 @@ plot_heatmap <- function(dfm, feats, mics, moa, split = NULL, printplot = FALSE,
   
   if (save) {
     if (is.null(file)) stop("Must provide a filename")
-    pdf(file = file, width = 7, height = 15)
+    pdf(file = file, width = plot_width, height = plot_height)
     print(h)
     dev.off()
   }
-  
   invisible(h)
 }
 
