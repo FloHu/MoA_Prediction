@@ -21,26 +21,30 @@ get_wide_confmat <- function(resample_result) {
   return(cm)
 }
 
-plot_wide_confmat <- function(wide_confmat, save = FALSE, file = NULL) {
-  coul = RColorBrewer::brewer.pal(9, "Blues") 
-  # I can add more tones to this palette :
-  coul = colorRampPalette(coul)(10)
+plot_wide_confmat <- function(
+  wide_confmat, 
+  toplot = c("recall", "precision"), 
+  cols = RColorBrewer::brewer.pal(6, "Blues"), 
+  save = FALSE, 
+  file = NULL
+  ) {
+  toplot <- match.arg(toplot)
   
   p <- ggplot(wide_confmat, aes(x = predicted, y = true)) + 
-    geom_tile(aes(fill = byclass_recall)) + 
+    geom_tile(aes(fill = if (toplot == "recall") byclass_recall else byclass_prec)) + 
     geom_text(aes(label = n_obs), size = 2) + 
-    labs(x = "Predicted label", y = "True label") + 
-    comparison_theme + 
-    theme(legend.key.size = unit(0.3, "cm"), panel.grid = element_blank()) + 
+    labs(x = "Predicted class", y = "True class") + 
     scale_x_discrete(position = "top", labels = moa_repl) + 
     scale_y_discrete(labels = moa_repl) + 
-    scale_fill_manual("Recall by class", values = coul, drop = FALSE)
+    scale_fill_manual(toplot, values = cols, drop = FALSE) + 
+    paper_theme + 
+    theme(legend.key.size = unit(0.25, "cm"), panel.grid = element_blank())
   
   print(p)
   
   if (save) {
     if (is.null(file)) stop()
-    ggsave(plot = p, file = file, width = 87, height = 70, units = "mm")
+    ggsave(plot = p, file = file, width = 87, height = 60, units = "mm")
   }
   invisible(p)
 }

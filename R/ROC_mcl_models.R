@@ -70,17 +70,45 @@ plot_roc_mcl <- function(pred_data, positives) {
   # positive by adding up all probabilities falling into the "not" category
   threshs <- map_dfr(positives, get_thresh_vs_perf_mcl, 
     pred_data = pred_data)
+  
+  # we can use geometry to calculate the AUC for bits of the ROC curve and then 
+  # sum those areas up (similar to an integral)
+  # programmatically, we do this by creating a pointlist, which contains the 
+  # tpr and fpr of each point, and a pointlist_plusone, which contains the 
+  # following points. Then we can map2() over these pairs of points to 
+  # calculate the areas covered by each of points and at the end we sum 
+  # everything up
+  pointlist <- apply(threshs[, c("tpr", "fpr")], 1, as.list)
+  pointlist_plusone <- dplyr::lead(pointlist)
+  auc <- map2_dbl(pointlist, pointlist_plusone, function(x, y) {
+    if (!is.list(y)) return(0)
+    # not simplified mathematically for clarity
+    area <- (y$fpr - x$fpr) * x$tpr + (y$fpr - x$fpr) * (y$tpr - x$tpr) / 2
+  }) %>% 
+    sum()
+  
   p <- ggplot(threshs, aes(x = fpr, y = tpr, colour = positive)) + 
     geom_path(size = 0.75) + 
     geom_abline(slope = 1, size = 0.3) + 
     coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
     scale_colour_manual("Target process", values = moa_cols, 
       labels = moa_repl) + 
-    comparison_theme + 
+    paper_theme + 
     theme(panel.grid = element_blank(), legend.position = c(0.7, 0.2), 
       legend.background = element_blank()) + 
-    labs(x = "FPR (1-specificity)", y = "TPR (recall)")
+    labs(y = "FPR (1-specificity)", x = "TPR (recall)")
+  
+  p2 <- ggplot(threshs, aes(x = tpr, y = ppv, colour = positive)) + 
+    geom_path(size = 0.75) + 
+    # geom_abline(slope = 1, size = 0.3) + 
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) + 
+    scale_colour_manual("Target process", values = moa_cols, 
+      labels = moa_repl) + 
+    paper_theme + 
+    theme(panel.grid = element_blank(), legend.position = c(0.7, 0.2), 
+      legend.background = element_blank()) + 
+    labs(x = "PPV (precision)", y = "TPR (recall)")
   
   print(p)
-  invisible(p)
+  invisible(list(auc_plot = p, prec_recall_plot = p2, auc = auc))
 }

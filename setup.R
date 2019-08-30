@@ -25,6 +25,8 @@ loadfonts()
 
 # custom functions
 walk(list.files("./R", pattern = "*.R", full.names = T), source)
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+mode_of_action <- read_csv("./data/programmatic_output/drug_moa_userfriendly.csv")
 
 # default colours for mode of action, lookup tables for renaming
 moa_cols <- c(cell_wall = "#1b9e77", dna = "#d95f02",
@@ -37,8 +39,11 @@ moa_cols2 <- c(prob.cell_wall = "#1b9e77", prob.dna = "#d95f02",
 moas <- names(moa_cols)
 main_moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
 
-moa_repl <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane Stress",
+moa_repl_v0 <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane Stress",
   protein_synthesis = "Protein Synthesis", dna = "DNA")
+
+moa_repl <- c(cell_wall = "Cell Wall", membrane_stress = "Membrane\nStress",
+  protein_synthesis = "Protein\nSynthesis", dna = "DNA")
 
 moa_repl2 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA", 
   prob.membrane_stress = "Membrane Stress", 

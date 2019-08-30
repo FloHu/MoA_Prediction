@@ -19,7 +19,6 @@ editor_options:
 
 ```{r setup, message = FALSE}
 source("./setup.R")
-mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
 ```
 
 # A "production model" of MoA prediction
@@ -159,8 +158,13 @@ predict_my_set <- function(trained_model, newdata) {
 #### Control set
 
 ```{r}
+identical_conds <- split_sets$control_set %>% 
+  filter(origin == "newsize") %>% 
+  filter(paste(drugname_typaslab, conc) %in% 
+      paste(split_sets$training_set$drugname_typaslab, split_sets$training_set$conc))
+
 control_preds <- predict_my_set(trained_model = trained_model, 
-  newdata = split_sets$control_set)
+  newdata = identical_conds)
 performance(control_preds)
 
 print(control_preds$data, n = 500)
@@ -202,7 +206,7 @@ plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics,
 
 
 ```{r, eval = FALSE, include = FALSE}
-## FOR PAPER
+## FOR PAPER -------------
 melted_pred_data <- melt_pred_data_mcl(unknown_preds$data)
 
 tmp <- suppressMessages(left_join(melted_pred_data, mics))
@@ -598,7 +602,7 @@ performance(test_preds)
 print(test_preds_pars$data, n = 500)
 
 plot_mcl_probs_heatmap(melt_pred_data_mcl(test_preds_pars$data), mics = mics, 
-  printplot = FALSE, save = TRUE, 
+  printplot = FALSE, save = TRUE, plot_width = 170, plot_height = 125, 
   file = "./plots/Pred_heatmap_testset_parsimonious.pdf")
 ```
 

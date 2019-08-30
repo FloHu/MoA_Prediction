@@ -516,6 +516,110 @@ ggsave(filename = "./plots/paper/GO_analysis.pdf", width = 80, height = 50,
 ```
 
 
+## TPP Results
+
+Pentamidine
+
+```{r}
+library(readxl)
+tpp_pent <- read_xlsx("./data/2019-07-05_results_2D_TPP-pentamidine.xlsx", 
+  sheet = 2)
+
+tpp_pent %>% 
+  filter(gene_name %in% c("PRS", "PURB", "MENB", "ARGP"), 
+    temperature > 42) %>% 
+  dplyr::select(gene_name, temperature, matches("norm_rel_fc_.*unmodified")) %>% 
+  gather(key = "key", value = "fc", -gene_name, -temperature) %>% 
+  mutate(conc = as.numeric(str_extract(string = key, 
+    pattern = "\\d{1,3}")), temperature = factor(temperature), 
+    conc = factor(conc)) -> 
+  prs
+
+ggplot(prs, aes(conc, temperature)) +
+  facet_wrap(~gene_name, ncol = 6) +
+  geom_tile(aes(fill = fc)) +
+  scale_fill_gradient2("FC", low = viridis(3)[1], mid = viridis(3)[2], 
+    high = viridis(3)[3], midpoint = 1, limits = c(0.5, 4), 
+    na.value = viridis(3)[3]) + 
+  labs(x = "Concentration", y = "Temperature") + 
+  guides(fill = guide_legend(keywidth = 0.25, keyheight = 0.5)) +
+  paper_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("./plots/paper/TPP_pent.pdf", width = 130, height = 55, units = "mm")
+```
+
+Thiolutin
+
+```{r}
+library(readxl)
+tpp_thio <- read_xlsx("./data/2019-07-01_results_2D_TPP-thiolutin.xlsx", 
+  sheet = 2)
+
+tpp_thio %>% 
+  filter(gene_name %in% c("MURE", "MREB"), 
+    temperature > 42) %>% 
+  dplyr::select(gene_name, temperature, matches("norm_rel_fc_.*unmodified")) %>% 
+  gather(key = "key", value = "fc", -gene_name, -temperature) %>% 
+  mutate(conc = as.numeric(str_extract(string = key, 
+    pattern = "\\d{1,3}")), temperature = factor(temperature), 
+    conc = factor(conc)) -> 
+  thio
+
+ggplot(thio, aes(conc, temperature)) +
+  facet_wrap(~gene_name, ncol = 6) +
+  geom_tile(aes(fill = fc)) +
+  scale_fill_gradient2("FC", low = viridis(3)[1], mid = viridis(3)[2], 
+    high = viridis(3)[3], midpoint = 1, limits = c(0.5, 2), 
+    na.value = viridis(3)[1]) + 
+  labs(x = "Concentration", y = "Temperature") + 
+  guides(fill = guide_legend(keywidth = 0.25, keyheight = 0.5)) +
+  paper_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("./plots/paper/TPP_pent.pdf", width = 95, height = 45, units = "mm")
+```
+
+
+## Growth curves
+
+```{r}
+library(readxl)
+
+thio_growth <- read_xlsx("./data/2019-07-17_Thiolutin_MICs.xlsx", 
+  sheet = 4, range = "A64:M67")
+colnames(thio_growth)[1] <- "Strain"
+thio_growth$Strain <- c("WT", "mrcB", "slt")
+
+(thio_growth_m <- gather(thio_growth, `1`:`12`, key = "Dilution", value = "OD"))
+thio_growth_m$Dilution <- factor(thio_growth_m$Dilution, levels = 1:12)
+
+ggplot(thio_growth_m, aes(x = Dilution, y = OD, colour = Strain)) + 
+  geom_line(aes(group = Strain)) + 
+  labs(x = "-log2(Dilution)", y = "OD endpoint") + 
+  paper_theme + 
+  theme(legend.position = c(0.2, 0.55), legend.background = element_blank())
+
+ggsave("./plots/paper/Thiolutin_growth.pdf", width = 60, height = 45, 
+  units = "mm")
+```
+
+
+## Chemogenomic fingerprint follow-ups
+
+```{r}
+m_all_alldrugs <- rd(m_all_alldrugs)
+fpt <- rd(fpt)
+
+thio_pent <- 
+  filter(m_all_alldrugs, drugname_typaslab %in% c("THIOLUTIN", "PENTAMIDINE"))
+
+plot_heatmap(dfm = thio_pent, mics = mics, moa = mode_of_action, feats = fpt, 
+  cluster_rows = FALSE, cluster_columns = FALSE, plot_width = 7, 
+  use_global_fpt_order = TRUE, plot_height = 1.5, save = TRUE, 
+  file = "./plots/paper/Thio_pent_heatmap.pdf")
+```
+
 
 # Session info
 
