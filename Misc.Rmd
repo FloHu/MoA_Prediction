@@ -592,16 +592,20 @@ colnames(thio_growth)[1] <- "Strain"
 thio_growth$Strain <- c("WT", "mrcB", "slt")
 
 (thio_growth_m <- gather(thio_growth, `1`:`12`, key = "Dilution", value = "OD"))
-thio_growth_m$Dilution <- factor(thio_growth_m$Dilution, levels = 1:12)
+thio_growth_m$Dilution <- as.numeric(thio_growth_m$Dilution) - 1
+
+thio_growth_m$Dilution <- factor(thio_growth_m$Dilution, levels = 0:11)
 
 ggplot(thio_growth_m, aes(x = Dilution, y = OD, colour = Strain)) + 
   geom_line(aes(group = Strain)) + 
-  labs(x = "-log2(Dilution)", y = "OD endpoint") + 
+  labs(x = "-log2(dilution factor)", y = "OD endpoint") + 
   paper_theme + 
+  scale_colour_manual("Strain", labels = c("ΔmrcB", 'Δslt', 'wt'), 
+    values = c("green", "blue", "black")) + 
   theme(legend.position = c(0.2, 0.55), legend.background = element_blank())
 
 ggsave("./plots/paper/Thiolutin_growth.pdf", width = 60, height = 45, 
-  units = "mm")
+  device = cairo_pdf, units = "mm")
 ```
 
 

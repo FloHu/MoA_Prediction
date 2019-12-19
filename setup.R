@@ -56,6 +56,10 @@ moa_repl3 <- c(prob.cell_wall = "Cell Wall", prob.dna = "DNA",
 classifier_repl <- c(classif.randomForest = "Random Forests", 
   classif.glmnet = "Lasso", classif.xgboost = "Boosted Trees")
 
+classifier_repl2 <- c(classif.randomForest = "Random\nForests", 
+  classif.glmnet = "Lasso", classif.xgboost = "Boosted\nTrees")
+
+
 global_fpt_order <- 
   c("MUTS", "STFR", "DGKA", "CYDB", "ISPA", "FADD", "FIMF", "DADX", "RBFA", 
     "NAGA", "PAL_and_4_more", "DDLB", "SLT", "MRCB", "YCFM", "YADB", "HUPA", 

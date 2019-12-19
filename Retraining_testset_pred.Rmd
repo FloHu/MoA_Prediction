@@ -304,15 +304,19 @@ fadd <- mod_imp$log2imp[mod_imp$gene == "FADD"]
 ulab <- mod_imp$log2imp[mod_imp$gene == "ULAB"]
 cutoff <- fadd - abs(fadd - ulab) / 2
 
-ggplot(mod_imp[1:60, ], aes(x = gene, y = log2imp)) + 
+top50 <- mod_imp[1:50, ]
+top50$colour <- ifelse(top50$log2imp > cutoff, "#ca0020", "black")
+
+ggplot(top50, aes(x = gene, y = log2imp, colour = colour)) + 
   geom_point(size = 0.75) + 
   geom_hline(yintercept = cutoff, linetype = "dotted") + 
   labs(x = "Gene", y = "Feature importance (log2)") + 
+  scale_colour_identity() + 
   paper_theme + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 4))
 
-ggsave(filename = "./plots/paper/Feature_importance_top60.pdf", width = 135, 
-  height = 85, units = "mm")
+ggsave(filename = "./plots/paper/Feature_importance_top50.pdf", width = 115, 
+  height = 70, units = "mm", useDingbats = FALSE)
 
 fpt <- as.character(mod_imp$gene[mod_imp$log2imp > cutoff])
 

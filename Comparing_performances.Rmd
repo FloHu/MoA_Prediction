@@ -161,8 +161,8 @@ select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
   group_by(fitted_model, drug_dosages, chemical_feats, cvrep) %>%
   summarise(mmce_mean = mean(mmce), kappa_mean = mean(kappa)) %>%
   ungroup() %>%
-  mutate(drug_dosages = recode(drug_dosages, 'all' = "Use all dosages", 
-    'one' = "Use dosage closest to MIC"), 
+  mutate(drug_dosages = recode(drug_dosages, 'all' = "Using all conc.", 
+    'one' = "Using conc. closest to MIC"), 
     chemical_feats = recode(as.character(chemical_feats), 
       'TRUE' = "+physchem. features", 'FALSE' = "-physchem. features")) %>%
   ggplot(aes(x = fitted_model, y = (1 - mmce_mean))) +
@@ -171,12 +171,12 @@ select(mc_ext, fitted_model, drug_dosages, chemical_feats, perf_measures) %>%
     geom_point(position = position_jitter(width = 0.2, height = 0),
       shape = 1, size = 1.5) +
     facet_grid(chemical_feats ~ drug_dosages) +
-    labs(y = "Performance (accuracy)", title = "Comparing performances") +
-    scale_x_discrete("", labels = classifier_repl) +
+    labs(y = "Classification accuracy") +
+    scale_x_discrete("", labels = classifier_repl2) +
     paper_theme
 
 ggsave(filename = "./plots/paper/Comparison_performance_acc.pdf", 
-  width = 80, height = 75, units = "mm", useDingbats = FALSE)
+  width = 85, height = 80, units = "mm", useDingbats = FALSE)
 ```
 
 ## Stabilities
@@ -224,23 +224,21 @@ ggsave(filename = "./plots/POSTER_Comparison_stabilities.pdf", width = 155,
 select(mc_ext, fitted_model, drug_dosages, chemical_feats, pred_stabs) %>%
   unnest() %>%
   ungroup() %>%
-    mutate(drug_dosages = recode(drug_dosages, 'all' = "Use all dosages", 
-    'one' = "Use dosage closest to MIC"), 
+    mutate(drug_dosages = recode(drug_dosages, 'all' = "Using all conc.", 
+    'one' = "Using conc. closest to MIC"), 
     chemical_feats = recode(as.character(chemical_feats), 
       'TRUE' = "+physchem. features", 'FALSE' = "-physchem. features")) %>%
   ggplot(aes(x = fitted_model, y = sd_of_probs)) + 
-  #geom_point(shape = 1, alpha = 0.3, size = 1, position = position_jitter(width = 0.15, height = 0)) + 
   geom_boxplot(width = 0.35, outlier.shape = NA, coef = 0) + 
   geom_violin(scale = "width", fill = NA) + 
   facet_grid(chemical_feats ~ drug_dosages) + 
-  labs(y = "Prediction s.d. across nested CV repeats", 
-    title = "Comparing stabilities") + 
-  scale_x_discrete("", labels = classifier_repl) + 
+  labs(y = "Classifier stability (s.d. across nested CV repeats)") + 
+  scale_x_discrete("", labels = classifier_repl2) + 
   scale_y_continuous(breaks = c(0, 0.1, 0.2)) +
   paper_theme
 
-ggsave(filename = "./plots/paper/Comparison_stabilities.pdf", width = 80, 
-  height = 75, units = "mm")
+ggsave(filename = "./plots/paper/Comparison_stabilities.pdf", width = 85, 
+  height = 80, units = "mm")
 ```
 
 # Define "winning" model
