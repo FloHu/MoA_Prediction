@@ -1,0 +1,218 @@
+---
+title: "Supplementary analyses/inspections for thiolutin/isoniazid"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+source("./setup.R")
+library(readxl)
+```
+
+# Get data
+
+```{r}
+indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
+(nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
+# same for Lucia's data:
+(newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
+
+# map to new names
+ugi_to_name <- read_delim("./data/All_genes_of_E._coli_K-12_substr._MG1655__ECOCYC_to_GENENAME.txt", 
+  delim = "\t")
+colnames(ugi_to_name) <- c("gene_synonym_new", "ugi")
+nichols_2011 <- left_join(nichols_2011, ugi_to_name)
+newsize <- left_join(newsize, ugi_to_name)
+```
+
+
+# Thiolutin
+
+Is part of Lucia's data.
+
+## Chemical genetics
+
+Get genetic interactions with cell wall machinery components.
+
+```{r}
+cw_comps <- c("mepA", "mepS", "mepH", "mepK", "mepM", "mrcA", "mrcB", "lpoA", 
+  "lpoB", "dacB", "pbpG", "amiA", "amiB", "amiC", "ampD", "dacA", "envC", 
+  "mpaA", "ddpX", "ycbK")
+
+cw_comps %in% newsize$gene_synonym_new
+
+filter(newsize, gene_synonym_new %in% cw_comps & drugname_typaslab == "THIOLUTIN") %>% 
+  select(drugname_typaslab, gene_synonym_new, conc, sscore, qvalue, gene_synonym, 
+    ugi, strain) %>% 
+  mutate(signif = qvalue <= 0.05) %>% 
+  arrange(gene_synonym_new)
+```
+
+## Morphological phenotypes
+
+Get quantified phenotypes from Campos..Jacobs-Wagner.
+
+```{r}
+campos <- read_xlsx("./data/Other_studies/Campos_Jacobs-Wagner_2018/msb177573-sup-0004-datasetev2.xlsx", 
+  sheet = 4, range = "A1:AG4228", na = c("", "NaN"))
+
+my_names <- c("gene", "plt_num", "well_num", "length", "cv_length", "width", 
+  "cv_width", "area", "cv_area", "vol", "cv_vol", "sa", "cv_sa", "perim", 
+  "cv_perim")
+colnames(campos)[1:length(my_names)] <- my_names
+# the wt cells
+campos_ctrls <- read_xlsx("./data/Other_studies/Campos_Jacobs-Wagner_2018/msb177573-sup-0004-datasetev2.xlsx", 
+  sheet = 4, range = "A4229:AG4468", col_names = colnames(campos), 
+  na = c("", "NaN"))
+campos_ctrls$plt_num <- parse_number(campos_ctrls$plt_num)
+
+# scores for significances
+campos_scores <- read_xlsx("./data/Other_studies/Campos_Jacobs-Wagner_2018/msb177573-sup-0004-datasetev2.xlsx", 
+  sheet = 2, range = "A1:AG4228", na = c("", "NaN"))
+
+colnames(campos_scores)[1:length(my_names)] <- my_names
+# the wt cells
+campos_ctrls_scores <- read_xlsx("./data/Other_studies/Campos_Jacobs-Wagner_2018/msb177573-sup-0004-datasetev2.xlsx", 
+  sheet = 2, range = "A4229:AG4468", col_names = colnames(campos_scores), 
+  na = c("", "NaN"))
+campos_ctrls_scores$plt_num <- parse_number(campos_ctrls_scores$plt_num)
+```
+
+Get an idea of wild type and mutant sizes. 
+
+```{r}
+# vars of interest
+voi <- c("gene", "length", "cv_length", "width", "cv_width", "area", "cv_area", 
+  "perim", "cv_perim")
+
+newtab <- bind_rows(filter(campos, gene %in% cw_comps), campos_ctrls) %>% 
+  select(voi) %>% 
+  pivot_longer(-gene, names_to = "param")
+
+# do the same thing for the scores, then join to newtab, flag everything outside 
+# of -3 to 3 range
+newtab_scores <- bind_rows(filter(campos_scores, gene %in% cw_comps), campos_ctrls_scores) %>% 
+  select(voi) %>% 
+  pivot_longer(-gene, names_to = "param", values_to = "score")
+
+# ignore wild type stuff
+newtab_scores <- filter(newtab_scores, gene %in% cw_comps)
+
+newtab <- left_join(newtab, newtab_scores)
+newtab$flag <- newtab$score <= -3 | newtab$score >= 3
+newtab$flag[is.na(newtab$flag)] <- FALSE
+
+p <- ggplot(newtab, aes(x = gene, y = value)) + 
+  geom_boxplot(aes(colour = flag)) + 
+  facet_wrap( ~ param, scales = "free") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12))
+p
+
+ggsave(filename = "./plots/Morphology_Campos.pdf", plot = p)
+```
+
+
+# Isoniazid
+
+Is part of Nichols data. 
+
+Get all genes with which there is a genetic interaction + the oxidative stress 
+response related genes (for peroxides) and the TPP hits. 
+
+```{r}
+# genes of interest:
+goi <- c("dkgA", "glyA", "katG", "ykgF", "ahpC", "ahpF")
+
+filter(nichols_2011, gene_synonym_new %in% goi & drugname_typaslab == "ISONIAZID") %>% 
+  select(drugname_typaslab, gene_synonym_new, conc, sscore, qvalue, gene_synonym, 
+    ugi, strain) %>% 
+  mutate(signif = qvalue <= 0.05) %>% 
+  arrange(gene_synonym_new, conc)
+
+# and now all genes where there is an interaction at qvalue < 0.05
+filter(nichols_2011, qvalue < 0.05 & drugname_typaslab == "ISONIAZID") %>% 
+  select(drugname_typaslab, gene_synonym_new, conc, sscore, qvalue, gene_synonym, 
+    strain) %>% 
+  arrange(gene_synonym_new, conc) %>% 
+  print(n = 100)
+```
+
+See how closely isoniazid resembles triclosan, cerulenin, egcg.
+
+```{r}
+my_drugs <- c("ISONIAZID", "TRICLOSAN", "CERULENIN", "EGCG")
+# let's pull out each gene that is significant with at least one of the four, 
+# then do a correlation plot
+
+interactors <- filter(nichols_2011, drugname_typaslab %in% my_drugs & qvalue < 0.05) %>% 
+  pull(gene_synonym) %>% 
+  unique()
+
+my_tab <- filter(nichols_2011, drugname_typaslab %in% my_drugs & 
+    gene_synonym %in% interactors) %>% 
+  select(gene_synonym, drugname_typaslab, conc, sscore)
+
+my_tab$drug_conc <- paste(my_tab$drugname_typaslab, my_tab$conc, sep = "_")
+my_tab$drugname_typaslab <- NULL
+my_tab$conc <- NULL
+my_tab_w <- pivot_wider(my_tab, names_from = drug_conc, values_from = sscore)
+
+library(corrplot)
+cor(my_tab_w[, 2:ncol(my_tab_w)], use = "complete.obs", method = "spearman")
+```
+
+Stabilisation of DkgA. What about interactions of isoniazid with mutants that lead 
+to high levels of methylglyoxal? 
+
+```{r}
+# first read in metabolomics table from Campos and Zampieri, 2019
+metab_zscores <- read_xlsx("./data/Other_studies/Campos_Zampieri_2019/Zampieri_2019_1-s2.0-S1097276519302710-mmc2.xlsx", 
+  sheet = 5, range = "A1:AWH970", na = c("", "NaN"))
+metab_pvals <- read_xlsx("./data/Other_studies/Campos_Zampieri_2019/Zampieri_2019_1-s2.0-S1097276519302710-mmc2.xlsx", 
+  sheet = 6, range = "A1:AWH970", na = c("", "NaN"))
+
+# consider only zscores <= -3 or >= 3
+select(metab_zscores, Metabolite_names, Isoniazid) %>% 
+  filter(Isoniazid >= 3 | Isoniazid <= -3) %>% 
+  arrange(desc(Isoniazid)) %>% 
+  print(n = 15)
+
+# just to check if these metabolites are also upregulated in other drugs 
+# but keep only zscores 
+select(metab_zscores, Metabolite_names, Isoniazid) %>% 
+  filter(Isoniazid >= 3 | Isoniazid <= -3) %>% 
+  pull(Metabolite_names) -> 
+  iso_metabs
+
+# check p values first:
+filter(metab_pvals, Metabolite_names %in% iso_metabs) %>% 
+  select(Metabolite_names, Isoniazid) %>% 
+  arrange(Isoniazid)
+
+# which other drugs produce these metabolites? focus on z-scores >= 3
+select(metab_zscores, 1, 4:last_col()) %>% 
+  filter(Metabolite_names %in% iso_metabs) %>% 
+  pivot_longer(-Metabolite_names, names_to = "drug", values_to = "zscore") %>% 
+  filter(zscore >= 3 | zscore <= -3) %>% 
+  arrange(Metabolite_names, desc(zscore)) -> 
+  iso_metabs_other_drugs
+
+View(iso_metabs_other_drugs)
+
+# any other drugs that affect all of these metabolites at once?
+table(iso_metabs_other_drugs$drug) %>% sort()
+# cefprozil maybe?
+```
+
+
+
+
+
+
+
+
+
+
+
+

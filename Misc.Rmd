@@ -625,6 +625,30 @@ plot_heatmap(dfm = thio_pent, mics = mics, moa = mode_of_action, feats = fpt,
 ```
 
 
+## Problem with SPA-P6 strains
+
+These are hypomorphic strains which I thought I excluded but I did not. Check which 
+ones are affected. 
+
+```{r}
+indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
+
+(nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
+
+strains_distinct <- select(nichols_2011, strain, ugi, gene_synonym) %>% 
+  distinct()
+
+spa_p6 <- select(nichols_2011, strain, ugi, gene_synonym) %>% 
+  distinct() %>% 
+  filter(grepl(x = strain, pattern = "SPA")) %>% 
+  arrange(gene_synonym)
+# print(spa_p6, n = 200)
+
+# Of the fingerprint it affects ispA and lolB
+```
+
+
+
 # Session info
 
 ```{r}
