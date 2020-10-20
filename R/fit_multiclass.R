@@ -66,7 +66,7 @@ fit_multiclass_rf_loo <- function(data,
     blocking = if (!is.null(blockingvar)) my_blocks else NULL)
   lrnr <- makeLearner("classif.randomForest", predict.type = "prob", 
     par.vals = paramlist)
-  rdesc <- makeResampleDesc("LOO")
+  rdesc <- makeResampleDesc("LOO", blocking.cv = TRUE)
   
   res <- resample(learner = lrnr, task = task, measures = mmce, resampling = 
       rdesc, models = TRUE, keep.pred = TRUE)

@@ -1,0 +1,308 @@
+---
+title: "Predicting drug MoA in Salmonella"
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+source("./setup.R")
+```
+
+
+Mapping Nichols gene synonyms to current/modern annotation.
+
+```{r}
+(fpt <- readRDS("./data/programmatic_output/fpt.rds"))
+
+id_map <- read_delim(file = "./data/All_genes_of_E._coli_K-12_substr._MG1655__ECOCYC_to_GENENAME.txt", 
+                    delim = "\t")
+colnames(id_map) <- c("gene_name_ecocyc", "ecocyc_id")
+
+# this is a list of the genes in Nichols with their old names
+(genes_nichols <- read_delim("./data/gene_list_nichols.csv", delim = ";"))
+colnames(genes_nichols) <- c("ecocyc_id", "gene_synonym_nichols")
+
+newnames <- left_join(genes_nichols, id_map) %>% 
+  select(gene_synonym_nichols, ecocyc_id, gene_name_ecocyc)
+
+# The following genes in nichols did not have a corresponding EcoCyc ID, sometimes 
+# because the polypeptide is present in another strain, check, for example, ECK2652 
+# in the Ecocyc Browser. 
+(not_mapped <- newnames[is.na(newnames$gene_name_ecocyc), ])
+# ECK1135 maps to both ymfN and aaaE, ymfN seems to be the correct name
+# The following excludes all genes that are in "not_mapped" but it does not affect 
+# the chemogenomic fingerprint
+if (any(fpt %in% not_mapped$gene_synonym_nichols)) stop()
+
+newnames <- filter(newnames, gene_name_ecocyc != "aaaE")
+```
+
+Map fingerprint genes to new annotations. 
+
+```{r}
+fpt_mapped <- fpt
+# fix names
+fpt_mapped[fpt_mapped == "PAL_and_4_more"] <- "PAL"
+fpt_mapped[fpt_mapped == "LPCA_and_3_more"] <- "LPCA"
+newnames_lut <- structure(newnames$gene_name_ecocyc, names = newnames$gene_synonym_nichols)
+fpt_mapped <- newnames_lut[fpt_mapped]
+fpt_mapped <- filter(newnames, gene_name_ecocyc %in% fpt_mapped)
+```
+
+Get Birgit's data on Salmonella before continuing. 
+
+```{r}
+# Apparently this is wrong:
+
+# # Code taken from dbsetup:
+# datadir <- '/Volumes/typas/Florian/chemical genomics data lab/STm/FINAL_DATA/scores/'
+# # there is 'stm.corrpvalues.merged.txt' as well as 'stm.corrpvalues.original.txt' 
+# # and 'stm.corrpvalues.purged.txt'
+# qvals_birgit <- read.table(
+#    file = paste(datadir, "pvalues_corrected", "stm.corrpvalues.purged.txt", sep = "/"), 
+#    sep = "\t", header = T, stringsAsFactors = F)
+# qvals_birgit <- as_tibble(qvals_birgit)
+# qvals_birgit[1:10, 1:5]
+# colnames(qvals_birgit)[1] <- "strain"
+# hist(qvals_birgit$X4AMINOSALICYLICACID.10)
+# 
+# sscores_birgit <- read.table(
+#    file = paste(datadir, "s-scores", "stm.scores.purged.txt", sep = "/"), 
+#    sep = "\t", header = T, stringsAsFactors = F)
+# sscores_birgit %<>% as_tibble()
+# hist(sscores_birgit$AMIKACIN.0.05)
+```
+
+Not sure, Eli told me to use a different Salmonella table:
+
+```{r}
+sscores_st <- read_delim(file.path(datadir, "s-scores", "stm.scores.merged.txt"), delim = "\t")
+colnames(sscores_st)[1] <- "Mutants"
+
+qvals_st <- read_delim(file.path(datadir, "pvalues_corrected", "stm.corrpvalues.merged.txt"), delim = "\t")
+colnames(qvals_st)[1] <- "Mutants"
+```
+
+In the Salmonella table the first column contains the locus tag in both STM14 and 
+LT2, for example: STM14_0001-STM0001 (The latter part is the locus tag in LT2) followed 
+by the two gene names in the 2 strains. Vlad parsed these names at least for some 
+of the genes. 
+
+And then there's some parsing/mapping that Vlad did (see also email from Feb 3rd, 2020; 
+STM14 = locus tag for STM14028, STM for LT2): 
+
+<!--
+Hi Florian,
+I’ve only resolved the names for genes that have at least one hit at FDR < 0.05 across any drug-concentration tuple (for the subset of 64 drugs overlapping with gram-negative screen)
+
+In the end I split ST14 and STM identifiers (both of which are present in most cases) and I separately mapped ST14 and STM using Uniprot. I take (ST14 -> gene_symbol) as a reference and if there is nothing found I use the gene symbol from (LT2 -> gene_symbol) mapping. There are some cases for which neither LT2 nor 14028 has a gene symbol for that locus, in which case ST14 locus is retained.
+
+Best regards,
+Vlad
+-->
+
+```{r}
+# So what's left to do for me is to split the locus tags myself
+(st_vlad <- read_csv("./data/ST14028-gene-annot-uniprot.csv"))
+```
+
+Go back to the fingerprint file. We want to get the homologues for the fingerprint 
+genes. 
+
+When going to OMA, one gets a mapping of Uniprot IDs (E. coli) to SALT IDs (Salmonella). 
+
+So first we need to map our fingerprint genes to Uniprot IDs. Nazgul generated a 
+file mapping between Ecocyc IDs and Uniprot IDs:
+
+```{r}
+(ecoli_map <- read_delim("./data/EcoData_correctedECK.txt", delim = "\t"))
+```
+
+
+```{r}
+# (1) --------
+fpt_mapped2 <- left_join(fpt_mapped, ecoli_map[, c("ECK", "SP", "Gene")],
+                         by = c("ecocyc_id" = "ECK"))
+# sanity check
+stopifnot(all(fpt_mapped2$gene_name_ecocyc == fpt_mapped2$Gene))
+fpt_mapped2$Gene <- NULL
+fpt_mapped2 <- rename(fpt_mapped2, uniprot = SP)
+fpt_mapped2$uniprot[fpt_mapped2$uniprot == "Null"] <- NA
+
+# only ohsC, which is a small RNA, could not be mapped to a Uniprot ID
+print(fpt_mapped2, n = 30)
+```
+
+Now we can use the output of OMA to map E. coli Uniprot IDs (from the fingerprint) 
+to the Salmonella homologues. Check file `./data/oma-uniprot.txt` (by Nazgul). SALT 
+ID is in the first column, Uniprot in the second.
+
+```{r}
+# (2) --------
+# This file contains the orthology mapping from the OMA browser, uniprot is 
+# E. coli K12, salt_id is for Salmonella STM14028
+(orthos <- read_tsv("./data/oma_mapping_EcoliK12_to_STM14028.tsv"))
+orthos$noidea <- NULL
+
+# now match to fpt_mapped2
+fpt_mapped3 <- left_join(fpt_mapped2, orthos)
+# we lose one more gene: fimF 
+# and we have a 1:3 mapping for stfR
+print(fpt_mapped3, n = 30)
+
+# At this step we need to convert salt_id to uniprot
+# Since the oma-uniprot file is huge (225 MB), do grep first
+# not run (was run in terminal)
+tmp <- paste0(fpt_mapped3$salt_id[!is.na(fpt_mapped3$salt_id)], collapse = "|")
+write(x = tmp, file = "./data/salt_ids.txt")
+# grep the file, then read in the output - wanted to use a bash script but had trouble 
+# reading in pattern from file
+# grep -e "SALT102521|SALT100833|SALT102099|SALT100154|SALT104900|SALT102118|SALT104823|SALT100516|SALT100484|SALT102070|SALT100351|SALT100224|SALT103380|SALT100766|SALT100842|SALT103828|SALT103287|SALT103477|SALT104355|SALT105300|SALT101147|SALT101413|SALT103054|SALT100217|SALT101333" ./data/oma-uniprot.txt > ./data/salt_ids_to_uniprot.tsv
+
+salt_to_uniprot <- read_delim("./data/salt_ids_to_uniprot.tsv", delim = "\t", 
+                              col_names = c("salt_id", "uniprot"))
+fpt_mapped4 <- left_join(fpt_mapped3, salt_to_uniprot, by = "salt_id", 
+                         suffix = c("", ".st"))
+print(fpt_mapped4, n = 40)
+```
+
+To convert Uniprot IDs to gene names: can download a table from Uniprot that does 
+the mapping. I saved it in `./data/uniprot_to_gene_Salmonella_STM14028.csv`.
+
+```{r}
+st_uniprot <- read_delim("./data/uniprot_to_gene_Salmonella_STM14028.csv", 
+                         delim = "\t")
+st_uniprot
+fpt_mapped5 <- left_join(fpt_mapped4, st_uniprot[, c("Entry", "Gene names")], 
+                         by = c("uniprot.st" = "Entry"))
+```
+
+What is left to do now is to map the Salmonella genes to the corresponding entry 
+in Birgit's table. And then we can start predicting.
+
+```{r}
+# extract locus tag from fpt_mapped5 
+# then grep corresponding entry in Birgit's table? 
+
+# first match rows, then match conditions
+# keep indices to get also the p values
+fpt_mapped5$locustags <- str_extract(fpt_mapped5$`Gene names`, pattern = "STM14_\\d{3,4}")
+fpt_mapped5$row_ind <- map_dbl(fpt_mapped5$locustags, function(x) {
+  if (is.na(x)) {
+    NA
+  } else {
+    res <- grep(pattern = x, x = sscores_st$Mutants)
+    if (length(res) == 0) NA else res
+  }
+})
+
+# Problem: ispA, lolB, gmhA, mutS, nagA, rbfA, and one of the stfR variants could 
+# not be mapped
+# (in addition to ryfC and fimf before)
+grep(x = sscores_st, pattern = "ispA|lolB|gmhA|mutS|nagA|rbfA|stfR")
+
+# in E. Coli:
+# essential: ispA, lolB, 
+# not essential: gmhA, mutS, nagA
+# essentiality unclear: rbfA
+
+# for gmhA (= lpcA) there is a homologue (STM14_3948) but we could also use one of the other 
+# cluster genes 
+# ispA, lolB, nagA, mutS - they are among the 9 genes with the least importance, also ryfC and fimF are low in importance
+# only rbfA is a problem
+```
+
+Extract conditions that is in either Nichols' or Lucia's data. 
+
+```{r}
+indir <- "/Volumes/typas/Florian/dbsetup_tables_new"
+
+(nichols_2011 <- read_delim(file.path(indir, "nichols_2011.csv"), delim = ";"))
+(newsize <- read_delim(file.path(indir, "newsize.csv"), delim = ";"))
+```
+
+```{r}
+conds_st <- colnames(sscores_st)[-1]
+conds_ecoli <- unique(c(nichols_2011$drugname_typaslab, newsize$drugname_typaslab))
+# conds_st_kept <- grep(x = conds_st, pattern = paste0(conds_ecoli, collapse = "|"), value = TRUE)
+conds_st_split <- str_split(string = conds_st, pattern = "-")
+
+# make sure everything's split into 2
+stopifnot(str_split(string = conds_st, pattern = "-") %>% map_dbl(length) %>% `==`(2) %>% all())
+
+conds_st_df <- tibble(orgnl_name = conds_st, 
+                      drugname_typaslab = map_chr(conds_st_split, 1), 
+                      conc = map_chr(conds_st_split, 2))
+# there is also "TOBRAMYCIN-0.1.1"? - remove
+conds_st_df %<>% filter(orgnl_name != "TOBRAMYCIN-0.1.1")
+conds_st_df$conc %<>% parse_number()
+View(conds_st_df)
+# now keep only conditions that we already had in E. coli
+conds_st_df_filt <- filter(conds_st_df, drugname_typaslab %in% conds_ecoli) %>% 
+  arrange(drugname_typaslab)
+View(conds_st_df_filt)
+```
+
+Predictions: Initial attempt. 
+
+```{r}
+# First, reduce the Salmonella matrix to the drugs we have in Nichols/Lucia as well 
+# as the mapped orthologues. 
+dfm_st <- sscores_st[na.omit(fpt_mapped5$row_ind), conds_st_df_filt$orgnl_name]
+dfm_st <- bind_cols(sscores_st[na.omit(fpt_mapped5$row_ind), "Mutants", drop = FALSE], 
+                    dfm_st)
+
+# check multiple presence of stfr (fpt_mapped5[c(23, 25), ])
+# impute NA values (how?)
+dfm_st <- gather(dfm_st, 2:last_col(), key = "cond_orgnl_name", value = "sscore")
+# resolve condition information
+dfm_st <- left_join(dfm_st, conds_st_df_filt, by = c("cond_orgnl_name" = "orgnl_name")) %>% 
+  select(-cond_orgnl_name)
+
+# Table to map mutants to the corresponding orthologous Nichols gene - this is needed 
+# to make predictions work.
+
+mut_to_nic <- select(dfm_st, Mutants) %>% 
+  distinct() %>% 
+  mutate(locustags = str_extract(string = Mutants, pattern = "STM14_\\d{3,4}")) %>% 
+  left_join(fpt_mapped5[, c("locustags", "gene_synonym_nichols")])
+
+# resolve issue with stfr:
+stfr <- filter(dfm_st, Mutants %in% c("STM14_1190-STM1049---", "STM14_3170-STM2588---"))
+stfr <- spread(stfr, key = "Mutants", value = "sscore")
+
+# Correlation is very poor between the two
+plot(stfr$`STM14_1190-STM1049---`, stfr$`STM14_3170-STM2588---`)
+cor(x = stfr$`STM14_1190-STM1049---`, y = stfr$`STM14_3170-STM2588---`, 
+    use = "complete.obs")
+
+# Correlation with the Nichols gene STFR
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+
+stfr <- left_join(stfr, m_all[, c("drugname_typaslab", "conc", "STFR")])
+cor(x = stfr$`STM14_1190-STM1049---`, y = stfr$STFR, 
+    use = "complete.obs")
+cor(x = stfr$`STM14_3170-STM2588---`, y = stfr$STFR, 
+    use = "complete.obs")
+plot(x = stfr$`STM14_1190-STM1049---`, y = stfr$STFR)
+plot(x = stfr$`STM14_3170-STM2588---`, y = stfr$STFR)
+
+# Correlation with STM14_3170-STM2588--- looks more convincing - keep this one
+dfm_st %<>% filter(Mutants != "STM14_1190-STM1049---")
+dfm_st <- left_join(dfm_st, mut_to_nic)
+dfm_st_long <- select(dfm_st, gene_synonym_nichols, drugname_typaslab, conc, sscore)
+dfm_st_wide <- spread(dfm_st_long, key = "gene_synonym_nichols", value = "sscore")
+```
+
+Quick visual comparison of chemogenomic profile for the cell wall marker genes mrcB, 
+slt, ycfM: concentrations in Birgit's screen were markedly lower in almost all cases - 
+could be reason why it doesn't really look similar (except, partially, mecillinam). 
+
+
+
+
+
+

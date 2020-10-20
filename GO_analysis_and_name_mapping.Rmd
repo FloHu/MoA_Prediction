@@ -1,0 +1,69 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+It's about time to finally solve (i) the issue of outdated gene names and (ii) of GO enrichment 
+analysis. 
+
+First, let's load the table with all of the genes before any mergers/exclusions etc. 
+
+```{r}
+library(tidyverse)
+
+tabs_nochanges <- readRDS("./data/programmatic_output/kept_datasets_long_nochanges.rds")
+nic_nochanges <- tabs_nochanges$nichols_2011
+genes <- distinct(nic_nochanges[, c("ugi", "gene_synonym")])
+```
+
+Task 1: map outdated gene_synonyms to the most up to date versions. E.g.
+
+```{r}
+# examples for outdated names - should be mepM, mepK, lpoB
+filter(genes, gene_synonym %in% c("YEBA", "YCBK", "YCFM"))
+```
+
+I made a table to translate the synonyms using Ecocyc. 
+
+It is the table and as of this writing (2020-10-08) the table I am referring to was 
+created on 2020-02-03. It maps Ecocyc IDs to the newest gene names (I think). 
+
+```{r}
+eck_to_newnames <- read_tsv("./data/All_genes_of_E._coli_K-12_substr._MG1655__ECOCYC_to_GENENAME.txt")
+colnames(eck_to_newnames) <- c("gene_synonym_2020", "ugi")
+eck_to_newnames
+```
+
+Now we can merge and check if the new names are actually what we want, whether there 
+missing values etc. 
+
+```{r}
+genes <- left_join(genes, eck_to_newnames)
+genes
+
+# Was successful for the examples above 
+filter(genes, gene_synonym %in% c("YEBA", "YCBK", "YCFM"))
+```
+
+First problem: there are 39 genes where the mapping failed. Sometimes the Ecocyc ID 
+simply does not exist (anymore?) or there are two Ecocyc IDs. 
+
+```{r}
+genes[!complete.cases(genes), ] %>% print(n = 50)
+```
+
+Second check: look at cases where the trivial name changed - more than 600! I checked 
+a few of them manually on EcoCyc and the mappings seem to be correct. 
+
+```{r}
+genes <- 
+  rowwise(genes) %>% 
+  mutate(old_is_new = grepl(pattern = gene_synonym, x = gene_synonym_2020, ignore.case = TRUE))
+
+View(genes[!genes$old_is_new, ])
+```
+
+
+

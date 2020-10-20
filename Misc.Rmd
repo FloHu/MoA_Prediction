@@ -616,12 +616,17 @@ m_all_alldrugs <- rd(m_all_alldrugs)
 fpt <- rd(fpt)
 
 thio_pent <- 
-  filter(m_all_alldrugs, drugname_typaslab %in% c("THIOLUTIN", "PENTAMIDINE"))
+  filter(m_all_alldrugs, drugname_typaslab %in% c("THIOLUTIN", "ISONIAZID"))
+
+# plot_heatmap(dfm = thio_pent, mics = mics, moa = mode_of_action, feats = fpt, 
+#   cluster_rows = FALSE, cluster_columns = FALSE, plot_width = 7, 
+#   use_global_fpt_order = TRUE, plot_height = 1.5, save = TRUE, 
+#   file = "./plots/paper/Thio_pent_heatmap.pdf")
 
 plot_heatmap(dfm = thio_pent, mics = mics, moa = mode_of_action, feats = fpt, 
-  cluster_rows = FALSE, cluster_columns = FALSE, plot_width = 7, 
+  cluster_rows = FALSE, cluster_columns = FALSE, plot_width = 7, printplot = TRUE,
   use_global_fpt_order = TRUE, plot_height = 1.5, save = TRUE, 
-  file = "./plots/paper/Thio_pent_heatmap.pdf")
+  file = "./plots/paper/Thio_iso_heatmap.pdf")
 ```
 
 

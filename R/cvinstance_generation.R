@@ -25,7 +25,7 @@ make_cvinst_blocked_stratified <-
     }
     
     # usually we would set stratify = TRUE here
-    rdesc <- mlr::makeResampleDesc("CV", iters = folds)
+    rdesc <- mlr::makeResampleDesc("CV", iters = folds, blocking.cv = TRUE)
     data <- mlr::getTaskData(mlr_task)
     counter <- 0
     
@@ -79,7 +79,7 @@ make_rep_ncv <- function(task_data_all_cols,
   # structure
   # ! blocking needs to be specified in the task 
   rep_rin <- mlr::makeResampleInstance(mlr::makeResampleDesc(method = "RepCV", 
-    reps = reps, folds = folds), mlr_task)
+    reps = reps, folds = folds, blocking.cv = TRUE), mlr_task)
   
   # make the actual cv instances that are then used to overwrite the slots 
   # of rep_rin

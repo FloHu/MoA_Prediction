@@ -99,3 +99,4 @@ paper_theme <- theme(
   legend.title = element_text(size = 8, family = "Arial"), 
   panel.grid = element_blank()
 )
+

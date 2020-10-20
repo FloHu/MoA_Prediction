@@ -17,6 +17,8 @@ ipak(MASS)
 ipak(iterators)
 ipak(foreach)
 ipak(rpart)
+ipak(class)
+ipak(party)
 ipak(xgboost)
 ipak(glmnet)
 ipak(tidyverse)
@@ -24,12 +26,14 @@ ipak(mlr)
 ipak(parallelMap)
 
 # parallel::detectCores()
-parallelStartMulticore(cpus = 24)
+# changed to 8 for local computation
+parallelStartMulticore(cpus = 8)
 
 
 ## DATA AND PATHS -------------------------------
-exportdir <- "/scratch/typas/cluster_run_results/mc_2019"
-mc <- readRDS("mc.rds")
+# exportdir <- "/scratch/typas/cluster_run_results/mc_2019"
+exportdir <- "/Users/fhuber/PROJEKTE/MoA_Prediction/new_fits_mc_2020/"
+mc2 <- readRDS("/Users/fhuber/PROJEKTE/MoA_Prediction/data/programmatic_output/mc2.rds")
 
 
 ## FUNCTION DEFINITIONS -------------------------------
@@ -244,10 +248,10 @@ perform_tuning <- function(.learner, .data, .task, .nfolds, .paramset, .ctrl) {
 
 begin <- Sys.time()
 result_name <- 
-  purrr::reduce(mc[my_line, c("fitted_model", "drug_dosages", "chemical_feats")], 
+  purrr::reduce(mc2[my_line, c("fitted_model", "drug_dosages", "chemical_feats", "identifier")], 
     paste, sep = "_")
 
-result <- fit_model_container_row(mc[my_line, ])
+result <- fit_model_container_row(mc2[my_line, ])
 
 saveRDS(object = result, file = file.path(exportdir, paste0(result_name, ".rds")))
 

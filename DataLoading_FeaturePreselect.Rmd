@@ -534,7 +534,7 @@ Looks like 23 clusters is a good number to capture similar groups.
 clusters[order(clusters)]
 clusters <- tibble(clust_id = clusters, members = names(clusters)) %>%
   group_by(clust_id) %>%
-  nest(.key = members) %>%
+  nest(members = "members") %>%
   mutate(members = map(members, flatten_chr))
 
 clusters$clust_label <- sapply(clusters$members, function(x) {
@@ -692,6 +692,16 @@ tmp <- map(tmp, function(.x) {
 })
 
 saveRDS(tmp, file = file.path(outdir, "matrices_MoA_info.rds"))
+```
+
+```{r}
+dosg_check_nichols <- left_join(dosg_check$nichols_2011.sscores, mode_of_action[, 1:2])
+ggplot(dosg_check_nichols, aes(x = process_broad, y = n_signif)) + 
+  geom_boxplot()
+
+dosg_check_lucia <- left_join(dosg_check$newsize.sscores, mode_of_action[, 1:2])
+ggplot(dosg_check_lucia, aes(x = process_broad, y = n_signif)) + 
+  geom_boxplot()
 ```
 
 

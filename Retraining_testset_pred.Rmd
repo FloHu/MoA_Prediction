@@ -76,11 +76,11 @@ on the whole dataset (= routine of inner loop). Functions needed are in
 ### Tune parameters
 
 ```{r}
-lrn <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob")
-lrn_wrapped <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
-  fw.perc = 0.05)
+(lrn <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob"))
+(lrn_wrapped <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
+  fw.perc = 0.05))
 
-tsk <- make_my_task(dfm = dfm, blockvar = "drugname_typaslab")
+(tsk <- make_my_task(dfm = dfm, blockvar = "drugname_typaslab"))
 
 sqrt_p <- floor(sqrt(ncol(dfm)))
 rf_grid <- makeParamSet(
@@ -90,7 +90,7 @@ rf_grid <- makeParamSet(
   makeDiscreteParam("fw.perc", values = c(0.25, 0.5, 1))
 )
 
-my_file <- "./data/programmatic_output/tuned_params_chosen.rds"
+(my_file <- "./data/programmatic_output/tuned_params_chosen.rds")
 if (!file.exists(my_file)) {
   tuned_params <- tuneParams(learner = lrn_wrapped, task = tsk, resampling = rin, 
     measures = chosen$tuning_measure[[1]], par.set = rf_grid, 
@@ -99,6 +99,7 @@ if (!file.exists(my_file)) {
 } else {
   tuned_params <- readRDS(my_file)
 }
+tuned_params
 ```
 
 ### Retrain with tuned parameters
@@ -106,13 +107,13 @@ if (!file.exists(my_file)) {
 ```{r}
 # set seed? 
 # original model
-tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x)
+(tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x))
 
 # models with proximity matrices, local importances
-tuned_lrn_prox <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
-  proximity = TRUE)
-tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
-    proximity = TRUE, localImp = TRUE)
+(tuned_lrn_prox <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+  proximity = TRUE))
+(tuned_lrn_loc <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x, 
+    proximity = TRUE, localImp = TRUE))
 
 train_or_load <- function(tuned_learner, task, modelfile) {
   if (!file.exists(modelfile)) {
@@ -252,13 +253,13 @@ ggplot(tmp, aes(x = drug_conc, y = predicted_prob)) +
 ggsave("./plots/paper/Pred_heatmap_unknown.pdf", width = 120, height = 180, 
   units = "mm")
 
-filter(tmp, drugname_typaslab %in% c("THIOLUTIN", "PENTAMIDINE")) %>% 
+filter(tmp, drugname_typaslab %in% c("THIOLUTIN", "ISONIAZID")) %>% 
   ggplot(aes(x = predicted_prob, y = prob.med, colour = drugname_typaslab)) +
-    geom_point() +
+    geom_point(shape = 1) +
     geom_line(aes(group = drug_conc), size = 0.3) + 
     labs(y = "Prediction probability") + 
     scale_x_discrete("MoA", labels = moa_repl3) + 
-    scale_colour_manual("", labels = c("Pentamidine", "Thiolutin"), 
+    scale_colour_manual("", labels = c("Isoniazid", "Thiolutin"), 
       values = c("#377eb8", "#ff7f00")) +
     paper_theme + 
     theme(legend.position = c(0.75, 0.85), legend.background = element_blank())
@@ -275,14 +276,22 @@ ggsave("./plots/paper/Pred_lines_Fig5.pdf", width = 57, height = 50,
 ```{r}
 # getFeatureImportance(mod)$res is a 1-row data frame with each column being 
 # a gene
+# mod_imp <- 
+#   gather(getFeatureImportance(trained_model)$res, key = "gene", value = "imp", 
+#     everything()) %>%
+#   filter(imp != 0) %>%
+#   arrange(desc(imp)) %>% 
+#   mutate(gene = fct_reorder(gene, imp, .desc = TRUE), log2imp = log2(imp)) %>%
+#   as_tibble()
+
 mod_imp <- 
-  gather(getFeatureImportance(trained_model)$res, key = "gene", value = "imp", 
-    everything()) %>%
+  getFeatureImportance(trained_model)$res %>% 
+  rename(gene = variable, imp = importance) %>% 
   filter(imp != 0) %>%
   arrange(desc(imp)) %>% 
   mutate(gene = fct_reorder(gene, imp, .desc = TRUE), log2imp = log2(imp)) %>%
   as_tibble()
-
+  
 mod_imp
 ```
 
@@ -815,7 +824,7 @@ plotData <- data.frame(tsne_res$Y, MoA = tsne_mat$process_broad,
   drug = paste0(tsne_mat$drugname_typaslab, "_", tsne_mat$conc))
 colnames(plotData)[1:3] <- c("tSNE1", "tSNE2", "tSNE3")
 
-plotData$label <- ifelse(grepl(plotData$drug, pattern = "PENTAMIDINE|THIOLUTIN"), 
+plotData$label <- ifelse(grepl(plotData$drug, pattern = "ISONIAZID|THIOLUTIN"), 
   as.character(plotData$drug), "")
 
 fig5 <- ggplot(plotData, aes(x = tSNE1, y = tSNE2, colour = MoA, label = label)) + 
@@ -894,21 +903,29 @@ walk(main_moas, function(moa) {
       clustering_distance_rows = "spearman", 
       cluster_rows = FALSE, 
       cluster_columns = FALSE, 
-      moa = mode_of_action, save = TRUE, 
+      moa = mode_of_action, 
+      save = TRUE, 
       plot_height = 4.5, 
       plot_width = 3.4, 
       show_column_dend = FALSE, 
       show_heatmap_legend = FALSE, 
       show_legend = FALSE, 
       use_global_fpt_order = TRUE, 
-      file = paste0("./plots/Hclust_fpt_training_", moa, ".pdf"))
+      file = paste0("./plots/Hclust_fpt_training", moa, ".pdf"))
 })
 
 # fingerprint features, all drugs
-plot_heatmap(dfm = m_all_alldrugs, feats = fpt, mics = mic_info, split = 4, 
-  clustering_distance_columns = "spearman", 
-  clustering_distance_rows = "spearman", 
-  moa = mode_of_action, save = TRUE, file = "./plots/Hclust_fpt_alldrugs.pdf")
+plot_heatmap(dfm = m_all_alldrugs, 
+             feats = fpt, mics = mic_info, 
+             split = 4, 
+             clustering_distance_columns = "spearman", 
+             clustering_distance_rows = "spearman", 
+             moa = mode_of_action, 
+             cluster_columns = FALSE, 
+             use_global_fpt_order = TRUE, 
+             save = TRUE, 
+             file = "./plots/Hclust_fpt_alldrugs.pdf")
+
 ```
 
 

@@ -1,0 +1,1574 @@
+---
+title: "Untracked stuff for testing purposes"
+author: "Florian Huber"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 6
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r setup}
+rm(list = ls())
+# function to check if a package is installed, if so, load it, else install and then load it
+source("./R/ipak.R")
+# set chunk options and load libraries
+source("./setup.R")
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+```{r}
+my_ntree <- 1000
+my_mtry <- 150
+my_moa <- "cell_wall"
+moas <- c("cell_wall", "dna", "membrane_stress", "protein_synthesis")
+
+matrix_container_ext <- readRDS("./data/programmatic_output/matrix_container_ext.rds")
+(the_line <- which(matrix_container_ext$fitted_model == "classif.randomForest" &
+    matrix_container_ext$feat_preselect == "top25pct" & !matrix_container_ext$chemical_feats &
+    matrix_container_ext$drug_dosages == "all"))
+stopifnot(length(the_line) == 1)
+
+my_data <- matrix_container_ext$drug_feature_matrices[[the_line]]
+length(unique(my_data$drugname_typaslab))
+```
+
+
+# New resampling approach, wrappers, benchmark experiments etc.
+
+```{r}
+(m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds"))
+(m_ia <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_mostias_2019.rds"))
+
+lrn <- makeLearner("classif.randomForest", predict.type = "prob", 
+  id = "RF base learner")
+
+# not sure what's best way atm, but somehow need to keep dosage information 
+# somewhere ...
+# data frame with drug names and concentrations:
+obs_vars <- c("drugname_typaslab", "conc")
+(m_obs <- select(m, obs_vars))
+
+# make_blocks <- function(v) {
+#   my_rle <- rle(v)
+#   blocks <- factor(rep(seq_along(my_rle$lengths), my_rle$lengths))
+#   return(blocks)
+# }
+
+nunique(m$drugname_typaslab)
+(m_blocks <- make_blocks(m$drugname_typaslab))
+(m_task <- as.data.frame(select(m, -obs_vars)))
+myhead(m_task)
+
+(task <- makeClassifTask(id = "The matrix all dosg.", data = m_task, 
+  target = "process_broad", blocking = m_blocks))
+
+# write procedure to fit model (should be applicable to all data and for each 
+# inner loop)
+```
+
+
+Wrappers.
+
+```{r}
+# tuning features
+# how to dynamically set mtry?
+ncol(m)
+my_pars <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(20, 60)), 
+  makeDiscreteParam("mtry", values = c(200, 700))
+)
+
+ctrl <- makeTuneControlGrid()
+
+res <- tuneParams(learner = lrn, task = task, resampling = rin, 
+  measures = list(mmce, kappa, ber), control = ctrl, par.set = my_pars)
+res
+
+# do funky stuff:
+
+res$x
+res$y
+res$opt.path
+generateHyperParsEffectData(res)
+View(res)
+```
+
+Implementing feature selection. 
+
+Basic building block: filter methods. 
+List of available filter methods:
+https://mlr.mlr-org.com/articles/tutorial/filter_methods.html
+
+```{r}
+# list available methods:
+listFilterMethods()
+generateFilterValuesData(task, method = "variance")
+# this simply generates a data frame of feature importances
+# relief algorithm seems to take forever
+fv <- generateFilterValuesData(task, method = c("variance"))
+class(fv)
+
+# possible to create a task with only a feature subset, then need to add 
+# additional argument "abs", "perc", or "threshold"
+# either specify method or fval
+(filtered_task <- filterFeatures(task, method = "variance", perc = 0.05))
+class(filtered_task) # same as class(task)
+```
+
+Fusing a learner with a filter method: by making a filterWrapper, so that the 
+features are now hyperparameter, filterFeatures() is then used before every 
+model fit. Actually selected features can then be retrieved from each model 
+with function `getFilteredFeatures()`. 
+
+```{r}
+lrn_fwr <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
+  fw.perc = 0.05)
+r <- resample(learner = lrn_fwr, task = task, resampling = rin, 
+  show.info = TRUE, models = TRUE)
+r
+r$aggr
+r$models
+(sfeats <- sapply(r$models, getFilteredFeatures))
+# shows that this is quite different between splits:
+table(table(sfeats))
+```
+
+How to tune the feature subset? One of `fw.perc`, `fw.abs`, `fw.threshold` has 
+to become a parameter in a parameter subset. 
+
+```{r}
+# use the filterWrapper, rin from above
+# problem: can't tune mtry dynamically to task size? or at least I don't 
+# see an easy way to do that
+my_pars <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(21, 61, 101, 201, 351, 501, 701, 1001)), 
+  makeDiscreteParam("fw.perc", values = c(0.05, 0.1, 0.15, 0.2))
+)
+
+res <- tuneParams(lrn_fwr, task, rin, measure = list(mmce, kappa), 
+  par.set = my_pars, control = ctrl)
+res
+generateHyperParsEffectData(res)$data # alternatively: as.data.frame(res$opt.path)
+```
+
+Looks like it's probably not necessary to tune mtry.
+
+To check: how to tune xgboost, lasso?
+
+Performance of qda? Just a quick check. Note that qda only works if number of 
+features is at least number of observations per group + 1. (e.g. for cell_wall 
+we have 43 observations so we can't use at most 42 features, or actually 
+less, because of the resampling splits). 
+
+Following chunk just shows that selecting the ~18 most important features from 
+an earlier RF run results in decent QDA performance. This also means that one 
+could think about a clever search strategy to implement QDA - perhaps later. 
+
+```{r}
+qda <- makeLearner("classif.qda", predict.type = "prob")
+qda
+getParamSet(qda)
+
+(task_qda <- makeClassifTask(id = "The matrix all dosg.", 
+  data = select(m_task, MRCB, YCFM, RECC, HUPA, 
+  SLT, RECA, FADD, DADX, DGKA, MUTS, PGPA, LOLB, PAL_and_4_more, RBFA, XERC, 
+  process_broad), 
+  target = "process_broad", blocking = m_blocks))
+
+r_qda <- resample(learner = qda, task = task_qda, resampling = rin, 
+  show.info = TRUE, models = TRUE)
+
+getLearnerModel(r_qda$models[[1]])
+
+getLearnerParamSet(qda)
+# just to check what happens when we tune parameter "nu"
+# - doesn't make any difference: 
+my_pars <- makeParamSet(
+  makeDiscreteParam("nu", values = c(3, 5, 8, 10, 15, 25))
+)
+
+res <- tuneParams(qda, task_qda, rin, measure = list(mmce, kappa), 
+  par.set = my_pars, control = ctrl)
+res
+generateHyperParsEffectData(res)$data
+```
+
+
+And now, 2 more things to check: first, good values of lambda for lasso, 
+second, a good hyperparameter grid for xgboost. 
+
+Not clear what the tuning is supposed to mean exactly. let's just train and 
+then check. 
+
+```{r}
+glmnet <- makeLearner("classif.glmnet", predict.type = "prob")
+getParamSet(glmnet)
+
+# use tasktop50 for better overview of results
+tasktop10pct <- filterFeatures(task, method = "variance", perc = 0.1)
+tasktop50 <- filterFeatures(task, method = "variance", abs = 50)
+
+# explore difference between lambda and s: apparently lambda is determined 
+# internally by glmnet, in fact, a sequence of lambdas
+# then s is one specific value for training or something like that, not sure 
+# https://github.com/mlr-org/mlr/issues/1030
+r <- resample(learner = glmnet, task = tasktop50, resampling = rin, 
+  measures = list(mmce, kappa), models = TRUE)
+r
+r$models
+mod <- r$models[[1]]
+mod
+```
+
+Check the tutorial: 
+https://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html
+
+```{r}
+# fitted model: retrieve by $learner.model or getLearnerModel()
+class(getLearnerModel(mod))
+glmnet.fit <- getLearnerModel(mod)
+coef(glmnet.fit)
+plot(glmnet.fit, label = TRUE)
+
+print(glmnet.fit)
+# s = lambda
+# can specify any value of s, don't know why
+coef(glmnet.fit, s = 0.1)
+```
+
+Can specify cross-validation "manually".
+
+```{r}
+# doesn't work? :(
+# my_dat <- getTaskData(tasktop50)
+# glmnet::cv.glmnet(x = select(my_dat, -process_broad), y = as.character(my_dat$process_broad))
+```
+
+The rest is very technical. But according to 
+https://github.com/mlr-org/mlr/issues/1030
+it's fine to just tune s. 
+
+So back to square 1.
+
+```{r}
+my_pars <- makeParamSet(
+  makeDiscreteParam("s", values = seq(from = 0.01, to = 0.5, length.out = 50))
+)
+
+res <- tuneParams(glmnet, tasktop50, rin, measure = list(mmce, kappa), 
+  par.set = my_pars, control = ctrl)
+
+res
+generateHyperParsEffectData(res)$data
+```
+
+For tuning: use makeTuneWrapper: whenever it is trained, will use resampling. 
+
+```{r}
+glmnet
+my_pars <- makeParamSet(
+  makeDiscreteParam("s", values = seq(from = 0.01, to = 0.5, length.out = 50))
+)
+ctrl
+rin
+
+glmnet_tune_wrapper <- makeTuneWrapper(learner = glmnet, resampling = rin, 
+  measures = mmce, par.set = my_pars, control = ctrl)
+
+# like all wrappers, the wrapped routine is run before training, so:
+mod <- train(glmnet_tune_wrapper, tasktop50)
+# retrieve optimal hyperparameters with getTuneResult
+getTuneResult(mod)
+
+# and then it is trained on everything, as we can see when we run:
+coef(getLearnerModel(mod[["learner.model"]][["next.model"]]), s = 0.07)
+plot(getLearnerModel(mod$learner.model$next.model))
+```
+
+And now let's check xgboost. 
+
+```{r}
+# will remove: 
+# subsample; colsample_bytree; alpha; lambda
+# keep: nrounds: but this needs to change a lot potentially
+#       max_depth: do 2, 4, 6, 8
+#       eta: 0.2, 0.3, 0.4
+xg_lrn <- makeLearner("classif.xgboost", predict.type = "prob")
+
+my_xgparams <- makeParamSet(
+  makeDiscreteParam("nrounds", values = c(1, 5, 10, 20, 30)), 
+  makeDiscreteParam("eta", values = c(0.2, 0.3, 0.4, 0.5, 0.6)), 
+  makeDiscreteParam("max_depth", values = c(3, 5, 7))
+)
+
+r_xgboost <- tuneParams(learner = xg_lrn, task = tasktop10pct, resampling = rin, 
+  measures = mmce, par.set = my_xgparams, control = ctrl)
+
+# set partial.dep to TRUE if more than two hyperparameters are tuned 
+# simultaneously
+
+data <- generateHyperParsEffectData(r_xgboost, partial.dep = TRUE)
+group_by(data$data, max_depth) %>%
+  summarise(mmce.test.mean = mean(mmce.test.mean)) %>%
+  ggplot(aes(x = max_depth, y = mmce.test.mean)) + 
+  geom_line()
+```
+
+
+
+So, time to set up the "right" procedure.
+
+Ingredients needed:
+
+- define top x% variance as a hyperparameter
+- change hyperparameter grids
+- use mcl model from the beginning
+- proper implementation of nested CV procedure (10x repeated)
+- make sure that the inner models are kept, and, if possible, their optimisation paths
+
+```{r}
+# start off with lasso because it's quite fast
+# start again from scratch
+
+# we already know the 'inner procedure':
+# first, need a learner:
+lrn <- makeLearner("classif.glmnet", predict.type = "prob")
+# and a task that is blocked
+(m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds"))
+obs_vars <- c("drugname_typaslab", "conc")
+(m_obs <- select(m, obs_vars))
+nunique(m$drugname_typaslab)
+(m_blocks <- make_blocks(m$drugname_typaslab))
+(m_task <- as.data.frame(select(m, -obs_vars)))
+
+(tsk <- makeClassifTask(id = "The matrix all dosg.", data = m_task, 
+  target = "process_broad", blocking = m_blocks))
+
+# for tuning we need a hyperparameter grid
+my_pars <- makeParamSet(
+  makeDiscreteParam("s", values = seq(from = 0.01, to = 0.5, length.out = 3)), 
+  makeDiscreteParam("fw.perc", values = c(0.05, 0.15))
+)
+
+ctrl <- makeTuneControlGrid()
+
+# but this won't work if we don't have a 'filterWrapper':
+lrn_wrapped <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
+  fw.perc = 0.05) # have to specify even though it's tuned later
+
+# it actually works
+t <- tuneParams(learner = lrn_wrapped, task = tsk, resampling = rin, 
+  measures = mmce, par.set = my_pars, control = ctrl)
+
+inner <- makeResampleDesc(method = "CV", iters = 3, blocking.cv = TRUE)
+# don't know if the order matters (wrap FilterWrapper in TuneWrapper or 
+# vice versa)
+lrn_wrapped2 <- makeTuneWrapper(lrn_wrapped, resampling = inner, 
+  par.set = my_pars, control = ctrl, show.info = TRUE)
+
+# nested CV: resample on the tuneWrapper
+outer <- makeResampleDesc(method = "CV", iters = 3, blocking.cv = TRUE)
+r <- resample(lrn_wrapped2, tsk, resampling = outer, extract = getTuneResult, 
+  show.info = TRUE, models = TRUE)
+r
+
+# to get the actual model it's a bit ridiculous but OK:
+r[["models"]][[1]][["learner.model"]][["next.model"]][["learner.model"]][["next.model"]]
+r$extract
+
+# so now the question is: does this work with a repeated nested CV instance? 
+# because then we can just write our own and pass it to the fitting procedure
+
+# rep_rin
+# rep_rin <- makeResampleInstance(desc = "RepCV")
+inner <- makeResampleDesc(method = "CV", iters = 8, blocking.cv = TRUE)
+# don't know if the order matters (wrap FilterWrapper in TuneWrapper or 
+# vice versa)
+lrn_wrapped2 <- makeTuneWrapper(lrn_wrapped, resampling = inner, 
+  par.set = my_pars, control = ctrl, show.info = TRUE)
+
+r <- resample(lrn_wrapped2, tsk, resampling = rin, extract = getTuneResult, 
+  show.info = TRUE, models = TRUE)
+```
+
+Stratification + blocking is not allowed. Learners will crash if there are 
+empty classes in the training. Passing of resampling instance is not possible 
+for nested resampling. 
+
+So what do we do?
+
+Let's first provoke the eror and then see how it could be handled. Enough to 
+do this with just one resampling loop. 
+
+Then explore options in the chunk.
+
+https://github.com/mlr-org/mlr/issues/811
+
+```{r}
+lrn <- makeLearner("classif.glmnet", predict.type = "prob")
+# and a task that is blocked
+(m <- readRDS("./data/programmatic_output/the_matrix_matrixcontainer_alldosg_2019.rds"))
+
+# reduce m so that we have 6 drugs of 3 classes
+m <- filter(m, drugname_typaslab %in% c("AMOXICILLIN", "AMPICILLIN", "MECILLINAM", "NORFLOXACIN", 
+  "SULFAMETHIZOLE", "CISPLATIN", "EGCG", "SDS", "CHOLATE"))
+
+obs_vars <- c("drugname_typaslab", "conc")
+(m_obs <- select(m, obs_vars))
+
+nunique(m$drugname_typaslab)
+(m_blocks <- make_blocks(m$drugname_typaslab))
+(m_task <- as.data.frame(select(m, -obs_vars)))
+
+(tsk <- makeClassifTask(id = "The matrix all dosg.", data = m_task, 
+  target = "process_broad", blocking = m_blocks))
+tsk <- filterFeatures(tsk, method = "variance", abs = 10)
+
+# for tuning we need a hyperparameter grid
+my_pars <- makeParamSet(
+  makeDiscreteParam("s", values = seq(from = 0.01, to = 0.5, length.out = 3))
+)
+
+ctrl <- makeTuneControlGrid()
+
+# need a resampling instance that will break the learning:
+# rin_broken <- makeResampleInstance(desc = "CV", iters = 3, task = tsk)
+
+m[rin_broken$train.inds[[1]], ]
+m[rin_broken$test.inds[[1]], ]
+
+m[rin_broken$train.inds[[2]], ]
+m[rin_broken$test.inds[[2]], ]
+
+m[rin_broken$train.inds[[3]], ]
+m[rin_broken$test.inds[[3]], ]
+
+
+# so what happens?
+#t <- tuneParams(learner = lrn, task = tsk, resampling = rin_broken, 
+#  measures = mmce, par.set = my_pars, control = ctrl)
+
+# not an option: fixup.data in makeClassifTask(); 
+# also not: fix.factors.prediciton in makeLearner() because this only helps if 
+# the test data has fewer factors than the training data
+# so can only change option onLearnerError: either globally ?configMlr or 
+# argument config to learner:
+lrn <- makeLearner("classif.glmnet", predict.type = "prob", 
+  config = list(on.learner.error = "warn"))
+
+t <- tuneParams(learner = lrn, task = tsk, resampling = rin_broken, 
+  measures = mmce, par.set = my_pars, control = ctrl)
+
+t$opt.path
+generateHyperParsEffectData(t)
+# works, we get NA values but at least it returns a tuned parameter
+# don't know which one - seems random, since I reversed the order of s and 
+# then it takes neither the first not the last value
+
+# so Bernd also recommends to set an imputation value for makeTuneControlGrid: 
+ctrl <- makeTuneControlGrid(impute.val = 0.1234)
+t <- tuneParams(learner = lrn, task = tsk, resampling = rin_broken, 
+  measures = mmce, par.set = my_pars, control = ctrl)
+
+# although I don't get what the imputation value is doing???
+```
+
+Summary: this doesn't work: as soon as one split is "corrupted" the whole 
+resampling is corrupted since we can't calculate a mean
+
+So I don't know, can't be bothered to somehow hack MLR's incapability of 
+running stratified blocked nested resampling so will go back to the "old" way 
+of doing it by hand, but with a better design. 
+
+Let's start with a test case (lower number of algorithms, repeats, smaller 
+grids etc.).
+
+```{r}
+m
+m_ia
+
+(mc <- readRDS("./data/programmatic_output/matrix_container_2019.rds"))
+example_result <- readRDS("./run_results_from_server/matrix_container_result/lasso_hyp_param_all_top10pct_FALSE.rds")
+
+# need a new matrix_container:
+els_outer <- list(
+  algos = c("classif.randomForest", "classif.glmnet"), 
+  dosages = c("m", "m_ia")
+#  chem_feats = c(TRUE, FALSE)
+) %>% cross_df()
+
+els_outer
+
+# use 'dosages' column to fetch data into a list column
+els_outer$data <- map(els_outer$dosages, get)
+els_outer
+
+# need to create repeated nested cv instance 
+# just make a list of 10 elements - but could also try to make a repeated CV 
+# directly? 
+# something like this: 
+repcv_mlr <- makeResampleInstance(desc = "RepCV", size = 217)
+# see also function make_rep_ncv()
+
+# need input for make_cvinst_blocked_stratified:
+args(make_cvinst_blocked_stratified)
+
+# make_my_task() now in misc.R
+
+(task_all_dosg <- make_my_task(m, blockvar = "drugname_typaslab"))
+(task_mia <- make_my_task(m_ia, blockvar = "drugname_typaslab"))
+
+# use function FROM ABOVE (mcl version): make_cvinst_blocked_stratified 
+outer_repcv_all <- replicate(2, 
+  make_cvinst_blocked_stratified(task_data_all_cols = m, 
+    mlr_task = task_all_dosg, folds = 8, strat_var = "process_broad"), 
+  simplify = FALSE)
+
+outer_repcv_mia <- replicate(2, 
+  make_cvinst_blocked_stratified(task_data_all_cols = m_ia, mlr_task = task_mia, 
+    folds = 8, strat_var = "process_broad"), simplify = FALSE)
+
+# wrap output in list()! 
+els_outer$cvinst <- ifelse(els_outer$dosages == "m", list(outer_repcv_all), 
+  list(outer_repcv_mia))
+
+# dummy parameter sets
+rf_params <- 
+  makeParamSet(
+    makeDiscreteParam("ntree", values = c(200, 500)), 
+    makeDiscreteParam("fw.perc", values = c(0.05, 0.15))
+  )
+
+lasso_params <- 
+  makeParamSet(
+    makeDiscreteParam("s", values = seq(from = 0.01, to = 0.5, length.out = 50)), 
+    makeDiscreteParam("fw.perc", values = c(0.05, 0.15))
+  )
+
+els_outer$paramgrid <- ifelse(els_outer$algos == "classif.randomForest", 
+  list(rf_params), list(lasso_params))
+```
+
+
+```{r}
+# just do test for first two rows
+# starts to look very similar to original setup and function
+for (r in 1) { # will wrap this in a function
+  row_params <- map(els_outer[1, ], 1)
+  # should put tuning measure there
+  
+  n_rep <- length(row_params$cvinst)
+  run_result <- list()
+  
+  for (cvrep in seq_len(n_rep)) { # can also wrap this into a function, then just map over the cvinstances? 
+    # rep <- row_params$cvinst[[1]]
+    cvinst <- row_params$cvinst[[cvrep]]
+    
+    # save all the results
+    run_outer_fold <- list()
+    
+    # make train-test pairs:
+    train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds))
+    
+    # now need to tune parameters + variance preselection (or other feat preselection routine) in inner loop
+    # which CV instance to use? 
+    # could be useful to dynamically create CV instances, load them if they are already present, else create and save? 
+
+    # tune hyperparameters within each training set of the outer loop
+    # for (pair in train_test_pairs) {
+    for (n in seq_len(length(train_test_pairs))) {
+      fold_name <- paste0("outer_fold_", n)
+      pair <- train_test_pairs[[n]]
+      
+      stopifnot({
+        # just to make sure the pair is really a pair and that no observations 
+        # occur in both training and test set
+        length(pair) == 2
+        length(pair[[1]]) > length(pair[[2]])
+        n_distinct(flatten_dbl(pair)) == length(flatten_dbl(pair))
+      })
+      
+      training_data <- 
+        row_params$data[pair[[1]], ] %>%
+        arrange(drugname_typaslab) # for correct blocking
+      
+      test_data <- row_params$data[pair[[2]], ]
+      
+      # need tasks for tuning and, later, prediction
+      task_train_outer <- make_my_task(dfm = training_data, 
+        blockvar = "drugname_typaslab", targetvar = "process_broad")
+      
+      task_test_outer <- make_my_task(dfm = test_data, 
+        targetvar = "process_broad", blockvar = NULL)
+      
+      # ... a wrapped learner ...
+      lrn_train_outer <- makeLearner(cl = row_params$algos, predict.type = "prob")
+      # check if this changes depending on algorithm
+      # in principle the learner could also ship with the matrix_container ...
+      lrn_train_outer_wrapped <- 
+        makeFilterWrapper(learner = lrn_train_outer, fw.method = "variance", 
+          fw.perc = 0.05)
+      
+      # this is new, we create an instance now on the fly
+      rin_inner <- suppressMessages(make_cvinst_blocked_stratified(task_data_all_cols = training_data, 
+        mlr_task = task_train_outer, folds = 8, strat_var = "process_broad"))
+      
+      # perform tuning
+      tuning_result <- 
+        tuneParams(learner = lrn_train_outer_wrapped, task = task_train_outer, 
+        resampling = rin_inner, measures = list(mmce, kappa), 
+        par.set = row_params$paramgrid, control = makeTuneControlGrid())
+      
+      # make tuned learner
+      tuned_lrn <- setHyperPars(learner = lrn_train_outer_wrapped, 
+        par.vals = tuning_result$x)
+      
+      # save information on optimisation path and performance in the inner loop 
+      opt_path <- generateHyperParsEffectData(tuning_result)
+      opt_path$data$cvrep <- cvrep
+      
+      # train with the tuned model, then predict the test drugs, add some 
+      # metadata to the prediction object 
+      trained_model <- mlr::train(learner = tuned_lrn, task = task_train_outer)
+      prediction <- stats::predict(trained_model, task = task_test_outer)
+      stopifnot(all(prediction$data$truth == task_test_outer$data_complete$process_broad))
+      prediction$data <- cbind(prediction$data, 
+        task_test_outer$data_complete[, c("drugname_typaslab", "conc")])
+      
+      run_outer_fold[[fold_name]][c("model", "pred", "opt_path", "opt_pars", "opt_pars_perf")] <- 
+        list(trained_model, prediction, opt_path, tuning_result$x, tuning_result$y)
+    }
+    
+    rep_name <- paste0("nested_cv_", cvrep)
+    run_result[[rep_name]] <- run_outer_fold
+  }
+  # return statement in function goes here
+}
+
+
+# parallelised for loops:
+
+
+# version with map() - parallelised version available? 
+
+# other points:
+# - inner routine into function
+# - function that accepts a row
+# - logging and messaging
+```
+
+
+Draft for functionalisation:
+
+```{r, eval = FALSE}
+fit_model_container_row <- function(row) {
+  # takes a row from matrix container and runs repeated nested CV 
+  # row = a row from matrix_container
+  stopifnot({
+    is(row, "data.frame")
+    nrow(row) == 1
+    !any(map_lgl(row, is.null))
+    # name checking routine
+  })
+
+  row_params <- map(row[1, ], 1)
+  n_rep <- length(row_params$cvinst)
+  run_result <- list()
+  
+  # for each cv instance
+  for (cvrep in seq_len(n_rep)) {
+    cvinst <- row_params$cvinst[[cvrep]]
+    train_test_pairs <- transpose(list(cvinst$train.inds, cvinst$test.inds))
+    
+    # for each pair:
+    for (n in seq_len(length(train_test_pairs))) {
+      fold_name <- paste0("outer_fold_", n)
+      pair <- train_test_pairs[[n]]
+      # make sure the pair is really a pair and that no observations 
+      # occur in both training and test set
+      stopifnot({
+        length(pair) == 2
+        length(pair[[1]]) > length(pair[[2]])
+        n_distinct(flatten_dbl(pair)) == length(flatten_dbl(pair))
+      })
+      
+      training_data <- 
+        row_params$data[pair[[1]], ] %>%
+        arrange(drugname_typaslab) # for correct blocking
+      
+      task_train_outer <- make_my_task(dfm = training_data, 
+        blockvar = "drugname_typaslab", targetvar = "process_broad")
+      
+      test_data <- row_params$data[pair[[2]], ]
+      
+      task_test_outer <- make_my_task(dfm = test_data, 
+        targetvar = "process_broad", blockvar = NULL)
+      
+      lrn_train_outer <- makeLearner(cl = row_params$algos, predict.type = "prob")
+      # check if this changes depending on algorithm
+      # in principle the learner could also ship with the matrix_container ...
+      lrn_train_outer_wrapped <- 
+        makeFilterWrapper(learner = lrn_train_outer, fw.method = "variance", 
+          fw.perc = 0.05)
+      
+      # tuning by cross-validation ("inner loop"), returns tuned learner, 
+      # trained learner, and opt_path
+      tune_res <- perform_tuning(.learner = lrn_train_outer_wrapped, 
+        .data = training_data, .task = task_train_outer, .nfolds = 8, 
+        .paramset = row_params$paramgrid, .ctrl = makeTuneControlGrid())
+      
+      # predict test set
+      prediction <- predict(tune_res$model, task = task_test_outer)
+      stopifnot(all(prediction$data$truth == task_test_outer$data_complete$process_broad))
+      prediction$data <- cbind(prediction$data, 
+        task_test_outer$data_complete[, c("drugname_typaslab", "conc")])
+      
+      # save results
+      run_outer_fold <- list()
+      run_outer_fold[[fold_name]] <- 
+        tune_res[c("model", "opt_path", "opt_pars", "opt_pars_perf")]
+      run_outer_fold[[fold_name]][["prediction"]] <- prediction
+    }
+    
+    rep_name <- paste0("nested_cv_", cvrep)
+    run_result[[rep_name]] <- run_outer_fold
+  }
+  
+  return(run_result)
+}
+
+perform_tuning <- function(.learner, .data, .task, .nfolds, .paramset, .ctrl) {
+  # input: learner with a dataset, number of folds for cv instance generation
+  # then runs cross-validation-based parameter tuning and returns tuned learner 
+  # plus the optimisation path
+  # returns tuned learner + optimisation path
+  
+  .rin <- suppressMessages(
+    make_cvinst_blocked_stratified(task_data_all_cols = .data, 
+      mlr_task = .task, folds = .nfolds, strat_var = "process_broad")
+  )
+  
+  # perform tuning
+  tuning_result <- tuneParams(learner = .learner, task = .task, 
+    resampling = .rin, measures = list(mmce, kappa), par.set = .paramset, 
+    control = .ctrl)
+  
+  tuned_lrn <- setHyperPars(learner = .learner, par.vals = tuning_result$x)
+  opt_path <- generateHyperParsEffectData(tuning_result)
+  trained_model <- mlr::train(learner = tuned_lrn, task = .task)
+  
+  return(list(
+    tuned_lrn = tuned_lrn, 
+    opt_path = opt_path, 
+    opt_pars = tuning_result$x, 
+    opt_pars_perf = tuning_result$y, 
+    model = trained_model))
+}
+```
+
+And now run with functionalised variant: 
+
+```{r}
+for (row in container) {
+  fit_model_container(row)
+}
+```
+
+
+
+
+
+# Analysis
+
+## Playing around with MLR stuff
+
+### Define train and test set.
+
+```{r, echo = FALSE}
+my_data_test <- my_data[!my_data$process_broad %in% moas, ]
+length(unique(my_data_test$drugname_typaslab))
+unique(my_data_test$drugname_typaslab)
+# however, a few drugs are missing:
+complete_data <- readRDS("./data/programmatic_output/the_matrix_complete_strainsgenesremoved_NAsimputed_wideformat.rds")
+drug_info <- readRDS("./data/programmatic_output/drugs_full.rds")
+drug_info <- drug_info[, c("drugname_typaslab", "process_broad")]
+complete_data <- left_join(complete_data, drug_info)
+complete_data <- select(complete_data, drugname_typaslab, conc, process_broad, everything())
+complete_data <- complete_data[, colnames(complete_data) %in% colnames(my_data_test)] # filter
+complete_data <- complete_data[, colnames(my_data_test)] # sort
+my_data_test <- bind_rows(my_data_test, filter(complete_data, drugname_typaslab %in% 
+    c("CHLOROPROMAZINE", "EPINEPHRINE", "NOREPINEPHRINE")))
+unique(my_data_test$drugname_typaslab)
+table(my_data_test$process_broad)
+
+# and with these we wanna learn:
+my_data <- my_data[my_data$process_broad %in% moas, ]
+# so we are left with 67 drugs
+length(unique(my_data$drugname_typaslab))
+table(my_data$process_broad)
+```
+
+Another thing we will do is to exclude genes with lots of NA values. Since NA values here were 
+already imputed, need to specify this by hand. At some point this issue will be fixed because such 
+features should be excluded everywhere
+
+```{r}
+to_exclude <- c("OXYR", "IMP", "ATPC", "GUAB", "YFCA", "PSTA", "GMHB", "RFAP", "LIPA", "YDJI", "FLDA")
+to_exclude %in% colnames(my_data)
+my_data <- select(my_data, -one_of(to_exclude))
+my_data_test <- select(my_data_test, -one_of(to_exclude))
+```
+
+Preparing tables for MLR. Try with `cell_wall` only for the time being.
+
+```{r}
+# this one we need for prediction:
+(my_data_mainmoas <- select(my_data, -one_of(c("conc", "drugname_typaslab")))) # keep drugname information? 
+# go for cell_wall first
+my_target <- "cell_wall"
+my_data_mainmoas$process_broad <- ifelse(my_data_mainmoas$process_broad == my_target, 
+  my_target, paste0("not_", my_target))
+```
+
+Making a task and a learner. Some dosages belong together, which can be done by using the blocking 
+argument. Construct levels using rle() but first make sure that different dosages of the same drug 
+aren't torn apart. 
+
+```{r}
+(my_rle <- rle(my_data$drugname_typaslab))
+stopifnot(length(unique(my_data$drugname_typaslab)) == length(my_rle$values))
+my_blocks <- factor(rep(seq_along(my_rle$values), my_rle$lengths))
+levels(my_blocks)
+
+(rf.task <- makeClassifTask(data = my_data_mainmoas, target = "process_broad", positive = my_target, 
+  blocking = my_blocks))
+
+(rf.learner <- makeLearner("classif.randomForest", predict.type = "prob", 
+  par.vals = list(ntree = my_ntree, mtry = my_mtry)))
+```
+
+### Retraining
+
+Before we go on to resampling let's retrain.
+
+```{r}
+(rf.model <- train(rf.learner, rf.task))
+class(rf.model)
+getLearnerModel(rf.model)
+```
+
+We again have this phenomenon of the negative class being favoured - can we fix this using one of 
+the strategies dealing with imbalanced classes? 
+
+*Note:* out of bag error is biased because it doesn't respect blocking! Might be fixed by making a 
+custom measure. 
+
+
+### Resampling (the old way):
+
+Note that blocking + stratification is not allowed - our 'old' problem and the reason why in some 
+splits there is no ROC curve.
+
+```{r}
+# doing resampling
+(my_measures <- matrix_container_ext$tuning_measure[[the_line]])
+
+rf.rdesc <- makeResampleDesc("CV", iters = 8, blocking.cv = TRUE) # predict = "test" ("both") argument goes here
+
+my_filename <- "./data/programmatic_output/rf.resample_result.rds"
+if (file.exists(my_filename)) {
+  rf.resample_result <- readRDS(my_filename)
+} else {
+  rf.resample_result <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+    resampling = rf.rdesc)
+  saveRDS(rf.resample_result, file = my_filename)
+}
+
+class(rf.resample_result)
+
+rf.resample_result
+rf.resample_result$aggr
+rf.resample_result$measures.test
+
+getRRPredictions(rf.resample_result)
+class(getRRPredictions(rf.resample_result))
+
+# this is what we need
+# generateThreshVsPerfData(rf.resample_result, measures = list(tpr, fpr, ppv))
+plotROCCurves(generateThreshVsPerfData(rf.resample_result, measures = list(fpr, tpr)))
+```
+
+
+### Resampling with resampling instances 
+
+#### Making resampling instances empirically
+
+On the one hand: blocking + stratification not possible but also don't wanna bother around with 
+manually tuning, fitting etc. way out: use instances. 
+Simply write a function that tests if an instance is more or less stratified if it is, keep it, 
+otherwise try again.
+
+```{r}
+# here's how it works in principle (blocking is considered but stratification we will have to do 
+# ourselves):
+(rin <- makeResampleInstance(rf.rdesc, rf.task))
+(rep_rin <- makeResampleInstance(makeResampleDesc(method = "RepCV", reps = 10, folds = 8, blocking.cv = TRUE), rf.task))
+
+## we could pass this to resample() but then we will sometimes not get an auc
+# resample(learner = rf.learner, task = rf.task, measures = my_measures, resampling = rin)
+
+rin$train.inds
+rin$test.inds
+sort(flatten_dbl(rin$test.inds))
+arrange(my_data[rin$train.inds[[1]], ], drugname_typaslab)
+```
+
+OK so let's try to find good instances. Consider stratification of all classes to accommodate 
+multi-class model. For subgroups we probably have to change strategies. 
+
+Approach: we already have a repeated CV instance (rep_rin) but will not be properly stratified so 
+what we will do is to keep trying until we find in total 10 good CV instances and then we simply 
+replace the indices.
+
+```{r}
+# number of observations per MoA, absolute and relative:
+table(my_data$process_broad)
+table(my_data$process_broad) / length(my_data$process_broad)
+
+# number of observations per MoA in a particular training/test set split
+table(my_data$process_broad[rin$train.inds[[1]]])
+table(my_data$process_broad[rin$train.inds[[1]]]) / length(rin$train.inds[[1]])
+
+table(my_data$process_broad[rin$test.inds[[1]]])
+table(my_data$process_broad[rin$test.inds[[1]]]) / length(rin$test.inds[[1]])
+
+# actually, it's enough if only the training set is stratified - we just want to be balanced in 
+# learning; the test sets are anyway concatenated at the end
+# however, to be able to calculate all performance measures we require at least one 
+# sample from each class to be in each test fold
+
+(ref_fracs <- table(my_data$process_broad) / length(my_data$process_broad))
+
+cv_instances <- list()
+counter <- 0
+max_deviance <- 0.05
+
+while (length(cv_instances) < 10) {
+   rin <- makeResampleInstance(rf.rdesc, rf.task)
+   counter <- counter + 1 # to keep track of how often we had to try :)
+   for (split in c(1:8)) {
+      train_fracs <- table(my_data$process_broad[rin$train.inds[[split]]]) / length(rin$train.inds[[split]])
+      # we don't want any "empty" classes in the test set:
+      if (length(table(my_data$process_broad[rin$test.inds[[split]]])) != length(moas)) {
+         break
+      }
+      # and relative fractions of classes shouldn't differ too much in the training set
+      if (any(abs(ref_fracs - train_fracs) > max_deviance)) {
+         break
+      }
+      # only happens upon success
+      if (split == 8) {
+         cat("Success at attempt ", counter, "! - ", date(), " (maximum deviance was ", 
+           round(max(abs(ref_fracs - train_fracs)), digits = 3), ")\n")
+         cv_instances <- c(cv_instances, list(rin))
+      }
+   }
+}
+
+# what happens actually with the original CV instance? 
+# interestingly, the repeat of the CV is not encoded
+my_filename <- "./data/programmatic_output/r2.rds"
+if (file.exists(my_filename)) {
+  r2 <- readRDS(my_filename)
+} else {
+  r2 <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+    resampling = rep_rin, models = TRUE)
+  saveRDS(r2, file = my_filename)
+}
+
+# note that AUC is NA:
+r2$aggr
+
+# so now let's replace the slots in the repeated CV instance above
+my_backup <- list(rep_rin, cv_instances)
+
+rep_rin$train.inds <- flatten(map(cv_instances, "train.inds"))
+rep_rin$test.inds <- flatten(map(cv_instances, "test.inds"))
+saveRDS(rep_rin, file = "./data/programmatic_output/rep_rin_empirical.rds")
+
+my_filename <- "./data/programmatic_output/r2_correct.rds"
+if (file.exists(my_filename)) {
+  r2_correct <- readRDS(my_filename)
+} else {
+  r2_correct <- resample(learner = rf.learner, task = rf.task, measures = my_measures, 
+    resampling = rep_rin, models = TRUE, keep.pred = TRUE)
+  saveRDS(r2_correct, file = my_filename)
+}
+
+# now we get a value for AUC
+r2_correct$aggr 
+# this is very close to our original result - cool!
+mean(filter(matrix_container_ext$perf_measures[[the_line]], moa_modelled == "cell_wall")$auc)
+```
+
+So now we know that our approach to get a repeated CV instance empirically works. For nested CV one 
+would need to do the same thing internally. 
+
+Let's have a bit of a look at the result:
+
+```{r}
+r2_correct$pred
+getRRPredictions(r2_correct) # same
+
+# this corresponds almost perfectly to the original curves that we got
+(r2_correct_threshdata <- generateThreshVsPerfData(r2_correct, measures = list(fpr, tpr, ppv, tnr, mmce)))
+plotROCCurves(r2_correct_threshdata)
+plotThreshVsPerf(r2_correct_threshdata) # very useful :)
+```
+
+
+### Retraining and predicting left out drugs
+
+```{r}
+(retrained_rf <- train(learner = rf.learner, task = rf.task))
+getLearnerModel(retrained_rf)
+
+myhead(my_data_test)
+pr <- predict(retrained_rf, newdata = my_data_test)
+pr
+
+# add metadata
+tmp <- cbind(pr$data, my_data_test[, c("drugname_typaslab", "conc", "process_broad")])
+
+ggplot(tmp, aes(x = factor(conc), y = prob.cell_wall)) + 
+   geom_bar(stat = "identity") + 
+   facet_wrap( ~ drugname_typaslab, scales = "free_x")
+```
+
+We could now repeat this for all other models ('dna', 'protein_synthesis', ...)
+
+### KNN as a baseline model
+
+Something like this here:
+
+<!--
+## Comparing with baseline models
+
+### KNN
+
+Has certain advantages: less black and white; assumption matches intuition that similar MoA = close 
+in chemical genomics space. Will fail however when other features are included. 
+
+```{r, echo = FALSE, eval = FALSE}
+getLearnerParamSet("classif.knn")
+
+(knn_params <- makeParamSet(
+   makeDiscreteParam("k", values = 1:25)
+))
+class(knn_params)
+
+(ctrl <- makeTuneControlGrid())
+class(ctrl)
+
+knn.learner <- makeLearner("classif.knn")
+
+# rf.task was with cell_wall only
+res_knn <- tuneParams(learner = knn.learner, task = rf.task, resampling = rep_rin, 
+  measures = list(mmce), par.set = knn_params, control = ctrl)
+
+res_knn
+res_knn$x # this is a bit higher than for the random forests model above:
+r2_correct$aggr 
+
+
+data <- generateHyperParsEffectData(res_knn)
+plotHyperParsEffect(data, x = "k", y = "mmce.test.mean", plot.type = "line")
+```
+-->
+
+# Running 1-vs-rest model fits
+
+```{r}
+# test case with top5pct, no chemical feats, random forests
+mc <- readRDS("./data/programmatic_output/matrix_container_2019.rds")
+(the_line <- filter_container(mc, dosgs = "most_interactions", chemfeats = FALSE, 
+  feats = "top5pct", models = "classif.randomForest", get_line_number = TRUE))
+
+mc[the_line, ]
+matrix_container <- mc
+```
+
+```{r}
+# from script 'run_matrix_lines.R'
+startLine = the_line
+stopLine = the_line
+
+filepath_for_export = "./data/programmatic_output/"
+# filepath_for_import = "/home/dubois/MoA_Prediction/"
+
+cat("******\n", startLine, "\n******\n")
+# library("parallelMap")
+# parallelStartMulticore(cpus = 24)
+
+for (line in startLine:stopLine) {
+	result_name = paste(names(matrix_container[line,]$hyperparam_grid), 
+						matrix_container[line,]$drug_dosages,
+						matrix_container[line,]$feat_preselect,
+						as.character(matrix_container[line,]$chemical_feats),
+						sep = "_")
+	
+	result = repeated_NCV_run_4models_container(data_container = matrix_container, line_number = the_line)
+
+	saveRDS(object = result, file = paste0(filepath_for_export, result_name, ".rds"))	
+}
+
+# performance before fixing OOB issue:
+after_fixing <- list()
+map(c("dna", "protein_synthesis", "membrane_stress", "cell_wall"), function(moa) {
+  all_perfs <- map(run_result, function(x) {
+    map(map(x, paste0("prediction_", moa)), performance, measures = list(mlr::auc))
+  })
+  after_fixing[[paste0("prediction_", moa)]] <<- unlist(all_perfs)
+})
+
+sapply(after_fixing, mean, USE.NAMES = TRUE)
+```
+
+
+
+Class weights (based on retraining_testset_pred.Rmd)
+
+```{r}
+tsk <- make_my_task(dfm = dfm, blockvar = "drugname_typaslab")
+# to get right order for class weights:
+getTaskDesc(tsk)$class.levels
+props <- table(dfm$process_broad) / sum(table(dfm$process_broad))
+(weights <- round(1 / (props/min(props)), digits = 2))
+
+# https://mlr.mlr-org.com/articles/tutorial/cost_sensitive_classif.html
+# and
+# https://mlr.mlr-org.com/articles/tutorial/over_and_undersampling.html
+lrn <- makeLearner(cl = chosen$fitted_model[1], predict.type = "prob", 
+  classwt = c("cell_wall" = 0.91, "dna" = 0.54, "membrane_stress" = 0.71, 
+    "protein_synthesis" = 1))
+lrn_wrapped <- makeFilterWrapper(learner = lrn, fw.method = "variance", 
+  fw.perc = 0.05)
+# lrn_wrapped <- makeWeightedClassesWrapper(lrn_wrapped, #wcw.param = "classwt", 
+#   wcw.weight = c("cell_wall" = 0.91, "dna" = 0.54, "membrane_stress" = 0.71, 
+#     "protein_synthesis" = 1))
+
+
+sqrt_p <- floor(sqrt(ncol(dfm)))
+rf_grid <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(200, 500, 1000)),
+  makeDiscreteParam("mtry", values = c(sqrt_p, sqrt_p + 25, sqrt_p + 50)),
+  makeDiscreteParam("fw.perc", values = c(0.25, 0.5, 1))
+)
+
+tuned_params <- tuneParams(learner = lrn_wrapped, task = tsk, resampling = rin,
+  measures = chosen$tuning_measure[[1]], par.set = rf_grid,
+  control = makeTuneControlGrid())
+```
+
+
+```{r}
+(tuned_lrn <- setHyperPars(lrn_wrapped, par.vals = tuned_params$x))
+(trained_model <- mlr::train(learner = tuned_lrn, task = tsk))
+
+# actual test set
+new_to_test_preds <- predict(trained_model, newdata = new_to_test)
+new_to_test_preds$data <- as_tibble(
+  cbind(new_to_test[, c(1, 2)], as.data.frame(new_to_test_preds))
+  )
+new_to_test_preds
+performance(new_to_test_preds)
+View(new_to_test_preds$data)
+
+# unknown drugs
+unknown_preds <- predict(trained_model, newdata = unknown)
+unknown_preds$data <- as_tibble(
+  cbind(unknown[, c(1, 2)], as.data.frame(unknown_preds))
+  )
+unknown_preds
+View(unknown_preds$data)
+
+plot_mcl_probs_heatmap(melt_pred_data_mcl(unknown_preds$data), mics = mics)
+```
+
+
+## GO enrichment
+
+```{r}
+library(topGO)
+library(ALL)
+data(ALL)
+data(geneList)
+
+sampleGOdata <- new("topGOdata", 
+                    description = "Simple session", ontology = "BP",
+                    allGenes = fingerprint_mcl, geneSel = topDiffGenes,
+                    nodeSize = 10,
+                    annot = annFUN.db, affyLib = affyLib)
+sampleGOdata
+```
+
+
+## Getting more out of RF: proximity measures, local importance measures
+
+```{r}
+# https://github.com/araastat/reprtree
+# install package tree first
+# devtools::install_github("https://github.com/araastat/reprtree")
+library(randomForest)
+library(forestFloor)
+resdir <- "./run_results_from_server/mc_2019"
+res_new <- readRDS(file.path(resdir, "classif.randomForest_one_FALSE.rds"))
+
+(mod_wrap1 <- res_new[["nested_cv_1"]][["outer_fold_1"]][["model"]])
+(mod_wrap2 <- mod_wrap$learner.model$next.model)
+mod <- mod_wrap2$learner.model
+
+(t <- getTree(mod, k = 1, labelVar = TRUE))
+
+
+## perhaps better to use retrained model? 
+prod <- readRDS("./data/programmatic_output/trained_model.rds")
+(prod_mod <- getLearnerModel(prod, more.unwrap = TRUE))
+# alternatively: 
+# prod_mod <- prod$learner.model$next.model$learner.model
+getTree(prod_mod, k = 1, labelVar = TRUE)
+
+ff <- forestFloor(rf.fit = prod_mod, )
+```
+
+(Sub-)heatmaps of selected drugs/genes. 
+
+First: thiolutin/rifampicin/actinomycin D: comparison of enterobactin 
+transporter profiles + other interacting genes.
+Ideally, we would put this stuff into a single function. Do this with pattern 
+matching. 
+
+```{r}
+# go back to the original data: Nichols + Lucia
+# cg <- rd(kept_datasets_long_nochanges)
+
+# and we also need shiver:
+shiver <- read.table("~/PROJEKTE/dbsetup/tables_new/shiver.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+shiver %<>% as_tibble()
+
+foo <- filter(shiver, drugname_typaslab == "THIOLUTIN")
+ggplot(foo, aes(x = sscore)) + 
+  geom_histogram()
+
+shiver_server <- read_delim("/Volumes/typas/Florian/dbsetup_tables_new/shiver.csv", delim = ";")
+bar <- filter(shiver_server, drugname_typaslab == "THIOLUTIN")
+ggplot(bar, aes(x = sscore)) + 
+  geom_histogram()
+ggsave("./tmp_plot.pdf")
+
+# so shiver and shiver_server are the same, and presumably correct
+# after running beginning of first notebook, we have an "all_studies" object:
+baz <- all_studies$shiver %>% 
+  filter(drugname_typaslab == "THIOLUTIN")
+ggplot(baz, aes(x = sscore)) + 
+  geom_histogram()
+
+quantile(shiver$sscore, na.rm = TRUE)
+range(shiver$sscore, na.rm = TRUE)
+
+quantile(all_studies$shiver$sscore, na.rm = TRUE)
+range(all_studies$shiver$sscore, na.rm = TRUE)
+
+
+
+nichols <- read.table("~/PROJEKTE/dbsetup/tables_new/nichols_2011.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+nichols %<>% as_tibble()
+
+newsize <- read.table("~/PROJEKTE/dbsetup/tables_new/newsize.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+newsize %<>% as_tibble()
+
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+# rows -> drugs
+# columns -> genes
+# one matrix for s-scores, the other for qvalues
+# annotate the data source
+
+# rowname: one long string: drug - conc - MIC - data source
+# columns: the different genes, subset such that there must be at least one 
+# significant value in the column
+
+# put stuff into list
+# map_dfr + filter to keep only relevant rows in the datasets
+# select, join, paste to produce the future string name
+# group_by(gene) + keep() so that at least one value is significant
+# select() so that one dfr with qvalues, another with sscores is generated
+# spread() 
+# --> off we go with heatmap
+doi <- c("thiolutin", "rifampicin", "actinomycin", "gliotoxin", "holomycin") # doi = drugs of interest
+doi <- paste0(doi, collapse = "|")
+goi <- c("entf|ente|entb|entc|enta", "znub|znua", "fepa|fepC|fepD|fepB|fepG", 
+  "feoA|feoB|arcB|feoC", "mrcb|ycfm|slt")
+goi <- paste0(goi, collapse = "|")
+
+m <- map_dfr(list(nichols, newsize, shiver), function(x) {
+  x <- filter(x, grepl(pattern = doi, x = x$drugname_typaslab, ignore.case = TRUE)) %>% 
+    dplyr::select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, data_source)
+})
+
+## ---
+filter(m, data_source == "SHIVER" & drugname_typaslab == "THIOLUTIN") %>% 
+  ggplot(aes(x = sscore)) + 
+  geom_histogram()
+## ---
+
+m <- left_join(m, mics[, c("drugname_typaslab", "mic_curated")])
+m <- mutate(m, drug = paste0(drugname_typaslab, "_", conc, " (", mic_curated, 
+  ") - ", tolower(data_source))) %>% 
+  dplyr::select(drug, gene_synonym, sscore, qvalue) %>% 
+  group_by(gene_synonym) %>%
+  filter(grepl(pattern = goi, x = .data$gene_synonym, ignore.case = TRUE)) %>% # or option to filter by qvalue? 
+  ungroup()
+
+ms_df <- dplyr::select(m, -one_of("qvalue")) %>% 
+  spread(key = gene_synonym, value = sscore)
+ms <- as.matrix(ms_df[, -1])
+rownames(ms) <- ms_df$drug
+
+mq_df <- dplyr::select(m, -one_of("sscore")) %>% 
+  spread(key = gene_synonym, value = qvalue)
+mq <- as.matrix(mq_df[, -1])
+rownames(mq) <- mq_df$drug
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = ms, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  cluster_rows = FALSE, 
+  cluster_columns = FALSE, 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 5), 
+  row_names_side = "left", 
+  column_names_side = "top", 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (is.na(mq[i, j])) {
+      grid.text(sprintf("NA"), x, y, gp = gpar(col = "white", fontsize = 6))
+    } else if (mq[i, j] < 0.05) {
+      grid.text(sprintf("%.2f", ms[i, j]), x, y, gp = gpar(col = "white", fontsize = 6))
+    }
+  }
+)
+h
+pdf("./plots/Subheatmap1.pdf", width = 8, height = 6)
+print(h)
+dev.off()
+
+pdf("./plots/Thiolutin_dist_shiver.pdf", width = 5, height = 5)
+hist(ms["THIOLUTIN_7 (NA) - shiver", ], breaks = 15)
+dev.off()
+```
+
+```{r}
+# go back to the original data: Nichols + Lucia
+#cg <- rd(kept_datasets_long_nochanges)
+
+# and we also need shiver:
+shiver <- read.table("~/PROJEKTE/dbsetup/tables_new/shiver.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+shiver %<>% as_tibble()
+
+nichols <- read.table("~/PROJEKTE/dbsetup/tables_new/nichols_2011.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+nichols %<>% as_tibble()
+
+newsize <- read.table("~/PROJEKTE/dbsetup/tables_new/newsize.csv", sep = ";", 
+  stringsAsFactors = FALSE, header = TRUE)
+newsize %<>% as_tibble()
+
+mics <- read_delim("./data/programmatic_output/MICs.csv", delim = ";")
+# rows -> drugs
+# columns -> genes
+# one matrix for s-scores, the other for qvalues
+# annotate the data source
+
+# rowname: one long string: drug - conc - MIC - data source
+# columns: the different genes, subset such that there must be at least one 
+# significant value in the column
+
+# put stuff into list
+# map_dfr + filter to keep only relevant rows in the datasets
+# select, join, paste to produce the future string name
+# group_by(gene) + keep() so that at least one value is significant
+# select() so that one dfr with qvalues, another with sscores is generated
+# spread() 
+# --> off we go with heatmap
+doi <- c("pentamidine", "erythromycin", "novobiocin", "rifampicin") # doi = drugs of interest
+doi <- paste0(doi, collapse = "|")
+goi <- c("argp", "menb", "purb", "prs", "guaa", "lpca", "rfad", "rfae", "rfaf", 
+  "gpmi", "hcp", "hlye", "mntr", "paah", "puud", "rara")
+goi <- paste0(goi, collapse = "|")
+
+m <- map_dfr(list(nichols, newsize, shiver), function(x) {
+  x <- filter(x, grepl(pattern = doi, x = x$drugname_typaslab, ignore.case = TRUE)) %>% 
+    dplyr::select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, data_source)
+})
+
+m <- left_join(m, mics[, c("drugname_typaslab", "mic_curated")])
+m <- mutate(m, drug = paste0(drugname_typaslab, "_", conc, " (", mic_curated, 
+  ") - ", tolower(data_source))) %>% 
+  dplyr::select(drug, gene_synonym, sscore, qvalue) %>% 
+  group_by(gene_synonym) %>%
+  filter(grepl(pattern = goi, x = .data$gene_synonym, ignore.case = TRUE)) %>% # or option to filter by qvalue? 
+  ungroup()
+
+ms_df <- dplyr::select(m, -one_of("qvalue")) %>% 
+  spread(key = gene_synonym, value = sscore)
+ms <- as.matrix(ms_df[, -1])
+rownames(ms) <- ms_df$drug
+
+mq_df <- dplyr::select(m, -one_of("sscore")) %>% 
+  spread(key = gene_synonym, value = qvalue)
+mq <- as.matrix(mq_df[, -1])
+rownames(mq) <- mq_df$drug
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = ms, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  cluster_rows = TRUE, 
+  cluster_columns = TRUE, 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 5), 
+  row_names_side = "left", 
+  column_names_side = "top", 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (is.na(mq[i, j])) {
+      grid.text(sprintf("NA"), x, y, gp = gpar(col = "white", fontsize = 6))
+    } else if (mq[i, j] < 0.05) {
+      grid.text(sprintf("%.2f", ms[i, j]), x, y, gp = gpar(col = "red", fontsize = 6))
+    } else {
+      grid.text(sprintf("%.2f", ms[i, j]), x, y, gp = gpar(col = "white", fontsize = 6))
+    }
+  }
+)
+h
+pdf("./plots/Subheatmap3.pdf", width = 8, height = 5)
+print(h)
+dev.off()
+```
+
+```{r}
+doi <- c("thiolutin", "rifampicin", "actinomycin", "gliotoxin", "holomycin") # doi = drugs of interest
+doi <- paste0(doi, collapse = "|")
+
+m <- map_dfr(list(nichols, newsize, shiver), function(x) {
+  x <- filter(x, grepl(pattern = doi, x = x$drugname_typaslab, ignore.case = TRUE)) %>% 
+    dplyr::select(gene_synonym, drugname_typaslab, conc, sscore, qvalue, data_source)
+})
+
+m <- left_join(m, mics[, c("drugname_typaslab", "mic_curated")])
+m <- mutate(m, drug = paste0(drugname_typaslab, "_", conc, " (", mic_curated, 
+  ") - ", tolower(data_source))) %>% 
+  dplyr::select(drug, gene_synonym, sscore, qvalue, data_source)
+
+m <- group_by(m, gene_synonym) %>%
+  mutate(nsignif_nichols = sum(qvalue[data_source == "NICHOLS"] < 0.05)) %>% # !!! 
+  ungroup()
+
+m <- group_by(m, gene_synonym) %>%
+  filter(nsignif_nichols > 1) %>%
+  dplyr::select(-one_of(c("data_source", "nsignif_nichols"))) %>%
+  ungroup()
+
+ms_df <- dplyr::select(m, -one_of("qvalue")) %>% 
+  spread(key = gene_synonym, value = sscore)
+ms <- as.matrix(ms_df[, -1])
+rownames(ms) <- ms_df$drug
+
+mq_df <- dplyr::select(m, -one_of("sscore")) %>% 
+  spread(key = gene_synonym, value = qvalue)
+mq <- as.matrix(mq_df[, -1])
+rownames(mq) <- mq_df$drug
+
+min_col <- plasma(2)[1]
+max_col <- plasma(2)[2]
+
+h <- Heatmap(matrix = ms, 
+  col = colorRamp2(breaks = c(-5, 5), colors = c(min_col, max_col)), 
+  name = "S-score", 
+  cluster_rows = TRUE, 
+  cluster_columns = TRUE, 
+  row_names_gp = gpar(fontsize = 4), 
+  column_names_gp = gpar(fontsize = 5), 
+  row_names_side = "left", 
+  column_names_side = "top", 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (is.na(mq[i, j])) {
+      grid.text(sprintf("NA"), x, y, gp = gpar(col = "white", fontsize = 6))
+    } else if (mq[i, j] < 0.05) {
+      grid.text(sprintf("%.2f", ms[i, j]), x, y, gp = gpar(col = "white", fontsize = 6))
+    }
+  }
+)
+
+h
+pdf("./plots/Subheatmap2.pdf", width = 15, height = 6)
+print(h)
+dev.off()
+```
+
+
+## Trying out UMAP
+
+```{r}
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+fpt <- readRDS("./data/programmatic_output/fingerprint_mcl.rds")
+
+m_all_fpt <- select(m_all, drugname_typaslab, conc, process_broad, fpt)
+
+# Following this blog post:
+# https://www.r-bloggers.com/running-umap-for-data-visualisation-in-r/
+
+# install via Bioconductor
+library(M3C)
+
+# samples are expected in the columns in umap(), and features in the rows
+my_rows <- paste(m_all_fpt$drugname_typaslab, m_all_fpt$conc, sep = "_")
+m_all_fpt_mat <- as.matrix(m_all_fpt[, -c(1:3)])
+rownames(m_all_fpt_mat) <- my_rows
+
+# colours to label MoA, one value per sample
+moa_cols_english <- c(cell_wall = "darkgreen", dna = "orange",
+  membrane_stress = "violet", protein_synthesis = "red")
+
+pdf("./plots/umap_training_fpt.pdf", width = 8, height = 6)
+umap(t(m_all_fpt_mat), labels = as.factor(m_all$process_broad), colvec = moa_cols_english)
+dev.off()
+```
+
+
+
+
+# Session info
+
+```{r session_info}
+R.version
+sessionInfo()
+```
+

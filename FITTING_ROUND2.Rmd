@@ -1,0 +1,128 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+`fit_one_row()` currently not working, need to fix asap.
+
+
+```{r}
+mc <- readRDS("./data/programmatic_output/mc.rds")
+
+my_line <- 1
+
+# fails
+result <- fit_model_container_row(mc[my_line, ])
+
+# trivial option is that something is wrong with the resampling instances
+rin <- mc$resamp_instance[[my_line]]
+rin
+
+dfm <- mc$drug_feature_matrices[[my_line]]
+dfm
+
+first_rin <- rin[[1]]
+str(first_rin)
+
+```
+
+
+```{r}
+### EXTENSION OF MODELS ###
+# add: KNN, elastic net, cforest
+# to get an idea of the tuning params could do random tuning on just one CV instance
+mc <- readRDS("./data/programmatic_output/mc.rds")
+
+# test run to gauge performance - all dosages, no chem. feats
+mc2 <- mc[c(1, 1, 1), ]
+mc2$fitted_model <- c("classif.knn", "classif.glmnet", "classif.cforest")
+
+# only one of the ten rins for speed
+rin_red <- mc2$resamp_instance[[1]][1]
+mc2$resamp_instance[1:3] <- list(rin_red, rin_red, rin_red)
+
+getParamSet(makeLearner("classif.knn"))
+
+# no idea what I have to do 
+getParamSet(makeLearner("classif.glmnet"))
+getParamSet(makeLearner("classif.cforest"))
+```
+
+Defining new models to be tested
+
+```{r}
+mc <- readRDS("./data/programmatic_output/mc.rds")
+mc2 <- mc
+mc2 <- bind_rows(mc2, mc2[1:8, ])
+
+mc2$fitted_model <- rep(c("classif.knn", "classif.cforest", "classif.glmnet", 
+                          "classif.glmnet", "classif.glmnet"), each = 4)
+# to distinguish the difft. glmnet versions and to make clear this is the second 
+# round of fitting
+mc2$identifier <- rep(c("_new", "_new", "_lasso_new", "_en_new", "_ridge_new"), 
+                      each = 4)
+
+# temporary solution as long as I cannot work on the cluster
+rin_red <- mc2$resamp_instance[[1]][1]
+mc2$resamp_instance[1:20] <- rep(list(rin_red), 20)
+
+m_all <- readRDS("./data/programmatic_output/m_all.rds")
+sqrt_p <- floor(sqrt(ncol(m_all)))
+
+knn_grid <- makeParamSet(
+  makeDiscreteParam("k", values = c(1:20)), 
+  makeDiscreteParam("fw.perc", values = c(0.05, 0.1, 0.15, 0.2, 0.3, 1))
+)
+
+cforest_grid <- makeParamSet(
+  makeDiscreteParam("ntree", values = c(100, 250, 500)), 
+  makeDiscreteParam("mtry", values = c(5, 20, sqrt_p, sqrt_p + 25)), #, sqrt_p + 50, sqrt_p + 75)), 
+  makeDiscreteParam("fw.perc", values = c(0.25, 0.5, 1))
+)
+
+# refit lasso - not sure I should have set s
+lasso_grid <- makeParamSet(
+  makeDiscreteParam("fw.perc", values = seq(from = 0.01, to = 0.25, by = 0.02))
+)
+
+# elastic net
+en_grid <- makeParamSet(
+  makeDiscreteParam("alpha", values = 0.5), 
+  makeDiscreteParam("fw.perc", values = seq(from = 0.01, to = 0.25, by = 0.02))
+)
+
+# ridge regression
+ridge_grid <- makeParamSet(
+  makeDiscreteParam("alpha", values = 0), 
+  makeDiscreteParam("fw.perc", values = seq(from = 0.01, to = 0.25, by = 0.02))
+)
+
+mc2$hyperparam_grid <- rep(list(knn_grid, cforest_grid, lasso_grid, en_grid, 
+                                ridge_grid), each = 4)
+
+saveRDS(mc2, file = "./data/programmatic_output/mc2.rds")
+
+# run this call on the command line:
+# Rscript fit_one_row_NEW.R $LINE_NUM
+```
+
+
+
+Not needed anymore
+
+```{r}
+# knn_tsk <- make_my_task(dfm = dfm, targetvar = "process_broad", blockvar = "drugname_typaslab")
+# knn_tsk
+# 
+# my_rin <- mc2_knn$resamp_instance[[1]]
+# res <- tuneParams(learner = "classif.knn", 
+#                   task = knn_tsk, 
+#                   resampling = my_rin[[1]], 
+#                   par.set = knn_grid, 
+#                   control = ctrl)
+# res$x
+# plotHyperParsEffect(hyperpars.effect.data = generateHyperParsEffectData(res), 
+#                     x = "k", y = "mmce.test.mean")
+```
+
